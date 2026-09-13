@@ -244,6 +244,10 @@ bloc entier (undo-log).
 **SET_TLD_OPEN (0xB8)** :
 
 - le TLD doit exister, signataire = owner courant ;
+- **ouverture = PoW obligatoire** : quand `tx.open = true`,
+  `pow::verify` sur le challenge `SCONE-TLD-OPEN-V1 || tld_id` à la
+  difficulté `open_tld_pow_difficulty` du réseau (la preuve voyager
+  dans le champ signé `open_proof` de la tx — fermer est gratuit) ;
 - à l'application : `open = tx.open`.
 
 **ASSIGN_DOMAIN (0xD4)** :

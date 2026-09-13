@@ -173,16 +173,21 @@ timestamp ni séquence — un revoke est one-shot contre l'état courant.
 ### SET_TLD_OPEN (0xB8)
 
 ```text
-network(str ≤ 16) tld_id[32] owner[32] open u8 public_key[32] signature[64]
+network(str ≤ 16) tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
 |---|---|---|
 | `open` | 1 octet | **strictement `0x00` ou `0x01`** (forme canonique ; toute autre valeur → erreur de décodage, jamais de coercion) |
+| `open_proof` | `proof` (varint-longueur + octets) | champ **signé** ; obligatoire et vérifié quand `open = 0x01` (PoW d'ouverture, difficulté `open_tld_pow_difficulty` du réseau, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`) ; vide quand `open = 0x00` (fermer est gratuit) |
 
 TLD **fermé** = assign-only (domaines créés exclusivement par l'owner
 du TLD via `AssignDomain`) ; TLD **ouvert** = quiconque peut faire le
 PoW de registration et claimer un domaine libre (`RegisterDomain`).
+**Ouvrir** coûte une preuve de travail supplémentaire (plus légère que
+la claim du TLD : ~3 jours sur mainnet contre ~1 semaine), payée une
+fois par l'owner dans `SetTldOpen` — la preuve voyage dans le champ
+signé `open_proof` et ne peut pas être substituée après signature.
 
 ### ASSIGN_DOMAIN (0xD4)
 
@@ -281,7 +286,7 @@ TRANSFER_TLD_sans_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
 REVOKE_TLD_sans_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_sans_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
-                            open(0x00|0x01) public_key[32]
+                            open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_sans_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
                             assignee[32] public_key[32]
 RENEW_DOMAIN_sans_sig    = disc(0x3C) version(0x01) network domain_id[32] owner[32]
