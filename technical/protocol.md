@@ -109,14 +109,15 @@ toute autre valeur est rejetée explicitement
 signées** (Ed25519) : spécification complète, payload signé et règles
 de validation dans **`/docs/technical/transactions.md`** (normatif).
 
-Depuis M8b, **le premier champ de chaque payload est le
-`network_id`** (`str` ≤ 16, signé) : `scone-testnet` /
-`scone-mainnet` (voir `/docs/technical/blockchain.md`).
+Depuis le wire 2026-09, **les transactions ne portent plus de champ
+`network`** : le `network_id` (`str` ≤ 16) est injecté **uniquement
+dans le payload de signature** — une tx signée pour un réseau ne
+vérifie jamais sur un autre (voir `/docs/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 
 ```text
-network(str ≤ 16) name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
 ```
 
 Le `RegisterDomain` porte le **nom canonique en clair**, suivi de
@@ -131,7 +132,7 @@ la clé Ed25519 du signataire (32 octets exactement) ; `owner` doit
 ### REGISTER_TLD (0x93)
 
 ```text
-network(str ≤ 16) tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
 ```
 
 Claim d'un TLD (registre séparé de celui des domaines, M7) : le TLD
@@ -144,7 +145,7 @@ réseau ; claimed fermé (assign-only).
 ### UPDATE_DOMAIN (0x52)
 
 ```text
-network(str ≤ 16) domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
+domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
 Invariant re-vérifié au décodage : `sequence > 0` et `owner` ==

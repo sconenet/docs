@@ -24,12 +24,16 @@ Transaction = disc u8 || version u8 || payload
 | `disc` | 1 o | type de transaction (table ci-dessous) |
 | `version` | 1 o | **exactement `0x01`** (version du format tx) |
 
-Depuis M8b, **le premier champ de chaque payload est le
-`network_id`** (`str` ≤ 16, ASCII `[a-z0-9-]` — ex. `scone-testnet`,
-13 octets) : c'est un champ **signé** (couvert par le payload de
-signature) et séparé par réseau dans le digest PoW. Une transaction
-construite pour un réseau ne vérifie jamais sur un autre (voir
-`/docs/technical/blockchain.md` — réseaux et genèse).
+**Les transactions ne portent plus de champ `network` sur le wire**
+(changement 2026-09) : le `network_id` (`str` ≤ 16, ASCII
+`[a-z0-9-]` — ex. `scone-testnet`, 13 octets) vit **uniquement dans
+le payload de signature** — il y est injecté comme premier champ par
+le signataire (voir [Payload signé](#payload-signé)) — et reste séparé
+par réseau dans le digest PoW. Une transaction **signée** pour un
+réseau ne vérifie donc jamais sur un autre : sa signature échoue
+(`InvalidSignature`) sur le payload recomputé par la chaîne, qui
+injecte son propre réseau (voir `/docs/technical/blockchain.md` —
+réseaux et genèse).
 
 ### Discriminants (table normative)
 
@@ -63,7 +67,7 @@ Preuve on-chain qu'un anchor a signé deux checkpoints
 soumettre — la preuve est cryptographique et autonome :
 
 ```text
-network | offender[32] | evidence_a (CheckpointData 116 o)
+offender[32] | evidence_a (CheckpointData 116 o)
   | sig_a[64] | evidence_b (CheckpointData) | sig_b[64]
   | reporter_pk[32] | reporter_signature[64]
 ```
@@ -85,7 +89,7 @@ network | offender[32] | evidence_a (CheckpointData 116 o)
 ## REGISTER_DOMAIN (0x21)
 
 ```text
-network(str ≤ 16) name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -114,7 +118,7 @@ signature.
 Claim d'un top-level domain (registre TLD, M7) :
 
 ```text
-network(str ≤ 16) tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -140,13 +144,13 @@ Cinq types complètent le registre TLD et le cycle de vie des
 domaines. Formats wire normatifs depuis M8a ; **règles d'état
 complètes depuis M8b** (voir `/docs/technical/blockchain.md`) :
 owner-du-TLD requis, PoW là où une claim est auto-service,
-expirations et grâce côté domaines. Chaque payload commence par le
-champ `network` (M8b).
+expirations et grâce côté domaines. Aucun payload ne porte de champ
+`network` sur le wire (il vit dans le seul payload de signature).
 
 ### TRANSFER_TLD (0x47)
 
 ```text
-network(str ≤ 16) tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -163,7 +167,7 @@ fois, le premier transfert appliqué gagne (ordre de chaîne seul).
 ### REVOKE_TLD (0x6B)
 
 ```text
-network(str ≤ 16) tld_id[32] owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] public_key[32] signature[64]
 ```
 
 Abandon volontaire d'un TLD (re-claimable ensuite par un
@@ -173,7 +177,7 @@ timestamp ni séquence — un revoke est one-shot contre l'état courant.
 ### SET_TLD_OPEN (0xB8)
 
 ```text
-network(str ≤ 16) tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
+tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -192,7 +196,7 @@ signé `open_proof` et ne peut pas être substituée après signature.
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-network(str ≤ 16) name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
 ```
 
 Miroir de `RegisterDomain` : le nom canonique est porté en clair et
@@ -204,7 +208,7 @@ du domaine (opaque, comme `new_owner`).
 ### RENEW_DOMAIN (0x3C)
 
 ```text
-network(str ≤ 16) domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
+domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -218,7 +222,7 @@ renouvellement) est une règle d'état (M8b).
 ## UPDATE_DOMAIN (0x52)
 
 ```text
-network(str ≤ 16) domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
+domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -264,15 +268,21 @@ propre `public_key` est invalide (`InvalidOwner` côté core,
 ## Payload signé
 
 Le payload signé est l'encodage canonique de la transaction **sans le
-champ signature**, préfixé par un domaine de séparation :
+champ signature**, préfixé par un domaine de séparation — **avec le
+`network_id` de la chaîne ciblée injecté en tête** :
 
 ```text
-signing_payload = "SCONE-TX-SIG-V1" || canonical_encode(tx_sans_signature)
+signing_payload(tx, network) = "SCONE-TX-SIG-V1"
+                              || canonical_encode(tx_sans_signature, network)
 ```
 
-où `canonical_encode(tx_sans_signature)` reprend **exactement** la
+où `canonical_encode(tx_sans_signature, network)` reprend la
 structure wire ci-dessus, discriminant et octet de version compris,
-en s'arrêtant avant `signature` :
+en s'arrêtant avant `signature`, **avec `network` comme premier
+champ** — c'est la SEULE place où le network apparaît. La chaîne
+recompute le payload avec SON propre réseau : une transaction signée
+pour un autre réseau échoue à la vérification de signature
+(`InvalidSignature`) ; c'est le mécanisme anti-replay cross-chain.
 
 ```text
 REGISTER_DOMAIN_sans_sig = disc(0x21) version(0x01) network name domain_id[32] owner[32]
@@ -301,7 +311,10 @@ Propriétés :
   de la signature dans un autre domaine de hash du protocole ;
 - tous les champs sauf `signature` sont couverts — **y compris le
   nom porté par un `RegisterDomain`** : modifier n'importe lequel
-  invalide la signature.
+  invalide la signature ;
+- le `network_id` injecté est couvert : le même unsigned tx signé
+  pour deux réseaux produit deux payloads (donc deux signatures)
+  distincts.
 
 ## Preuve de travail (PoW) de registration
 
@@ -371,11 +384,12 @@ Une transaction est valide si et seulement si :
 3. **cohérence nom/id** (RegisterDomain) : `domain_id ==
    DomainId(name)` (recomputé) ;
 4. **signature** : `verify_strict` Ed25519 de `signature` sur le
-   payload signé **recomputé de zéro** (jamais pris d'un pair ni de
-   la transaction telle que fournie) ;
+   payload signé **recomputé de zéro** avec le network de la chaîne
+   (jamais pris d'un pair ni de la transaction telle que fournie) —
+   une tx signée pour un autre réseau échoue ici
+   (`InvalidSignature`, anti-replay cross-chain) ;
 5. **règles d'état** (à l'application dans un bloc — M8b, voir
    `/docs/technical/blockchain.md`) :
-   toutes → `network` == celui de la chaîne (`WrongNetwork` sinon) ;
    RegisterTld → TLD libre + PoW (difficulté réseau) ;
    RegisterDomain → TLD enregistré **et ouvert** + domaine libre
    (grâce comprise) + PoW ;
@@ -411,7 +425,9 @@ utilisé symétriquement à la validation.
 ### RegisterDomain `example.uip`, timestamp 42, testnet
 
 Payload signé (vecteur épinglé, généré par `scone tx build
-register-domain --name example.uip --timestamp 42`) :
+register-domain --name example.uip --timestamp 42`). Le `network`
+apparaît ici car c'est le PAYLOAD DE SIGNATURE (sa seule place) ; la
+transaction wire signée, elle, n'en contient pas :
 
 ```text
 53434f4e452d54582d5349472d5631       préfixe SCONE-TX-SIG-V1
@@ -448,7 +464,10 @@ register-domain --name example.uip --timestamp 42`,
 `scone tx build register-tld --tld uip --timestamp 42` puis
 `scone tx sign`. Depuis M8b le PoW est miné automatiquement à la
 difficulté testnet — les nonces varient d'un run à l'autre, seuls
-network/nom/id/owner/pk sont stables.)
+network/nom/id/owner/pk sont stables. Depuis le changement de wire
+2026-09, l'hex de la transaction signée (`scone tx sign`) ne contient
+PLUS les octets `0d 73636f6e652d746573746e6574` : le network ne
+voyage que dans le payload à signer.)
 
 ## CLI de test et debug
 
@@ -467,4 +486,5 @@ depuis l'identité du keystore, jamais repris de l'entrée.
 
 | Version | Contenu | Statut |
 |---|---|---|
-| 1 | `public_key` + `signature` embarquées, payload `SCONE-TX-SIG-V1`, octet de version `0x01`, `RegisterDomain` porte le nom, `RegisterTld` (0x93), famille M8a : `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — formats wire normatifs ; M8b : champ `network` signé en tête de chaque payload, `RegisterTld` porte le nom, règles d'état complètes, difficultés PoW par réseau | courante |
+| 1 | `public_key` + `signature` embarquées, payload `SCONE-TX-SIG-V1`, octet de version `0x01`, `RegisterDomain` porte le nom, `RegisterTld` (0x93), famille M8a : `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — formats wire normatifs ; M8b : champ `network` signé en tête de chaque payload, `RegisterTld` porte le nom, règles d'état complètes, difficultés PoW par réseau | remplacée |
+| 1 (2026-09, wire sans network) | **retrait du champ `network` du wire de toutes les transactions** : le network_id vit uniquement dans le payload de signature (`signing_payload(tx, network)` l'injecte en tête) ; la séparation de réseaux repose sur la signature (`InvalidSignature` sur payload étranger, l'erreur `WrongNetwork` disparaît) ; `TX_FORMAT_VERSION` reste `0x01` (testnet relançable, pas de coexistence) ; **tous les TxId changent** (le TxId est le hash de l'encodage wire signé, qui perd 14-15 octets) ; digest PoW, genèse et data-dirs per-network inchangés | courante |

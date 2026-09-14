@@ -181,10 +181,13 @@ ChainState   = NetworkParams                  (réseau lié, M8b)
 `state.apply(transaction)` est déterministe et atomique (en cas
 d'erreur, l'état est inchangé) :
 
-**Toutes les transactions (M8b)** : le champ `network` de la
-transaction doit être **exactement** le `network_id` de la chaîne —
-sinon `WrongNetwork { tx, chain }`, AVANT toute autre règle (une tx
-testnet n'est jamais appliquée, jamais poolée par un nœud mainnet, et
+**Toutes les transactions (M8b, wire 2026-09)** : les transactions ne
+portent plus de champ `network` — la séparation repose sur la
+**signature** : le payload signé injecte le `network_id` de la chaîne
+(`validate_transaction(tx, network_de_la_chaîne)`), donc une tx
+signée pour un autre réseau échoue à la vérification de signature
+(`InvalidSignature`, AVANT l'application — une tx testnet-signée
+n'est jamais appliquée, jamais poolée par un nœud mainnet, et
 inversement).
 
 **REGISTER_TLD** :
@@ -278,9 +281,10 @@ re-réclamer le nom ; après, il est libre pour tous. Le GC est
 journalisé : un bloc rejeté restaure l'état pré-GC bit à bit.
 
 **Replay** : le replay cross-réseau est impossible à trois niveaux —
-genesis disjointes (`UnknownParent`), champ `network` signé dans
-chaque payload de signature (`WrongNetwork` + signature invalide),
-PoW séparé par réseau dans le digest. Le replay intra-réseau d'une
+genesis disjointes (`UnknownParent`), `network_id` injecté dans
+chaque payload de signature (signature invalide sur l'autre réseau —
+seule place du network depuis le wire 2026-09), PoW séparé par réseau
+dans le digest. Le replay intra-réseau d'une
 tx identique échoue sur les règles d'état (double claim, séquence),
 jamais sur le `TxId`.
 

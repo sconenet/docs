@@ -114,9 +114,11 @@ borné : jamais plus d'un bloc en vol par pair.
 2. validation cryptographique complète (`validate_transaction` :
    binding owner/clé, `verify_strict` sur le payload canonique) ;
 3. pré-contrôle d'état (miroir bon marché des règles `push_block`,
-   le PoW — coûteux — n'est vérifié qu'au push) : **toutes** → champ
-   `network` == réseau du relay (`WrongNetwork` sinon, avant toute
-   autre règle — M8b) ; `RegisterDomain` → TLD du nom enregistré
+   le PoW — coûteux — n'est vérifié qu'au push). La séparation de
+   réseaux est assurée à l'étape 2 : le payload de signature injecte
+   le réseau DU RELAY, une tx signée ailleurs échoue en
+   `InvalidSignature` (wire 2026-09 : plus de champ `network`) ;
+   `RegisterDomain` → TLD du nom enregistré
    (`UnknownTld` sinon, D1/M7c) **et ouvert** (`TldClosed` sinon,
    M8b) puis nom libre ; `UpdateDomain` → domaine connu, séquence
    exacte `current + 1`, propriétaire ; `RegisterTld` → TLD libre ;
