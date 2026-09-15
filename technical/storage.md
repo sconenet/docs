@@ -131,25 +131,33 @@ Décodage **strict** (`DomainStateBytes::decode`) : tag inconnu,
 longueur erronée ou octets en excès → `StorageError::Corrupted`,
 jamais de panic.
 
-## Format d'encodage `TldStateBytes` (v2, M8b)
+## Format d'encodage `TldStateBytes` (v3, owner-option)
 
-Toujours exactement 34 octets (un owner + le drapeau d'ouverture du
-namespace ; ni séquence ni record hash) :
+Longueur variable selon le propriétaire — 42 octets pour un TLD
+**privé**, 10 pour un TLD **ouvert** (ni séquence ni record hash) :
 
 ```text
-TldStateBytes = tag(0x02) ‖ owner(32) ‖ open(0x00|0x01)
+TldStateBytes = tag(0x03) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8 BE)
 ```
 
-- `open` (M8b) : `false` = assign-only, `true` = auto-enregistrement
-  avec PoW. Strictement canonique — tout autre octet → `Corrupted`.
+- `flag` (owner-option) : `0x00` = TLD ouvert (`owner: None`,
+  personne — pas de propriétaire stocké), `0x01` = TLD privé (32
+  octets d'owner suivent). Strictement canonique — tout autre octet
+  → `Corrupted`.
+- `until` : échéance de vie engagée. Pour un TLD ouvert, c'est
+  l'instant où le GC déterministe supprime l'entrée (max des
+  `valid_until + grâce` des domaines, plancher posé à l'ouverture) —
+  elle fait partie du consensus et DOIT survivre au redémarrage.
 
-Les encodages M7d (33 octets, tag `0x01`, sans `open`) sont
-**illégitimes** : décodage strict → `Corrupted`.
+Les encodages M7d (33 octets, tag `0x01`) et M8b (34 octets, tag
+`0x02`, booléen `open`) sont **illégitimes** : décodage strict →
+`Corrupted` (pré-mainnet, la régénération par rejeu est le chemin de
+migration).
 
 Le tag n'existe que pour l'évolution du format : un futur layout
 bump le tag et les vieux lecteurs échouent en `Corrupted` au lieu de
 deviner. Décodage **strict** (`TldStateBytes::decode`) : tag inconnu,
-longueur erronée, octets en excès ou booléen non canonique →
+longueur erronée, octets en excès ou flag non canonique →
 `StorageError::Corrupted`, jamais de panic.
 
 ## Garanties d'atomicité

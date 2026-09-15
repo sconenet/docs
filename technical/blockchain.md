@@ -475,8 +475,9 @@ pub trait StateBackend: Default + Send {
 
 - `Pkey` = les 32 octets bruts du `DomainId`/`TldId` — UN espace de
   clés ordonné (préfixes de dérivation disjoints), valeurs = les
-  encodages fixes `SCONE-ENTRY-DOM-V1` (88 o) / `SCONE-ENTRY-TLD-V1`
-  (33 o) ;
+  encodages `SCONE-ENTRY-DOM-V1` (88 o fixes) /
+  `SCONE-ENTRY-TLD-V2` (variables : 41 o privé / 9 o ouvert,
+  owner-option) ;
 - `MemoryBackend` (BTreeMap) = implémentation de référence (dev,
   tests) ; AUCUNE dépendance concrète dans `scone-blockchain` (redb
   interdit dans la crate) — le protocole/consensus dépendent du

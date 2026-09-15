@@ -51,9 +51,9 @@ non utilisée, documentée une fois pour toutes dans cette table.
 | `0x93` | `RegisterTld` | claim d'un top-level domain (M7) |
 | `0x47` | `TransferTld` | transfert d'un TLD à un nouvel owner (M8a) |
 | `0x6B` | `RevokeTld` | abandon d'un TLD (M8a) |
-| `0xB8` | `SetTldOpen` | ouverture/fermeture d'un TLD à l'auto-enregistrement (M8a) |
+| `0xB8` | `SetTldOpen` | ouverture **irréversible** d'un TLD à l'auto-enregistrement (one-way, owner-option ; `open=false` rejeté typé) |
 | `0xD4` | `AssignDomain` | assignation directe d'un domaine par l'owner du TLD (M8a) |
-| `0x3C` | `RenewDomain` | prolongation de l'enregistrement d'un domaine (M8a) |
+| `0x3C` | `RenewDomain` | prolongation de l'enregistrement d'un domaine (M8a ; porte le nom canonique depuis owner-option — le TLD ouvert suit l'échéance) |
 | `0x15` | `SlashTx` | preuve d'équivocation d'un anchor + bannissement (M9) |
 
 Tout octet de version autre que `0x01` est rejeté explicitement
