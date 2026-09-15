@@ -99,6 +99,7 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 | `owner` | 32 octets nus | **doit** être la dérivation de `public_key` (voir ci-dessous) |
 | `timestamp` | varint | information d'ordre (Unix, secondes) |
 | `proof` | `bytes` ≤ 256 | charge utile du PoW de registration (voir [ci-dessous](#preuve-de-travail-pow-de-registration)) |
+| `open` | `0x00\|0x01` | naissance **ouverte** : le TLD atterrit directement en `TldState::Open` (personne, self-service + PoW, un seul PoW au tarif `open_tld_pow_difficulty` — moins cher que le privé : ressource commune, ni siège PoS ni exclusivité) ; naissance **privée** : comportement historique (propriétaire, siège PoS, `tld_pow_difficulty`) |
 | `public_key` | 32 octets nus | clé publique Ed25519 du signataire (RFC 8032) |
 | `signature` | **exactement 64 octets** | signature Ed25519 du payload signé |
 
@@ -118,7 +119,7 @@ signature.
 Claim d'un top-level domain (registre TLD, M7) :
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|0x01) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -128,6 +129,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key
 | `owner` | 32 octets nus | dérivation de `public_key` |
 | `timestamp` | varint | information d'ordre (Unix, secondes) |
 | `proof` | `bytes` ≤ 256 | charge utile du PoW de registration (voir [ci-dessous](#preuve-de-travail-pow-de-registration)) |
+| `open` | `0x00\|0x01` | naissance **ouverte** : le TLD atterrit directement en `TldState::Open` (personne, self-service + PoW, un seul PoW au tarif `open_tld_pow_difficulty` — moins cher que le privé : ressource commune, ni siège PoS ni exclusivité) ; naissance **privée** : comportement historique (propriétaire, siège PoS, `tld_pow_difficulty`) |
 | `public_key` | 32 octets nus | clé Ed25519 du signataire |
 | `signature` | **exactement 64 octets** | signature Ed25519 du payload signé |
 
