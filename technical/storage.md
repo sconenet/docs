@@ -133,26 +133,31 @@ jamais de panic.
 
 ## Format d'encodage `TldStateBytes` (v3, owner-option)
 
-Longueur variable selon le propriétaire — 42 octets pour un TLD
-**privé**, 10 pour un TLD **ouvert** (ni séquence ni record hash) :
+Longueur variable selon la variante de l'énum — 34 octets pour un
+TLD **privé**, 2 pour un TLD **ouvert** (ni séquence ni record
+hash) :
 
 ```text
-TldStateBytes = tag(0x03) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8 BE)
+TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
 ```
 
-- `flag` (owner-option) : `0x00` = TLD ouvert (`owner: None`,
-  personne — pas de propriétaire stocké), `0x01` = TLD privé (32
-  octets d'owner suivent). Strictement canonique — tout autre octet
-  → `Corrupted`.
-- `until` : échéance de vie engagée. Pour un TLD ouvert, c'est
-  l'instant où le GC déterministe supprime l'entrée (max des
-  `valid_until + grâce` des domaines, plancher posé à l'ouverture) —
-  elle fait partie du consensus et DOIT survivre au redémarrage.
+- `flag` (owner-option, énum `TldState`) : `0x00` =
+  `TldState::Open` (personne — self-service + PoW, aucun octet
+  d'owner), `0x01` = `TldState::Private` (32 octets d'owner
+  suivent). Strictement canonique — tout autre octet →
+  `Corrupted`. L'invariant « ouvert ⟺ pas d'owner » est
+  STRUCTUREL : les deux états ne peuvent pas être confondus.
+- **Plus de champ `until`** : l'échéance de mort d'un TLD ouvert
+  n'est pas un attribut du TLD mais un fait dérivé de ses domaines
+  (max des `valid_until + grâce`, plancher posé à l'ouverture). Elle
+  vit dans la table dédiée `tld_floors_v1` (+ sa copie figée
+  `snapshot_v3_floors`), reconstruite au rejeu et restaurée au boot —
+  un nœud redémarré tue les mêmes TLD qu'un nœud continu.
 
-Les encodages M7d (33 octets, tag `0x01`) et M8b (34 octets, tag
-`0x02`, booléen `open`) sont **illégitimes** : décodage strict →
-`Corrupted` (pré-mainnet, la régénération par rejeu est le chemin de
-migration).
+Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag
+`0x02`, booléen `open`) et V3 (tag `0x03`, `until` embarqué) sont
+**illégitimes** : décodage strict → `Corrupted` (pré-mainnet, la
+régénération par rejeu est le chemin de migration).
 
 Le tag n'existe que pour l'évolution du format : un futur layout
 bump le tag et les vieux lecteurs échouent en `Corrupted` au lieu de
@@ -481,7 +486,7 @@ snapshot ↔ checkpoint par RECALCUL :
    `checkpoint.data.state_root`** — LA vérification
    cryptographique : l'état entier (domaines + TLDs) est re-plié
    dans un SMT neuf (`snapshot_verify::recompute_state_root`,
-   feuilles `SCONE-LEAF-DOM-V2`/`SCONE-LEAF-TLD-V2` exactement
+   feuilles `SCONE-LEAF-DOM-V2`/`SCONE-LEAF-TLD-V4` exactement
    comme le chemin vivant) et la racine doit égaler celle que le
    comité a signée. Un snapshot falsifié, tronqué ou incomplet est
    rejeté AVANT TOUTE ÉCRITURE ;

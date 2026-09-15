@@ -154,7 +154,10 @@ API : `genesis_of(&NetworkParams) -> Block`,
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64 }
-TldState     = { owner: OwnerId, open: bool }
+TldState     = enum { Private { owner: OwnerId } | Open }
+               -- énum (owner-option) : l'invariant ouvert/privé est
+               -- structurel ; l'échéance de mort vit hors de l'entrée
+               -- (table tld_floors + horaire de morts journalisé)
 ChainState   = NetworkParams                  (réseau lié, M8b)
                + DomainId -> DomainState      (accès direct, en mémoire)
                + TldId -> TldState            (registre TLD, M7b)
@@ -476,8 +479,9 @@ pub trait StateBackend: Default + Send {
 - `Pkey` = les 32 octets bruts du `DomainId`/`TldId` — UN espace de
   clés ordonné (préfixes de dérivation disjoints), valeurs = les
   encodages `SCONE-ENTRY-DOM-V1` (88 o fixes) /
-  `SCONE-ENTRY-TLD-V2` (variables : 41 o privé / 9 o ouvert,
-  owner-option) ;
+  `SCONE-ENTRY-TLD-V2` (variables : 33 o privé / 1 o ouvert,
+  owner-option énum — flag + owner conditionnel, plus de champ
+  `until`) ;
 - `MemoryBackend` (BTreeMap) = implémentation de référence (dev,
   tests) ; AUCUNE dépendance concrète dans `scone-blockchain` (redb
   interdit dans la crate) — le protocole/consensus dépendent du
