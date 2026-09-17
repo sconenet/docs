@@ -55,6 +55,48 @@ Ces bornes complètent les limites existantes par message
 TCP 64 connexions/512 o/5 s). Un attaquant par inondation de
 connexions obtient des refus, pas une croissance mémoire.
 
+## Découverte des pairs
+
+Trois mécanismes complémentaires, dans cet ordre de priorité :
+
+1. **Graines explicites** (`--bootstrap`, multiaddrs complets) —
+   toujours prioritaires ; fournir une liste non vide REMPLACE tout le
+   reste. `--no-builtin-seeds` vide les graines embarquées pour les
+   déploiements 100 % privés.
+2. **Graines embarquées** (`builtin_seeds(network)` dans
+   `scone-network/src/config.rs`) — figées à chaque release officielle
+   du binaire, par réseau. Un relay sans configuration rejoint le
+   réseau seul. (Vide en testnet tant que la testnet publique n'est
+   pas déployée.)
+3. **Annuaire appris** (`<data-dir>/peers.json`) — chaque adresse
+   apprise via `identify` est retenue (dernière vue, plafond 200
+   entrées) et sauvegardée ~1×/min au tick de production. Au boot sans
+   graine ni bootstrap, l'annuaire est recomposé : le relay retrouve
+   ses pairs habituels sans configuration. C'est un cache : fichier
+   absent/corrompu = annuaire vide, jamais une erreur.
+
+### Joignabilité (AutoNAT) et relais de transport (circuit-relay v2)
+
+Chaque relay exécute AutoNAT (client + serveur) : le nœud demande à
+ses pairs de tenter un dial RETOUR vers lui ; le verdict
+(`reachable` : oui = joignable de l'extérieur, non = derrière NAT,
+inconnu = pas encore testé) est rafraîchi toutes les 5 min et exposé
+dans `NodeStatus` (champ `nat_reachable`, wire varint 0/1/2) — le CLI
+l'affiche (`scone status`). Les adresses privées comptent
+(`only_global_ips = false`) : un mesh LAN teste sa joignabilité LAN.
+
+Un relay joignable active le **hop** circuit-relay v2 (il peut
+relayer le trafic des pairs NATés) et **DCUtR** (hole-punching : deux
+nœuds reliés par circuit tentent une connexion directe et libèrent le
+relais). Un relay jugé NATé demande automatiquement une réservation au
+premier pair joignable connu et écoute à travers lui (adresse
+`/p2p/<relay>/p2p-circuit`).
+
+Règle de production : un nœud NATé relayé ne devrait pas devenir
+producteur de blocs (latence/disponibilité dégradées) — la règle
+PoS (siège = domaine vivant) ne l'interdit pas encore ; à documenter
+comme exigence d'exploitation avant la testnet publique.
+
 ## Transport et protocoles libp2p
 
 | Protocole | Nom | Rôle |
@@ -104,9 +146,12 @@ borné : jamais plus d'un bloc en vol par pair.
    paginés (fenêtre RAM : genesis + tip) ;
 3. construction du swarm (identité Ed25519 éphémère par session —
    la persistance de l'identité réseau est une décision ouverte) ;
-4. dial des multiaddrs `--bootstrap` (doivent finir par
-   `/p2p/<peer-id>`) et enregistrement dans la table Kademlia ;
-5. bind du RPC de contrôle (127.0.0.1, port fixé par le CLI).
+4. composition de la liste de démarrage (voir
+   [Découverte des pairs](#découverte-des-pairs)) : `--bootstrap`
+   explicite (doivent finir par `/p2p/<peer-id>`) SINON graines
+   embarquées du réseau SINON annuaire appris (`peers.json`) ;
+5. dial de chaque multiaddr et enregistrement dans la table Kademlia
+   (un dial mort est ignoré — les autres composent le réseau).
 
 ### Réception d'une transaction (P2P ou RPC `submit_tx`)
 
