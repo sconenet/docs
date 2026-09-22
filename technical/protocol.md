@@ -140,7 +140,8 @@ est **porté en clair** comme le nom d'un domaine (M8b — le challenge
 PoW se dérive du nom), et le `tld_id` est la dérivation
 `SCONE-TLD-V1` de ce nom, disjointe de tout `DomainId` par
 construction. Règles d'état (M8b) : TLD libre + PoW à la difficulté
-réseau ; claimed fermé (assign-only).
+réseau **pour la longueur du label** (courbe `pow_length` — voir
+`blockchain.md`) ; claimed fermé (assign-only).
 
 ### UPDATE_DOMAIN (0x52)
 

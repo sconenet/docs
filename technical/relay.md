@@ -268,10 +268,12 @@ Un `SignedDnsRecord` résolu ou reçu n'est accepté/retourné que si :
    `record_hash` engagé on-chain.
 
 Sinon : rejet silencieux côté P2P, erreur explicite côté RPC. La
-signature Ed25519 du record est transportée pour les vérificateurs
-futurs (le DNS resolver M5 la vérifiera avec la clé publique du
-propriétaire) — l'engagement on-chain reste le contrôle d'intégrité
-primaire.
+signature Ed25519 du record est **vérifiée à la réception** par le
+relay (`ResolveLocal` : la clé publique du propriétaire est sue
+on-chain, la signature doit déverrouiller — un record signé par une
+autre clé est rejeté, `record rejected`) ; elle est aussi transportée
+pour les vérificateurs futurs — l'engagement on-chain reste le
+contrôle d'intégrité primaire.
 
 ## RPC de contrôle local
 

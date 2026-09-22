@@ -116,15 +116,34 @@ API : `block_hash(&BlockHeader) -> Result<BlockHash>`.
 Scone définit deux réseaux disjoints, identifiés par un
 `network_id` canonique (1..=16 octets ASCII `[a-z0-9-]`) :
 
-| Réseau | `network_id` | difficulté TLD | difficulté domaine |
-|---|---|---|---|
-| testnet | `scone-testnet` | 8 bits (symbolique) | 4 bits (symbolique) |
-| mainnet | `scone-mainnet` | 24 bits | 20 bits |
+| Réseau | `network_id` | apex TLD 1 car. | apex domaine | plancher |
+|---|---|---|---|---|
+| testnet | `scone-testnet` | 8 bits | 6 bits | 2 bits |
+| mainnet | `scone-mainnet` | 42 bits | 40 bits | 30 bits |
 
 Les paramètres vivent dans `scone-core::network::NetworkParams`
 (instances nommées `TESTNET` / `MAINNET`, lookup
 `NetworkParams::by_name`). Changer une difficulté = changement de
 consensus **pour ce réseau**.
+
+**Difficulté variable par longueur** (`scone-core::pow_length`) : la
+difficulté d'une création dépend de la longueur du **label créé** (le
+TLD pour `RegisterTld` — privé ou né ouvert —, le label de gauche
+pour `RegisterDomain`). La formule produit :
+
+```text
+coût(len) = coût(len−1) / (1 + 1/3)      # ÷ (4/3) par caractère
+difficulté(len) = apex − round(0,415 × (len − 1)), bornée au plancher
+```
+
+(0,415 = log₂(4/3) ; la difficulté étant un entier de bits, la
+courbe exacte est approximée par paliers — écart ≤ 5 %.) Repères
+mainnet : 1 caractère = 42 bits (≥ 7 jours à 6 M hashs/s), 5 car =
+40 bits (~2 j), 19 car = 35 bits (~1,6 h), 29+ car = plancher 30
+bits (~3 min). L'**ouverture** d'un TLD existant (`SetTldOpen`) reste
+à difficulté plate : la tx ne porte que le `tld_id`, le nom a payé
+sa longueur à la création. Fonction pure (déterminisme : deux nœuds
+calculent la même difficulté pour le même nom).
 
 La genèse est une constante de protocole **par réseau**, reproductible
 à partir des constantes seules (aucun aléa, aucune horloge locale,
@@ -485,8 +504,22 @@ pub trait StateBackend: Default + Send {
 - `MemoryBackend` (BTreeMap) = implémentation de référence (dev,
   tests) ; AUCUNE dépendance concrète dans `scone-blockchain` (redb
   interdit dans la crate) — le protocole/consensus dépendent du
-  TRAIT seul, un backend TiKV/kvsharded/redb se branchera plus tard
-  depuis une autre crate sans toucher une règle ;
+  TRAIT seul ;
+- `CachedBackend<B>` (`state_cache.rs`) = cache LRU borné au-dessus
+  d'un backend interne : write-through (l'interne est toujours à
+  jour), miss jamais caché, `range` pagine l'interne — mêmes
+  réponses que l'interne seul (contrat de déterminisme testé) ;
+- `RedbBackend` (`scone-storage::redb_backend`) = backend persisté :
+  table `state_kv` (clés 32 o brutes, ordre lexicographique = ordre
+  croissant exigé), compteur maintenu en table méta `state_kv_meta`
+  (jamais COUNT) ; `CachedBackend<RedbBackend>` = état à empreinte
+  RAM bornée — le « tier léger » ;
+- `smt_persist` : consomme les ensembles dirty du SMT
+  (`take_dirty_sets`) et les écrit dans un backend sous des clés à
+  préfixes réservés (0x01 nœud, 0x02 feuille) — fondation du SMT
+  paginé ;
+- le trait n'exige plus `Default` (une base disque n'a pas de valeur
+  par défaut sensée) ;
 - `range` itère par ordre de clé croissant (contrat de
   déterminisme) — chemin archive uniquement, jamais une règle de
   consensus ;

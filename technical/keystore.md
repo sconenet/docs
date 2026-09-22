@@ -22,6 +22,16 @@ en mémoire après usage.
   Poly1305 (16 octets) est stocké en suffixe du ciphertext (sortie
   standard de l'API AEAD `encrypt`).
 
+## Scellage en octets (module `bytes`, web)
+
+`scone_keystore::bytes::{seal_to_bytes, open_from_bytes}` produit et
+consomme le MÊME format sans toucher au filesystem : le client web
+génère l'identité dans le navigateur (`scone-crypto` + bip39) et
+scelle les octets exacts du keyfile (téléchargeables, ouvrables par
+le CLI tel quel — test d'interopérabilité dans la suite). Le chemin
+natif (`create`/`create_with_phrase`) délègue au même scellage :
+un seul encodage du format, trois destinations.
+
 ## Format binaire (v1) — 100 octets exactement
 
 ```text

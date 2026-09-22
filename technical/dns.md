@@ -96,9 +96,12 @@ Client de validation : `scone dig <name> --dns 127.0.0.1:5353
 - Réponse : QR|RD(écho)|RA, **AA uniquement sur les réponses
   autoritaires** (chaîne, fraîches ou cachées — jamais sur le
   fallback ni les RCODEs d'erreur), question recopiée telle quelle,
-  réponses **non compressées** (owner = qname), TTL 60.
-- Types servis : A, AAAA, CNAME, NS, MX, TXT (+ Unknown re-encodé
-  tel quel). Une requête A/AAAA inclut les CNAME du set (suivi
+  réponses **non compressées** (owner = qname).
+- Types servis : A, AAAA, CNAME, NS, MX, TXT, **PTR, SRV, CAA**
+  (+ Unknown re-encodé tel quel ; 9 types natifs au total, rdata
+  encodés par RFC — 1035/2782/8659 ; CAA strict : bit critique 0x80
+  seul, tags minuscules). Une requête A/AAAA inclut les CNAME du set
+  (suivi
   d'alias). Requête ANY (255) : tout le set filtré par le codec.
 - Limites (M7b) : **le budget de réponse dépend du transport** —
   512 octets en UDP (charge utile classique RFC 1035 §2.3.4, pas
@@ -171,7 +174,7 @@ client                     serveur
 | Connexions TCP concurrentes | 64 (sémaphore, rejet immédiat) |
 | Timeout lecture TCP | 5 s |
 | Cache | 1024 entrées (FIFO) |
-| TTL autoritaire | 60 s |
+| TTL autoritaire | **par enregistrement** (`record.ttl`, bornes 1..=2 592 000 s ; le 60 s constant historique ne reste que pour les réponses de service) |
 | TTL fallback (clamp) | 600 s |
 | Requêtes UDP en parallèle | 256 (sémaphore ; au-delà : drop, le client retente) |
 | Timeout par amont | 2 s |
