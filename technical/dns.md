@@ -217,3 +217,172 @@ DHT (le relay reste l'unique autorité de vérification).
 - Le fallback transfère la requête brute : un amont malicieux peut
   répondre n'importe quoi (réponse non validée — c'est le modèle
   récursif standard ; les noms Scone ne passent JAMAIS par là).
+
+## GeoDNS (routage géographique, opt-in)
+
+> Spécification normative. Toute divergence doc/code = bug.
+
+### Vue d'ensemble
+
+Un domaine peut publier des règles de **routage géographique** dans
+son record set signé : des records `GEOROUTE` (type privé Scone
+`32 768`, hors plage IANA). Un resolver dont le GeoDNS est armé
+(`--geo-dns`) répond aux questions A/AAAA de ces domaines avec
+**l'adresse du endpoint choisi par la règle**, au lieu d'un record
+A/AAAA statique. Tout le reste (domaines sans GEOROUTE, autres
+qtypes, resolvers sans `--geo-dns`) suit le chemin DNS classique,
+**octet pour octet** — GeoDNS est 100 % opt-in.
+
+### Record GEOROUTE (wire)
+
+Un GEOROUTE = un **scope** + ≤ 32 **endpoints** (tri canonique au
+décodage : priorité croissante, poids décroissant, cible croissante ;
+doublon = rejet) :
+
+```text
+GeoScope   = 0x00 (monde)
+           | 0x01 continent.v (code UN M49 : AF=2, AS=142, EU=150,
+                                NA=3, SA=5, OC=9, AN=999)
+           | 0x02 country.v   (code ISO 3166-1 numérique : US=840,
+                                TW=158, FR=250…)
+GeoTarget  = 0x00 octets[4]  (adresse IPv4 binaire)
+           | 0x01 octets[16] (adresse IPv6 binaire)
+GeoEndpoint = target || priority.v || weight.v
+GEOROUTE    = scope || count.v(≤32) || endpoints…
+```
+
+Bornes de validation (décodage) : `priority > 0`, `weight ≤ 100`
+(`weight = 0` = endpoint inactif, jamais élu), TTL dans
+1..=2 592 000 s comme tout record. Un pays/continent inconnu des
+tables locales est **autorisé** au wire : le routage retombe
+simplement sur un scope supérieur.
+
+### Sélection (résolution)
+
+1. **Scope** — spécificité décroissante : **pays exact → continent →
+   monde**. Le continent est dérivé du pays par la table locale
+   (`continent_of_country`) si le resolver ne connaît que le pays ;
+   un pays inconnu de la table retombe sur le continent explicite ou
+   le monde. Aucune route qui matche (y compris sans scope World) →
+   comportement DNS classique, comme si le GEOROUTE n'existait pas.
+2. **Priorité** — sémantique SRV-like : seul le groupe de
+   **priorité minimale** est éligible ; les priorités supérieures
+   sont des niveaux de **failover**.
+3. **Poids** — dans le groupe élu, tirage **pondéré déterministe** :
+   hash stable (SplitMix64) d'un nonce (compteur de requêtes du
+   resolver) contre les poids cumulés. Pas de RNG : deux requêtes de
+   même nonce donnent le même résultat, des nonces croissants
+   répartissent proportionnellement aux poids. `weight = 0` =
+   inactif, jamais élu (même seul — on passe au niveau suivant).
+4. **Failover santé** — un endpoint **Unhealthy** est écarté ; si
+   tout le niveau minimal est indisponible, on passe au niveau de
+   priorité suivant. **Unknown compte comme disponible** (on ne
+   pénalise pas l'inconnu). Tout indisponible → comportement DNS
+   classique.
+
+### Réponse
+
+- Une seule adresse : **A si IPv4, AAAA si IPv6** — filtrage strict
+  par famille selon le qtype (une question A ne répond JAMAIS une
+  IPv6, et réciproquement).
+- TTL = celui du record GEOROUTE d'origine (borné au décodage par
+  les règles TTL générales).
+- AA positionné (réponse autoritaire — le GEOROUTE est un record
+  signé vérifié comme les autres).
+- Réponse vide après filtrage (aucun candidat de la bonne famille,
+  tout Unhealthy, pas de route matchante) → le resolver poursuit sur
+  son chemin classique (typiquement NODATA : NOERROR, 0 réponses) ;
+  les rcodes d'erreur suivent les règles générales (jamais cachés).
+- Un record A/AAAA classique coexistant dans le set PRIME sur le
+  geo (le geo ne s'applique qu'en l'absence de réponse wire pour le
+  qtype).
+
+### Cache : décision explicite
+
+La décision de routage geo n'est **JAMAIS cachée** sous
+`(qname, qtype)` : elle dépend du scope du client du resolver, et
+une telle clé servirait la route US à un client TW. Les réponses
+geo sont recalculées à chaque requête (coût : un select_scope +
+tirage pondéré, µs) et contournent le cache. Le cache classique
+(qname, qtype) reste inchangé pour tout le reste — y compris les
+NODATA produits quand le geo ne décide rien. Les rcodes d'erreur
+restent jamais cachés.
+
+### Health checks (`--health-check`)
+
+- `HealthCache` par cible (`GeoTarget`) : `probe` = lecture non
+  bloquante (statut frais, ou Unknown), **jamais** de check déclenché
+  depuis le chemin de résolution.
+- Refresh : si un candidat élu est Unknown/absent du cache, UN
+  refresh est programmé en tâche de fond (`tokio::spawn_blocking` :
+  le connect TCP est bloquant, interdit dans la boucle UDP).
+  Anti-spam : un refresh à la fois par cible (HashSet), relançable
+  après la fin du refresh précédent.
+- `TcpChecker` : connect TCP borné (timeout 2 s) vers
+  `target:port`. Le **port ne peut pas être déduit d'un record DNS**
+  : `--health-port` le fixe (défaut 443). Le checker est
+  **volontairement naïf** (un connect réussi ≠ service sain) —
+  améliorable (HTTP, TLS, applicatif) sans changement de format.
+- TTL d'entrée : `--health-ttl-secs` (défaut 5 s) ; entrée périmée =
+  Unknown = disponible.
+
+### Sécurité
+
+- Les records GEOROUTE sont des records signés comme les autres :
+  vérifiés contre la chaîne (owner, séquence, record_hash) avant
+  toute utilisation. **Aucune confiance réseau sans validation** —
+  un GEOROUTE DHT non vérifié ne répond jamais.
+- La position du client vient de la **configuration locale** du
+  resolver (`--geo-country`/`--geo-continent`), jamais d'une API
+  GeoIP réseau (pas de fuite de requête, pas de dépendance).
+- Le tirage est déterministe et local : aucun secret, aucune
+  imprévisibilité requise (la sécurité est celle de la signature du
+  record, pas du tirage).
+
+### Exemple complet (spec de référence)
+
+`www.example.scone` publie (apex `example.scone`, tout le set sert
+tout sous-nom) :
+
+| Scope | Endpoint | Priorité | Poids |
+|---|---|---|---|
+| US (840) | 10.1.0.1 | 10 | 70 |
+| US (840) | 10.1.0.2 | 10 | 30 |
+| US (840) | 10.2.0.1 | 20 | 100 |
+| TW (158) | 10.3.0.1 | 10 | 80 |
+| TW (158) | 10.4.0.1 | 10 | 20 |
+| TW (158) | 10.2.0.1 | 20 | 100 |
+| WORLD | 10.0.0.1 | 100 | 100 |
+
+Comportement attendu :
+
+- client **US** → 10.1.0.1 (≈70 %) ou 10.1.0.2 (≈30 %) ; si les
+  deux sont Unhealthy → failover p20 → **10.2.0.1** ;
+- client **TW** → 10.3.0.1 (≈80 %) ou 10.4.0.1 (≈20 %) ;
+- client **FR** (250) → pas de route FR ni EU dans le set →
+  WORLD → **10.0.0.1** ;
+- tout Unhealthy → pas de décision geo → NODATA (NOERROR, 0
+  réponses) ;
+- question **A** sur une route IPv6 only → réponse vide (jamais
+  d'IPv6 en A) ;
+- sans `--geo-dns` → même question, comportement classique
+  (NODATA : le GEOROUTE n'a pas de rdata A wire).
+
+### Options CLI (`scone relay`)
+
+| Option | Défaut | Rôle |
+|---|---|---|
+| `--geo-dns` | off | Arme le GeoDNS du resolver (opt-in absolu) |
+| `--geo-country <u16>` | — | Pays client, ISO 3166-1 numérique (840=US…) |
+| `--geo-continent <u16>` | — | Continent client, UN M49 (150=EU…) ; dérivé du pays si omis |
+| `--health-check` | off | Active les checks (failover santé) |
+| `--health-ttl-secs <u64>` | 5 | TTL d'une entrée de santé |
+| `--health-port <u16>` | 443 | Port TCP des checks (non déductible d'un record DNS) |
+
+Exemple :
+
+```bash
+scone relay --dns 127.0.0.1:5353 \
+            --geo-dns --geo-country 840 \
+            --health-check --health-port 443
+```
