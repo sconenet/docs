@@ -245,6 +245,15 @@ GeoScope   = 0x00 (monde)
                                 NA=3, SA=5, OC=9, AN=999)
            | 0x02 country.v   (code ISO 3166-1 numérique : US=840,
                                 TW=158, FR=250…)
+           | 0x03 region.v    (subdivision ISO 3166-2 OPAQUE, u32 :
+                                numéro défini par l'éditeur, comparé
+                                tel quel — pas de table locale)
+           | 0x04 asn.v       (numéro d'AS, u32)
+           | 0x05 prefix.addr[16] || prefix.len u8
+             (préfixe IP normalisé 16 octets : IPv4 = adresse dans
+              les 4 premiers octets + queue À ZÉRO, len ≤ 32 ;
+              IPv6 = 16 octets libres, len ≤ 128 ; bits d'hôte
+              TOUJOURS nuls — un préfixe non normalisé est rejeté)
 GeoTarget  = 0x00 octets[4]  (adresse IPv4 binaire)
            | 0x01 octets[16] (adresse IPv6 binaire)
 GeoEndpoint = target || priority.v || weight.v
@@ -257,14 +266,43 @@ Bornes de validation (décodage) : `priority > 0`, `weight ≤ 100`
 tables locales est **autorisé** au wire : le routage retombe
 simplement sur un scope supérieur.
 
+**Rétrocompatibilité wire (v1 → v2)** : les octets v1 sont
+INCHANGÉS — les scopes v1 (monde/continent/pays) gardent leurs
+discriminants `0x00..=0x02` et leur encodage exact ; les trois
+nouveaux scopes prennent les discriminants suivants (`0x03..=0x05`)
+dans un ordre total cohérent avec le tri canonique
+(`World < Continent < Country < Region < Asn < IpPrefix`). Un
+décodeur v1 qui rencontrait un discriminant ≥ `0x03` échouait déjà
+strictement (rejet du record) ; les octets v1 produits restent
+décodés à l'identique (voir le test `geo_known_bytes`, figé).
+
 ### Sélection (résolution)
 
-1. **Scope** — spécificité décroissante : **pays exact → continent →
-   monde**. Le continent est dérivé du pays par la table locale
-   (`continent_of_country`) si le resolver ne connaît que le pays ;
-   un pays inconnu de la table retombe sur le continent explicite ou
-   le monde. Aucune route qui matche (y compris sans scope World) →
-   comportement DNS classique, comme si le GEOROUTE n'existait pas.
+1. **Scope** — spécificité décroissante, **6 niveaux** :
+   **préfixe IP le plus long matchant → AS exact → pays exact →
+   région exacte → continent → monde**.
+   - *IpPrefix* : parmi les routes dont le préfixe matche l'IP du
+     client (telle que connue du locator : `client_ip`, sinon les
+     préfixes d'origine connus), la **plus longue** (`len` max)
+     gagne ; à égalité de `len`, la première par ordre canonique
+     (l'ordre du slice `routes`, trié à l'encodage). Une subdivision
+     est moins spécifique qu'un préfixe/AS (qui identifient le
+     réseau exact) et moins que le pays (numérotation opaque,
+     fiable seulement si l'éditeur et le locator partagent la même),
+     mais plus que le continent (elle est contenue dans son pays,
+     donc a fortiori dans son continent).
+   - *Asn* : numéro d'AS exact du client.
+   - *Country* : pays exact.
+   - *Region* : subdivision exacte (identifiant opaque).
+   - *Continent* : fourni par le locator **ou dérivé du pays** par
+     la table locale (`continent_of_country`) ; un pays inconnu de
+     la table retombe sur le continent explicite ou le monde.
+   - *World*.
+   Une [`GeoLocation`] v1 (region/asn/prefixes/client_ip non
+   renseignés) produit exactement le comportement v1 : pays →
+   continent → monde. Aucune route qui matche (y compris sans scope
+   World) → comportement DNS classique, comme si le GEOROUTE
+   n'existait pas.
 2. **Priorité** — sémantique SRV-like : seul le groupe de
    **priorité minimale** est éligible ; les priorités supérieures
    sont des niveaux de **failover**.
@@ -333,8 +371,9 @@ restent jamais cachés.
   toute utilisation. **Aucune confiance réseau sans validation** —
   un GEOROUTE DHT non vérifié ne répond jamais.
 - La position du client vient de la **configuration locale** du
-  resolver (`--geo-country`/`--geo-continent`), jamais d'une API
-  GeoIP réseau (pas de fuite de requête, pas de dépendance).
+  resolver (`--geo-ip-table` ou `--geo-country`/`--geo-continent`/
+  `--geo-asn`/`--geo-region`), jamais d'une API GeoIP réseau (pas de
+  fuite de requête, pas de dépendance).
 - Le tirage est déterministe et local : aucun secret, aucune
   imprévisibilité requise (la sécurité est celle de la signature du
   record, pas du tirage).
@@ -373,16 +412,77 @@ Comportement attendu :
 | Option | Défaut | Rôle |
 |---|---|---|
 | `--geo-dns` | off | Arme le GeoDNS du resolver (opt-in absolu) |
-| `--geo-country <u16>` | — | Pays client, ISO 3166-1 numérique (840=US…) |
-| `--geo-continent <u16>` | — | Continent client, UN M49 (150=EU…) ; dérivé du pays si omis |
+| `--geo-ip-table <path>` | — | **Table GeoIP locale** (voir ci-dessous). PRIME sur toutes les options statiques `--geo-*` |
+| `--geo-country <u16>` | — | Pays client, ISO 3166-1 numérique (840=US…) — statique |
+| `--geo-continent <u16>` | — | Continent client, UN M49 (150=EU…) ; dérivé du pays si omis — statique |
+| `--geo-asn <u32>` | — | AS client (64500…) — statique, nouveau v2 |
+| `--geo-region <u32>` | — | Subdivision client (identifiant opaque éditeur) — statique, nouveau v2 |
 | `--health-check` | off | Active les checks (failover santé) |
+| `--no-health-check` | off | **Désactive explicitement** les checks — GAGNE sur `--health-check` (voir précédences) |
 | `--health-ttl-secs <u64>` | 5 | TTL d'une entrée de santé |
 | `--health-port <u16>` | 443 | Port TCP des checks (non déductible d'un record DNS) |
+
+#### Table GeoIP locale (`--geo-ip-table`)
+
+Fichier TEXTE local de préfixes, lu **une fois** au démarrage
+(100 000 règles max, `MAX_GEOIP_RULES`). Une règle par ligne, `#` =
+commentaire, lignes vides ignorées :
+
+```text
+# prefix/mask        pays  continent  asn     region
+10.0.0.0/8           840   3          .       .
+2001:db8::/32        250   150        64500   11
+192.0.2.0/24         158   9
+```
+
+- `prefix/mask` : IPv4 (`len ≤ 32`, converti en forme 16 octets,
+  queue à zéro — même convention que le wire) ou IPv6 (`len ≤ 128`).
+  Les **bits d'hôte doivent être nuls** (`10.1.2.3/8` est refusé) ;
+- `pays` : `u16` ISO 3166-1 **numérique**, requis ;
+- `continent` : `u16` UN M49, optionnel (`.` ou omis = absent, le
+  continent peut alors être dérivé du pays) ;
+- `asn` : `u32`, optionnel (`.` = absent) ;
+- `region` : `u32` opaque, optionnel (`.` = absent).
+
+Résolution : l'IP du resolver (aujourd'hui l'IP de référence —
+le **per-client**, IP source de la requête DNS, est l'évolution
+naturelle non encore branchée) est comparée en 16 octets ; la règle
+au **plus long préfixe matchant** gagne (à égalité, la première par
+ordre du fichier) ; sans match → position vide (World).
+
+**Strictesse** : le fichier est configuré par l'opérateur — une
+ligne invalide (préfixe malformé, pays non numérique, continent
+inconnu, champ en excès…) est une **erreur de démarrage** portant le
+**numéro de la ligne fautive** ; jamais de ligne ignorée en silence,
+jamais de table partielle.
+
+#### Précédences des options
+
+- **Locator** : `--geo-ip-table` **prime** sur les options statiques
+  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
+  qui sont ignorées quand la table est fournie. Sans table, les
+  options statiques s'appliquent.
+- **Health** : `--no-health-check` est un **drapeau dédié qui gagne**
+  sur `--health-check` — la combinaison `--health-check
+  --no-health-check` laisse les checks désactivés, sans ambiguïté
+  d'ordre de saisie. Sans `--health-check`, les checks sont off par
+  défaut : **Unknown = disponible**, la réponse geo part même si la
+  cible est morte. (Un `NoopChecker` — toujours Healthy — existe
+  aussi pour monter la structure health sans écarter aucun
+  endpoint : tests/paranoïa.)
 
 Exemple :
 
 ```bash
 scone relay --dns 127.0.0.1:5353 \
-            --geo-dns --geo-country 840 \
+            --geo-dns --geo-ip-table /etc/scone/geoip.txt \
+            --no-health-check
+```
+
+Exemple statique v2 :
+
+```bash
+scone relay --dns 127.0.0.1:5353 \
+            --geo-dns --geo-country 250 --geo-asn 64500 --geo-region 11 \
             --health-check --health-port 443
 ```
