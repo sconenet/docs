@@ -177,12 +177,39 @@ Les codes de type sont les **codes DNS réels** (IANA) :
 | 15 | MX | `preference.v`, `name` |
 | 16 | TXT | `str` ≤ 4096 |
 | 28 | AAAA | 16 octets |
+| 32768 | GEOROUTE | GeoRoute (voir ci-dessous) |
 | autre | Unknown | code.v + `bytes` ≤ 4096 |
 
 Exemple : `A 192.0.2.1` → `01 c0 00 02 01`.
 
 Un `Unknown` portant un code connu est rejeté à l'encodage (le
 décodage ne peut jamais en produire).
+
+#### GEOROUTE (GeoDNS)
+
+Type privé Scone (plage non-IANA). Une règle de routage géographique :
+
+```text
+GeoRoute  = scope || count.v(≤ 32) || endpoint…
+scope     = 0x00                    -- monde
+          | 0x01 continent.v        -- UN M49
+          | 0x02 country.v          -- ISO 3166-1 numérique
+endpoint  = target || priority.v || weight.v
+target    = 0x00 octets[4]          -- IPv4 binaire
+          | 0x01 octets[16]         -- IPv6 binaire
+```
+
+**Règle canonique** : les endpoints d'un même scope sont encodés
+**triés** (priorité croissante, puis poids décroissant, puis cible
+croissante) ; le tri est appliqué à l'encodage et un wire non trié est
+rejeté au décodage (`NonCanonical`), comme pour les record sets. Les
+doublons complets d'endpoint sont rejetés.
+
+**Validation** : `priority > 0`, `weight ≤ 100` (0 = endpoint inactif),
+≤ 32 endpoints par scope (`GEO_MAX_ENDPOINTS`). Un code pays/continent
+inconnu de la table locale (`continent_of_country`) est **accepté** au
+niveau wire : la table du resolver peut être plus à jour que celle de
+l'éditeur. Le TTL est celui du `RecordData` parent (inchangé).
 
 ### DnsRecord
 
@@ -322,6 +349,7 @@ accepté si et seulement si :
 | `MAX_PROOF_LEN` | 256 | preuve d'enregistrement |
 | `MAX_SIGNATURE_LEN` | 128 | signature (Ed25519 = 64) |
 | `MAX_RECORDS_PER_SET` | 256 | records par ensemble |
+| `GEO_MAX_ENDPOINTS` | 32 | endpoints par scope GeoRoute |
 | `MAX_UNKNOWN_DATA` | 4096 | données d'un type inconnu |
 | `MAX_TXS_PER_BLOCK` | 4096 | transactions par bloc |
 | `MAX_CONSENSUS_LEN` | 256 | payload consensus d'un header |
