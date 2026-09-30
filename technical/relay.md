@@ -344,6 +344,8 @@ asynchrone : la connexion RPC reste ouverte jusqu'à résolution
 
 ```
 scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR]
+            [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
+            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
 scone status [--rpc ADDR]
 scone submit tx --hex HEX [--rpc ADDR]
 scone lookup NAME [--rpc ADDR]
@@ -368,6 +370,12 @@ La surface offline `scone tx build` couvre la famille complète M8b
 (`set-tld-open`, `assign-domain`, `renew-domain`, `transfer-tld`,
 `revoke-tld`) ; les claims `register`/`register-tld` minent leur PoW
 à la difficulté testnet par défaut (quelques ms).
+
+Les options `--geo-*`/`--health-*` arment le GeoDNS et le health
+checking **du resolver DNS embarqué** : sémantique complète, ordre de
+précédence et table GeoIP locale documentés dans
+[`dns.md`](dns.md#geodns-routage-géographique-opt-in) — désactivés
+par défaut, chemin classique inchangé.
 
 ### `domain register|update` (M5) — transactions signées en une commande
 
