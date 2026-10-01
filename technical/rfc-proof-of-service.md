@@ -1,6 +1,7 @@
 # RFC — Preuve d'exploitation et comité de finalité (proof-of-service)
 
-> Statut : PROPOSITION — à valider avant implémentation.
+> Statut : IMPLEMENTEE (étapes 1-2 : core/protocol/blockchain ; l'émission
+> automatique de scone-network suit son propre chantier).
 > Date : octobre 2026. Perturbe : `scone-core`, `scone-protocol`,
 > `scone-blockchain`, `scone-network`.
 
