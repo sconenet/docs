@@ -90,9 +90,11 @@ scone relay --topology \
   [--topology-min-score-improvement 0.15]
 ```
 
-Une config incohérente (`min > target > max`, seuil hors `[0,1]`,
-intervalle nul) est une **erreur de démarrage typée**, jamais un
-comportement silencieux.
+Une config incohérente (`min > target > max`, seuil hors `[0,1]`
+— `NaN` compris —, intervalle nul) est une **erreur de démarrage
+typée**, jamais un comportement silencieux. Des flags `--topology-*`
+fournis sans `--topology` déclenchent un avertissement (ils sont
+ignorés).
 
 **Vue (`TopologyView`)** — alimentée par les événements du swarm :
 
