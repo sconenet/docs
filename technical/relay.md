@@ -416,6 +416,34 @@ TXT texte libre (espaces normalisés)
 Erreurs typées : type inconnu, IP/nom invalide (avec numéro de
 ligne), set vide, doublon, > `MAX_RECORDS_PER_SET`.
 
+## `--genesis` (fondateurs)
+
+`scone relay --genesis genesis.bin` — **nœuds fondateurs uniquement**
+(campagne kickstarter ; le fichier est produit par le binaire
+`scone-genesis`). Règles normatives :
+
+1. Le fichier est refusé **avant lecture** s'il dépasse 1 Mio, puis
+   décodé strictement (`decode_complete` : aucun octet traînant).
+   Le hash du bloc 0 est **recalculé**, jamais lu du fichier.
+2. Validation sémantique : hauteur 0, `consensus` commençant par le
+   network id du réseau demandé (`--network`), aucune transaction,
+   manifeste d'allocations canonique. Toute violation = erreur
+   typée au démarrage (jamais de panic, le daemon ne démarre pas).
+3. Data-dir **vierge** : la chaîne naît sur la genèse allouée — les
+   allocations sont appliquées en RAM **avant toute écriture disque**,
+   puis persistées (états seedés + bloc genèse en clé méta). Le
+   premier bloc produit ne peut donc qu'étendre la genèse allouée.
+4. Data-dir **déjà productif** : la genèse de naissance du store est
+   le `prev_hash` du bloc 1 (auto-certifiant). Hash du fichier égal =
+   OK silencieux (l'option est **redondante après le premier
+   démarrage**) ; différent = refus typé — un nœud rejoint un réseau
+   par sync, jamais par `--genesis`.
+5. Redémarrage **sans** l'option : un data-dir né fondateur retrouve
+   sa genèse allouée via la clé méta (rebind RAM à chaque boot).
+
+L'épingle de hash de genèse constante (anti-divergence réseau) est
+un chantier séparé.
+
 ## Limites et garanties mémoire
 
 | Ressource | Borne |
@@ -438,3 +466,17 @@ re-store, aucun re-broadcast).
 Décisions ouvertes : identité réseau persistante du relay, fork
 choice réel, consensus PoW, DNS resolver, gossip de diffusion
 (actuellement : request-response unicast vers chaque pair connu).
+
+## Arrêt propre (SIGTERM / SIGINT)
+
+Le daemon `scone relay` (foreground) intercepte SIGTERM et SIGINT via
+`tokio::signal` : au signal, la future `Relay::run` est annulée
+(`tokio::select!` dans le binaire), ce qui drop le Swarm libp2p et ferme
+les sockets QUIC. Le runtime tokio est ensuite arrêté avec un shutdown
+borné (≤ 2 s) qui drop les tâches DNS détachées (UDP/TCP) et referme
+leurs sockets — l'objectif est qu'un `kill` ne laisse aucune socket UDP
+orpheline (cas observé sur la testnet 60). Un arrêt par signal logge
+`relay shutting down (signal)` (INFO, stderr) et termine avec l'exit
+code **0** : un arrêt demandé n'est pas un échec. Si l'installation
+d'un handler échouait, le comportement par défaut du signal s'applique
+(dégradation, jamais de panic).
