@@ -302,6 +302,17 @@ vivant et parqué dans une **fenêtre de grâce de 30 jours**
 re-réclamer le nom ; après, il est libre pour tous. Le GC est
 journalisé : un bloc rejeté restaure l'état pré-GC bit à bit.
 
+**Exception hauteur 1** : la genèse porte un timestamp
+STRUCTURELLEMENT nul (`GENESIS_TIMESTAMP` = 0, convention
+protocolaire — pas une horloge). Le temps chaîne du PREMIER bloc est
+donc son propre timestamp (engagé dans son header, déterministe),
+et non celui du parent : ancrer les expirations du bloc 1 sur 0
+fixerait le plancher de mort d'un TLD né ouvert (et le
+`valid_until` d'un domaine né au bloc 1) à l'époque Unix — le GC
+pré-apply du bloc 2 (timestamp réel) retirerait la ressource avant
+l'application (« dropped conflicting tx from block production:
+unknown TLD », régression testnet 60).
+
 **Replay** : le replay cross-réseau est impossible à trois niveaux —
 genesis disjointes (`UnknownParent`), `network_id` injecté dans
 chaque payload de signature (signature invalide sur l'autre réseau —
