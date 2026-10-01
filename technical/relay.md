@@ -75,6 +75,62 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    ses pairs habituels sans configuration. C'est un cache : fichier
    absent/corrompu = annuaire vide, jamais une erreur.
 
+### Optimisation locale de topologie (`--topology`, opt-in)
+
+Le relay peut optimiser activement son voisinage à l'aide du moteur
+pur `scone-topology` (voir la doc de la crate). **Désactivé par
+défaut** ; `--topology` l'arme, les limites sont modulables :
+
+```
+scone relay --topology \
+  [--topology-min-connections 8] \
+  [--topology-target-connections 16] \
+  [--topology-max-connections 32] \
+  [--topology-optimization-interval-secs 60] \
+  [--topology-min-score-improvement 0.15]
+```
+
+Une config incohérente (`min > target > max`, seuil hors `[0,1]`,
+intervalle nul) est une **erreur de démarrage typée**, jamais un
+comportement silencieux.
+
+**Vue (`TopologyView`)** — alimentée par les événements du swarm :
+
+- `ping` réussi → observation RTT (fenêtre médiane 8 échantillons) ;
+- `ping` échoué → pénalité de fiabilité ;
+- `identify` reçu → adresses (≤ 4/pair) + protocoles annoncés
+  (bitmask kad/reqres/identify/relay) ;
+- connexion établie → état connecté, sens (entrante/sortante),
+  ancienneté, circuit-relay détecté ;
+- connexion fermée → pénalité + compteur de churn SEULEMENT si non
+  sollicitée (une éviction volontaire ne compte pas) ;
+- échec de dial sortant → pénalité de fiabilité.
+
+La vue est bornée (500 pairs ; au-delà, seuls les pairs connectés
+sont mémorisés).
+
+**`kad_required` depuis les kbuckets** — avant chaque évaluation, le
+relay parcourt la table de routage Kademlia : un pair est protégé
+s'il est `Connected` dans un bucket, ou `Disconnected` dans un bucket
+SATURÉ (k = 20). Un pair protégé n'est JAMAIS choisi comme évincé.
+
+**Boucle d'optimisation** — toutes les
+`--topology-optimization-interval-secs` (60 s par défaut) :
+
+1. recalcul de `kad_required` (kbuckets) ;
+2. évaluation du moteur (hystérésis : grâce 120 s, amélioration
+   minimale de score +15 %, cooldown d'éviction 600 s) ;
+3. décision appliquée : `AddCandidate` → dial du candidat ;
+   `Replace` → fermeture de l'évincé (UNE fois — progressive, pas de
+   boucle) puis dial du remplaçant ;
+4. instantané **métriques** loggé (niveau INFO) : comptes
+   connus/connectés/entrants/sortants/circuits/protégés, RTT
+   moyen/médian, buckets IP distincts, concentration max, churn
+   (remplacements/déconnexions).
+
+Le score de voisinage n'est JAMAIS une mesure de confiance (voir la
+doc de `scone-topology`) : aucune décision de consensus n'en découle.
+
 ### Joignabilité (AutoNAT) et relais de transport (circuit-relay v2)
 
 Chaque relay exécute AutoNAT (client + serveur) : le nœud demande à
@@ -346,6 +402,8 @@ asynchrone : la connexion RPC reste ouverte jusqu'à résolution
 scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR]
             [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
+            [--topology] [--topology-min-connections U] [--topology-target-connections U] [--topology-max-connections U]
+            [--topology-optimization-interval-secs U64] [--topology-min-score-improvement F64]
 scone status [--rpc ADDR]
 scone submit tx --hex HEX [--rpc ADDR]
 scone lookup NAME [--rpc ADDR]
