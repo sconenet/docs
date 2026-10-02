@@ -52,7 +52,7 @@ scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
     ▲
-scone-storage   ← local storage abstraction (upcoming)
+scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone           ← binary / application
 ```
@@ -67,8 +67,8 @@ must not contaminate the core. Resolution:
   over bytes, zero core types, no network/system dependencies →
   no circularity possible;
 - `scone-core` uses it only for hashing;
-- later, signatures and keys will live in `scone-crypto` and operate
-  on bytes (canonical payloads produced by `scone-protocol`).
+- Ed25519 signatures and keys live in `scone-crypto` and operate on
+  bytes (canonical payloads produced by `scone-protocol`).
 
 ### Role of each crate
 
@@ -100,16 +100,19 @@ default). Forbidden in this crate: network, DHT, storage (redb),
 DNS server, concrete consensus (PoW/difficulty/fork choice).
 Reference: `/docs/en/technical/blockchain.md`.
 
-**scone-storage** — local storage abstraction. The concrete backend
-will be `redb`, hidden behind a minimal trait so that
+**scone-storage** — local persistence (shipped). The concrete backend is
+`redb` (`NodeStore`), hidden behind a minimal trait so that
 blockchain/DHT/DNS are never directly coupled to redb; another
-backend (distributed KV) could be plugged in. The trait will be born
-with the first real implementation.
+backend (distributed KV) could be plugged in. Includes the paginated
+KV state backend, the block log, verified snapshots (hashed manifest
++ pages) and the restart restore/replay path. Reference:
+`/docs/en/technical/storage.md`.
 
 **scone** — binary/CLI. Depends on a crate only when it actually
-uses it (today: none).
+uses it (today: scone-network for the relay, scone-blockchain,
+scone-storage, scone-keystore, scone-protocol, scone-core).
 
-## The node (future)
+## The node
 
 A Scone node combines:
 
@@ -156,7 +159,7 @@ the default behavior of an existing node does not change.
 Normative details: `/docs/en/technical/storage.md`, sections
 "VERIFIED state snapshot" and "State bootstrap".
 
-## DNS resolution flow (future, provisional)
+## DNS resolution flow
 
 ```text
 DNS query (example.uip)

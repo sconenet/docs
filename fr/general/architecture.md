@@ -52,7 +52,7 @@ scone-protocol  ← format binaire wire/blockchain
     ▲
 scone-blockchain← logique blockchain, état canonique (en mémoire)
     ▲
-scone-storage   ← abstraction stockage local (à venir)
+scone-storage   ← persistance locale : backend redb + snapshots vérifiés
     ▲
 scone           ← binaire / application
 ```
@@ -67,8 +67,9 @@ doit pas contaminer le core. Résolution :
   déterministes sur octets, zéro type du core, aucune dépendance
   réseau/système → aucune circularité possible ;
 - `scone-core` ne l'utilise que pour le hachage ;
-- plus tard, signatures et clés vivront dans `scone-crypto` et opéreront
-  sur des octets (payloads canoniques produits par `scone-protocol`).
+- les signatures Ed25519 et les clés vivent dans `scone-crypto` et
+  opèrent sur des octets (payloads canoniques produits par
+  `scone-protocol`).
 
 ### Rôle de chaque crate
 
@@ -100,16 +101,19 @@ défaut). Interdits dans ce crate : réseau, DHT, stockage (redb),
 serveur DNS, consensus concret (PoW/difficulté/fork choice). Référence :
 `/docs/fr/technical/blockchain.md`.
 
-**scone-storage** — abstraction de stockage local. Le backend concret sera
-`redb`, caché derrière un trait minimal afin que blockchain/DHT/DNS ne
-soient jamais couplés directement à redb ; un autre backend (KV distribué)
-pourra être branché. Le trait naîtra avec la première implémentation
-réelle.
+**scone-storage** — persistance locale (livrée). Le backend concret est
+`redb` (`NodeStore`), caché derrière un trait minimal afin que
+blockchain/DHT/DNS ne soient jamais couplés directement à redb ; un autre
+backend (KV distribué) pourra être branché. Inclut le backend d'état KV
+paginé, le journal de blocs, les snapshots vérifiés (manifeste + pages
+hachés) et le chemin de restauration/replay après redémarrage. Référence :
+`/docs/fr/technical/storage.md`.
 
 **scone** — binaire/CLI. Ne dépend d'une crate que lorsqu'il l'utilise
-réellement (aujourd'hui : aucune).
+réellement (aujourd'hui : scone-network pour le relay, scone-blockchain,
+scone-storage, scone-keystore, scone-protocol, scone-core).
 
-## Le nœud (futur)
+## Le nœud
 
 Un nœud Scone combine :
 
@@ -157,7 +161,7 @@ jamais automatique — le comportement par défaut d'un nœud existant
 ne change pas. Détails normatifs : `/docs/fr/technical/storage.md`,
 sections « Snapshot d'état VÉRIFIÉ » et « Bootstrap d'état ».
 
-## Flux de résolution DNS (futur, provisoire)
+## Flux de résolution DNS
 
 ```text
 requête DNS (example.uip)
