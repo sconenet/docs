@@ -402,6 +402,20 @@ l'intérieur. Les difficultés vivent dans
 `scone-core::network::NetworkParams` ; changer une valeur = changement
 de consensus **pour ce réseau**.
 
+Calibrage mesuré (2026-10, `cargo run --release -p scone-core
+--example pow_bench` — débit single-thread ~7,7 M H/s sur x86-64 de
+référence) :
+
+| Kind (mainnet) | difficulté | temps réel moyen |
+|---|---|---|
+| `RegisterTld` | 24 bits | ~7 s |
+| `RegisterDomain` | 20 bits | ~54 ms |
+
+À ~65 s/bloc : un claim TLD coûte ~0,1 bloc de CPU mono-cœur, un
+domaine ~1 ms de bloc — symbolique pour un utilisateur, coûteux à
+industrialiser en masse (anti-squat). À recalibrer si les cibles
+matérielles baissent (ARM mobile : ~4-8× plus lent).
+
 Branchements d'état (M8b, livré) : `RegisterTld` exige TOUJOURS son
 PoW ; `RegisterDomain` l'exige sur un TLD **ouvert** (le chemin
 fermé est assign-only — `AssignDomain`, sans PoW, signé par l'owner
