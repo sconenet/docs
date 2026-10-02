@@ -349,6 +349,7 @@ accepté si et seulement si :
 | `MAX_PROOF_LEN` | 256 | preuve d'enregistrement |
 | `MAX_SIGNATURE_LEN` | 128 | signature (Ed25519 = 64) |
 | `MAX_RECORDS_PER_SET` | 256 | records par ensemble |
+| `MAX_DHT_RECORD_LEN` | 64 KiB | record DNS signé encodé (payload DHT : wire, stockage, gossip) — borne totale vérifiée à l'encodage ET avant tout décodage. / *EN: total encoded size of a signed DNS record; 15-30x above any realistic set (SPF+DKIM+DMARC ≈ 2-5 KiB), 16x under the transport cap.* |
 | `GEO_MAX_ENDPOINTS` | 32 | endpoints par scope GeoRoute |
 | `MAX_UNKNOWN_DATA` | 4096 | données d'un type inconnu |
 | `MAX_TXS_PER_BLOCK` | 4096 | transactions par bloc |

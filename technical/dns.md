@@ -56,7 +56,15 @@ Client de validation : `scone dig <name> --dns 127.0.0.1:5353
 ## Chemin de résolution (AUTORITÉ = la chaîne, toujours)
 
 1. **Cache** : clé `(qname, qtype)`, capacité 100 000 entrées par
-   défaut (`--dns-cache-limit` pour outrepasser), TTL 60 s
+   défaut (`--dns-cache-limit` pour outrepasser) ET budget mémoire
+   dur de 64 MiB par défaut (`--dns-cache-max-mem`, ex. `64MB`) : la
+   taille RÉELLE des rdata de chaque entrée est comptabilisée
+   (overhead par entrée ~128 o) et l'éviction FIFO se déclenche sur
+   la première des deux bornes atteinte — le plafond mémoire tient
+   même contre des entrées pleines (`MAX_DHT_RECORD_LEN`). /
+   *EN: hard byte budget tracks each entry's actual rdata size;
+   FIFO evicts on entry-count or byte budget, whichever hits first.*
+   TTL 60 s
    (autoritaire) / clampé à 600 s (fallback). Le cache négatif
    (NXDOMAIN/NODATA) suit les mêmes règles ; chaque entrée porte son
    origine (autoritaire ou fallback) pour que le bit AA reste honnête

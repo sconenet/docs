@@ -406,6 +406,7 @@ scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [-
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology] [--topology-min-connections U] [--topology-target-connections U] [--topology-max-connections U]
             [--topology-optimization-interval-secs U64] [--topology-min-score-improvement F64]
+            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE]
 scone status [--rpc ADDR]
 scone submit tx --hex HEX [--rpc ADDR]
 scone lookup NAME [--rpc ADDR]
