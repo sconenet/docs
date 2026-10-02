@@ -55,6 +55,10 @@ non utilisée, documentée une fois pour toutes dans cette table.
 | `0xD4` | `AssignDomain` | assignation directe d'un domaine par l'owner du TLD (M8a) |
 | `0x3C` | `RenewDomain` | prolongation de l'enregistrement d'un domaine (M8a ; porte le nom canonique depuis owner-option — le TLD ouvert suit l'échéance) |
 | `0x15` | `SlashTx` | preuve d'équivocation d'un anchor + bannissement (M9) |
+| `0xE2` | `TransferDomain` | transfert d'un domaine à un nouvel owner (M8c) |
+| `0x71` | `Heartbeat` | preuve de vie d'un opérateur (RFC proof-of-service) |
+| `0xA9` | `SetTldOperator` | délégation de l'exploitation d'un TLD privé (RFC proof-of-service) |
+| `0x5E` | `SetDomainOperator` | délégation de l'exploitation d'un domaine (RFC proof-of-service) |
 
 Tout octet de version autre que `0x01` est rejeté explicitement
 (`UnsupportedVersion(valeur reçue)`) : un format inconnu ou obsolète
@@ -99,7 +103,6 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 | `owner` | 32 octets nus | **doit** être la dérivation de `public_key` (voir ci-dessous) |
 | `timestamp` | varint | information d'ordre (Unix, secondes) |
 | `proof` | `bytes` ≤ 256 | charge utile du PoW de registration (voir [ci-dessous](#preuve-de-travail-pow-de-registration)) |
-| `open` | `0x00\|0x01` | naissance **ouverte** : le TLD atterrit directement en `TldState::Open` (personne, self-service + PoW, un seul PoW au tarif `open_tld_pow_difficulty` — moins cher que le privé : ressource commune, ni siège PoS ni exclusivité) ; naissance **privée** : comportement historique (propriétaire, siège PoS, `tld_pow_difficulty`) |
 | `public_key` | 32 octets nus | clé publique Ed25519 du signataire (RFC 8032) |
 | `signature` | **exactement 64 octets** | signature Ed25519 du payload signé |
 
@@ -210,11 +213,12 @@ du domaine (opaque, comme `new_owner`).
 ### RENEW_DOMAIN (0x3C)
 
 ```text
-domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
 |---|---|---|
+| `name` | `str` ≤ 253 | nom canonique **porté en clair** (owner-option : le renouvellement reporte la mort du TLD ouvert sous-jacent, la chaîne doit connaître le nom) ; `domain_id` doit valoir `DomainId(name)` (recomputé) |
 | `valid_until` | varint | nouvelle échéance d'enregistrement (Unix, secondes) |
 
 Signé par l'owner courant du domaine ; le fait que `valid_until`
@@ -301,8 +305,10 @@ SET_TLD_OPEN_sans_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_sans_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
                             assignee[32] public_key[32]
-RENEW_DOMAIN_sans_sig    = disc(0x3C) version(0x01) network domain_id[32] owner[32]
+RENEW_DOMAIN_sans_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v public_key[32]
+TRANSFER_DOMAIN_sans_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
+                            new_owner[32] public_key[32]
 ```
 
 Propriétés :
@@ -390,21 +396,39 @@ constante — plus basse *ou* plus haute — est rejeté,
 (`ProofEpochMismatch` en cas d'écart). Le nonce est ensuite
 re-vérifié à la difficulté constante, digest recomputé de zéro.
 
-### Difficultés (paramètres **par réseau**, M8b)
+### Difficultés (courbe **par longueur**, M8b + calibrage mesuré)
 
-| Kind | testnet | mainnet |
+La difficulté n'est PAS un paramètre plat : c'est une fonction
+déterministe de la **longueur du label créé**
+(`scone-core::pow_length` — le TLD pour `RegisterTld`, le label de
+gauche pour `RegisterDomain`), par réseau :
+
+```text
+difficulté(len) = apex − round(0,415 × (len − 1)), bornée au plancher
+```
+
+| Réseau | TLD privé (apex/plancher) | TLD né ouvert / domaine (apex/plancher) |
 |---|---|---|
-| `RegisterTld` | 8 bits (symbolique, ms) | 24 bits |
-| `RegisterDomain` (TLD ouvert) | 4 bits (symbolique) | 20 bits |
+| testnet | 8 bits / 2 bits | 6 bits / 2 bits |
+| mainnet | 42 bits / 30 bits | 40 bits / 30 bits |
 
-Claimer un namespace entier coûte toujours ~16× le claim d'un nom à
-l'intérieur. Les difficultés vivent dans
-`scone-core::network::NetworkParams` ; changer une valeur = changement
+Un TLD **né ouvert** (`RegisterTld` avec `open = 0x01`) paie la courbe
+« ouverture » (apex − 2, comme `domain_difficulty`) ; **ouvrir un TLD
+privé existant** (`SetTldOpen`) reste à difficulté plate
+(`open_tld_pow_difficulty` : 6 bits testnet / 22 bits mainnet — la tx
+ne porte que le `tld_id`, le nom a payé sa longueur à la création).
+Repères mainnet (TLD privé, ~6 M hashs/s) : 1 caractère = 42 bits
+(≥ 7 jours), 5 car = 40 bits (~2 j), 19 car = 35 bits (~1,6 h),
+29+ car = plancher 30 bits (~3 min). Les courbes vivent dans
+`scone-core::pow_length` (constantes `MAINNET_APEX = 42`,
+`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`) ;
+les paramètres plats (`tld_pow_difficulty`, etc.) restent dans
+`scone-core::network::NetworkParams`. Changer une valeur = changement
 de consensus **pour ce réseau**.
 
-Calibrage mesuré (2026-10, `cargo run --release -p scone-core
---example pow_bench` — débit single-thread ~7,7 M H/s sur x86-64 de
-référence) :
+Calibrage mesuré des sommets plats (2026-10, `cargo run --release
+-p scone-core --example pow_bench` — débit single-thread ~7,7 M H/s
+sur x86-64 de référence) :
 
 | Kind (mainnet) | difficulté | temps réel moyen |
 |---|---|---|
@@ -439,15 +463,14 @@ Une transaction est valide si et seulement si :
    (`InvalidSignature`, anti-replay cross-chain) ;
 5. **règles d'état** (à l'application dans un bloc — M8b, voir
    `/docs/fr/technical/blockchain.md`) :
-   RegisterTld → TLD libre + PoW (difficulté réseau) ;
-   RegisterDomain → TLD enregistré **et ouvert** + domaine libre
-   (grâce comprise) + PoW ;
+   RegisterTld → TLD libre + non ICANN + PoW (difficulté par
+   longueur) ; RegisterDomain → TLD enregistré **et ouvert** +
+   domaine libre (grâce comprise) + PoW (par longueur) ;
    UpdateDomain → domaine existant, `owner` courant,
    `sequence == current + 1` ;
-   TransferTld / RevokeTld / SetTldOpen → TLD existant, signataire =
-   owner du TLD ;
-   AssignDomain → TLD existant, signataire = owner du TLD, domaine
-   libre (sans PoW) ;
+   TransferTld / RevokeTld / SetTldOpen / AssignDomain → TLD
+   existant **et privé**, signataire = owner du TLD ;
+   TransferDomain → domaine existant, owner ;
    RenewDomain → domaine existant, owner, extension stricte ≤ 3 ans.
 
 La vérification utilise `verify_strict` (rejet des signatures
@@ -465,7 +488,8 @@ bloc ; la moindre erreur laisse la chaîne rigoureusement inchangée.
 `BlockBuilder` (`scone-blockchain`) assemble un bloc depuis une queue
 de transactions : `tx_root` recalculé sur la liste ordonnée, header
 enchaîné sur le hash parent (`prev_hash`), `version` =
-`PROTOCOL_VERSION`. Le payload consensus (PoW futur) et le timestamp
+`PROTOCOL_VERSION`. Le payload consensus (payload producteur signé)
+et le timestamp
 sont fournis par l'appelant ; le trait `Consensus` existant est
 utilisé symétriquement à la validation.
 
@@ -487,7 +511,8 @@ transaction wire signée, elle, n'en contient pas :
 e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (clé de build fixe)
 2a                                    timestamp (varint, 42)
-0c 010000000000000004000000           proof (12 o : nonce 1, difficulté 4 — testnet)
+14 0200000000000000 0000000000000000 04000000
+                                      proof (20 o : nonce 2, époque 0, difficulté 4 — testnet)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + début sig
 ```
 
@@ -504,7 +529,9 @@ dérivation épinglé dans `/docs/fr/general/naming.md` :
 ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner
 2a                                    timestamp (varint, 42)
-0c 740400000000000008000000           proof (12 o : nonce 0x474, difficulté 8 — testnet)
+14 8e00000000000000 0000000000000000 07000000
+                                      proof (20 o : nonce 0x8e, époque 0, difficulté 7 — testnet, label de 3 car.)
+00                                    open (0x00 = naissance privée)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk
 ```
 
@@ -537,4 +564,4 @@ depuis l'identité du keystore, jamais repris de l'entrée.
 |---|---|---|
 | 1 | `public_key` + `signature` embarquées, payload `SCONE-TX-SIG-V1`, octet de version `0x01`, `RegisterDomain` porte le nom, `RegisterTld` (0x93), famille M8a : `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — formats wire normatifs ; M8b : champ `network` signé en tête de chaque payload, `RegisterTld` porte le nom, règles d'état complètes, difficultés PoW par réseau | remplacée |
 | 1 (2026-09, wire sans network) | **retrait du champ `network` du wire de toutes les transactions** : le network_id vit uniquement dans le payload de signature (`signing_payload(tx, network)` l'injecte en tête) ; la séparation de réseaux repose sur la signature (`InvalidSignature` sur payload étranger, l'erreur `WrongNetwork` disparaît) ; `TX_FORMAT_VERSION` reste `0x01` (testnet relançable, pas de coexistence) ; **tous les TxId changent** (le TxId est le hash de l'encodage wire signé, qui perd 14-15 octets) ; digest PoW, genèse et data-dirs per-network inchangés | remplacée |
-| 1 (2026-10, PoW V2 sel d'époque) | **digest PoW V2 anti pré-minage** : `BLAKE3("SCONE-POW-V2" ‖ network ‖ challenge ‖ epoch_le ‖ nonce_le)` avec `epoch = block_height / 144` du bloc QUI APPLIQUE la tx ; charge utile wire de la preuve 12 → **20 octets** (`nonce_le ‖ epoch_le ‖ difficulty_le`), l'époque déclarée est vérifiée STRICTEMENT contre l'époque du bloc appliquant (rejet typé `ProofEpochMismatch`, aucune tolérance), best-effort `(height+1)/144` à l'admission mempool ; changement cassant pré-mainnet : le payload V1 12 octets est rejeté, **tous les TxId changent** (le champ `proof` s'allonge de 8 octets) | courante |
+| 1 (2026-10, PoW V2 sel d'époque) | **digest PoW V2 anti pré-minage** : `BLAKE3("SCONE-POW-V2" ‖ network ‖ challenge ‖ epoch_le ‖ nonce_le)` avec `epoch = block_height / 144` du bloc QUI APPLIQUE la tx ; charge utile wire de la preuve 12 → **20 octets** (`nonce_le ‖ epoch_le ‖ difficulty_le`), l'époque déclarée est vérifiée STRICTEMENT contre l'époque du bloc appliquant (rejet typé `ProofEpochMismatch`, aucune tolérance), best-effort `(height+1)/144` à l'admission mempool, drapeau CLI `--epoch` sur les chemins hors-ligne ; changement cassant pré-mainnet : le payload V1 12 octets est rejeté, **tous les TxId changent** (le champ `proof` s'allonge de 8 octets) | courante |

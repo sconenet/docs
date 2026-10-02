@@ -10,8 +10,9 @@ The **DNS server** is an optional surface of the relay: it answers
 **only from data verified against the chain**, and offers an
 **optional recursive fallback** (`addr:port`) for everything else.
 It owns neither chain, nor store, nor DHT: resolution goes through
-the relay (process), via the local control RPC — the same verified
-path as the CLI.
+the relay (process), via the internal `RelayCommand`/
+`ResolveLocal` channel (in-process, one round trip) — the same
+verified path as the CLI.
 
 ```text
               UDP+TCP :5353 (default 127.0.0.1)
@@ -22,7 +23,7 @@ path as the CLI.
                     │  └────────────────────────────────┘
                     │  Scone-shaped name?
                     │  ├─ YES → apex search by suffix
-                    │  │        → `resolve_local` RPC (relay)
+                    │  │        → internal `resolve_local` (relay)
                     │  │           chain + verified record (hash,
                     │  │           owner, sequence) → answers
                     │  │        apex unknown across the whole chain → NXDOMAIN
@@ -85,7 +86,7 @@ Validation client: `scone dig <name> --dns 127.0.0.1:5353
    the relay = apex; the record set serves the whole qname
    (subnames included — implicit wildcard behavior, open
    decision).
-4. **`resolve_local` (internal RPC)**: a single round trip, never
+4. **`resolve_local` (internal channel)**: a single round trip, never
    a DHT waiter. On-chain state (`registered`, owner, sequence) +
    local DHT cache record **re-verified** (owner, sequence,
    record_hash == on-chain commitment). A non-conforming record
@@ -122,7 +123,7 @@ Validation client: `scone dig <name> --dns 127.0.0.1:5353
   cache hits (the budget is applied at response time, not at
   cache-fill time).
 - RCODEs: 0 NOERROR (with or without answers), 2 SERVFAIL (local
-  RPC failure), 3 NXDOMAIN (authoritative), 5 REFUSED (non-Scone
+  local failure), 3 NXDOMAIN (authoritative), 5 REFUSED (non-Scone
   without upstream).
 
 ## Recursive fallback
@@ -182,7 +183,7 @@ client                     server
 | Max TCP response | 65,535 bytes |
 | Concurrent TCP connections | 64 (semaphore, immediate reject) |
 | TCP read timeout | 5 s |
-| Cache | 1024 entries (FIFO) |
+| Cache | 100,000 entries by default (FIFO) + hard memory budget 64 MiB (`--dns-cache-limit` / `--dns-cache-max-mem`) |
 | Authoritative TTL | **per record** (`record.ttl`, bounds 1..=2,592,000 s; the historical constant 60 s remains only for service responses) |
 | Fallback TTL (clamp) | 600 s |
 | Parallel UDP queries | 256 (semaphore; beyond: drop, the client retries) |

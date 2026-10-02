@@ -48,13 +48,13 @@ Ordered by asset criticality, 1 component = 1 checklist:
   ambiguous representation → 2 keys, 1 owner).
 - Ed25519: strict DESERIALIZATION (non-canonical key rejected?),
   verification with context separation (each use has its domain
-  tag: SCONE-TX-SIGN-V1, SCONE-BLOCK-V2, DHT record — no
+  tag: SCONE-TX-SIG-V1, SCONE-BLOCK-V2, DHT record — no
   cross-protocol replay possible).
 - Keystore: passphrase → key (KDF? iterations?), zeroization,
   file permissions, padding oracle on the ciphertext.
 
 ### 2.2 Transaction application (day 5) — the core
-For EACH Transaction variant (10 today):
+For EACH Transaction variant (13 today):
 - Is the tx idempotent under replay (unique txid, nonce/sequence)?
 - Does the ownership check precede any effect? (signer == owner
   learned on-chain, never trusted from the tx itself.)

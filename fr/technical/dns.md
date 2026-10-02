@@ -10,7 +10,8 @@ aux requêtes DNS **UDP et TCP** (RFC 7766, même port) pour les noms
 Scone **uniquement à partir de données vérifiées contre la chaîne**,
 et propose un **fallback récursif optionnel** (`addr:port`) pour le
 reste. Il ne possède ni chaîne, ni store, ni DHT : la résolution
-passe par le relay (processus), via le RPC de contrôle local — le
+passe par le relay (processus), via le canal interne
+`RelayCommand`/`ResolveLocal` (in-process, un aller-retour) — le
 même chemin vérifié que le CLI.
 
 ```text
@@ -22,7 +23,7 @@ même chemin vérifié que le CLI.
                     │  └────────────────────────────────┘
                     │  nom de forme Scone ?
                     │  ├─ OUI → recherche d'apex par suffixe
-                    │  │        → RPC `resolve_local` (relay)
+                    │  │        → `resolve_local` interne (relay)
                     │  │           chaîne + record vérifié (hash,
                     │  │           owner, séquence) → réponses
                     │  │        apex inconnu sur toute la chaîne → NXDOMAIN
@@ -86,7 +87,7 @@ Client de validation : `scone dig <name> --dns 127.0.0.1:5353
    2 labels). Premier suffixe dont le relay connaît l'état on-chain
    = apex ; le record set sert le qname entier (sous-noms inclus —
    comportement wildcard implicite, décision ouverte).
-4. **`resolve_local` (RPC interne)** : un seul aller-retour, jamais
+4. **`resolve_local` (canal interne)** : un seul aller-retour, jamais
    de waiter DHT. État on-chain (`registered`, owner, séquence) +
    record du cache DHT local **revérifié** (owner, séquence,
    record_hash == engagement on-chain). Un record non conforme ne
@@ -122,7 +123,7 @@ Client de validation : `scone dig <name> --dns 127.0.0.1:5353
   s'applique aussi aux hits de cache (le budget est appliqué au
   moment de la réponse, pas du remplissage du cache).
 - RCODEs : 0 NOERROR (avec ou sans réponses), 2 SERVFAIL (failure
-  RPC locale), 3 NXDOMAIN (autoritaire), 5 REFUSED (hors Scone sans
+  locale), 3 NXDOMAIN (autoritaire), 5 REFUSED (hors Scone sans
   upstream).
 
 ## Fallback récursif
@@ -181,7 +182,7 @@ client                     serveur
 | Réponse TCP max | 65 535 octets |
 | Connexions TCP concurrentes | 64 (sémaphore, rejet immédiat) |
 | Timeout lecture TCP | 5 s |
-| Cache | 1024 entrées (FIFO) |
+| Cache | 100 000 entrées par défaut (FIFO) + budget mémoire dur 64 MiB (`--dns-cache-limit` / `--dns-cache-max-mem`) |
 | TTL autoritaire | **par enregistrement** (`record.ttl`, bornes 1..=2 592 000 s ; le 60 s constant historique ne reste que pour les réponses de service) |
 | TTL fallback (clamp) | 600 s |
 | Requêtes UDP en parallèle | 256 (sémaphore ; au-delà : drop, le client retente) |

@@ -1,7 +1,11 @@
 # RFC — Proof of operation and finality committee (proof-of-service)
 
-> Status: IMPLEMENTED (steps 1-2: core/protocol/blockchain; automatic
-> emission from scone-network follows its own workstream).
+> Status: IMPLEMENTED (steps 1-3: core/protocol/blockchain/network;
+> automatic emission from scone-network is in place). Step 4 is
+> partial: `tx sign`/`tx verify` accept a heartbeat, but neither
+> `tx build heartbeat` nor the fresh-operator count in `scone status`
+> exist. Step 5 (RFC → consolidated normative form) remains to be
+> done.
 > Date: October 2026. Touches: `scone-core`, `scone-protocol`,
 > `scone-blockchain`, `scone-network`.
 
@@ -49,15 +53,16 @@ Properties:
 
 ### 3.1 Validation (acceptance rules)
 
-1. Valid Ed25519 signature over the network's canonical payload.
-2. `timestamp` within a reasonable window of the carrying block
-   (± `epoch_secs` — historical anti-replay bound).
+1. Valid Ed25519 signature over the network's canonical payload, and
+   `owner` == identity derived from `operator` (`InvalidOwner`
+   otherwise).
+2. `timestamp` strictly increasing per operator across epochs
+   (anti-replay of an old signed heartbeat — typed rejection
+   `StaleHeartbeat` at application time).
 3. **Only one heartbeat accepted per (`operator`, epoch)** — a
    duplicate within the same epoch is rejected with a typed error
-   (`HeartbeatDuplicate`). The mempool applies the same exclusion
-   while pending (replaces the old non-included one).
-4. `timestamp` strictly increasing per operator across epochs
-   (anti-replay of an old signed heartbeat).
+   (`HeartbeatDuplicate`). The epoch is that of the carrying block
+   (`height / epoch_min_blocks`, same definition as finality).
 
 ### 3.2 Anti-spam
 
@@ -69,13 +74,16 @@ Properties:
 
 The seat → operator link:
 
-- `RegisterTld` / `RegisterDomain` / `AssignDomain` gain an optional
-  field `operator: Option<PublicKey>`. Default: `None` =
-  self-operation by the owner key.
-- New transaction `SetTldOperator { tld, operator }` (signed by the
-  TLD owner) — instantly revocable.
-- For domains: `SetDomainOperator { domain, operator }` (signed by
-  the domain owner). Same semantics.
+- `SetTldOperator { tld_id, operator }` (signed by the private TLD's
+  owner; an open TLD has no one to sign legitimately) —
+  `operator: None` = revocation, back to self-operation by the
+  owner's key; instantly revocable.
+- For domains: `SetDomainOperator { domain_id, operator }` (signed
+  by the domain owner). Same semantics.
+- `RegisterTld` / `RegisterDomain` / `AssignDomain` carry NO
+  `operator` field: delegation goes through the two dedicated
+  transactions above (the seat → operator link is always a recent
+  on-chain fact, resolved at the tip).
 
 The state maintains:
 
@@ -100,9 +108,11 @@ recent_heartbeats: BTreeMap<(epoch, OperatorKey), ()>
 ```
 
 - Entry inserted upon application of a valid heartbeat.
-- Deterministic purge at every epoch boundary: entries older than
-  `HEARTBEAT_WINDOW_EPOCHS = 2` epochs are removed (journaled —
-  reversible in a reorg, like the expiry queues).
+- Deterministic purge at every block application: entries that left
+  the `HEARTBEAT_WINDOW_EPOCHS = 2` epoch window are removed
+  (journaled — reversible in a reorg, like the expiry queues). With
+  2: the current epoch + the previous one — an operator may miss ONE
+  epoch without losing freshness, the second expires it.
 - "Fresh" = presence of an entry for the operator in the current
   window.
 
@@ -145,9 +155,13 @@ like any other (mempool, production by anyone).
 
 ## 7. Observability
 
-- RPC `operator_status`: per seat, the delegated operator, freshness
-  (fresh / expired / never seen), last `tip_seen`.
-- `scone status` displays the number of fresh operators / pool size.
+- Planned, not yet exposed: `operator_status` — per seat, the
+  delegated operator, freshness (fresh / expired / never seen),
+  last `tip_seen` (the local control RPC was removed; the surface
+  is to be defined on the p2p side).
+- `scone status` does not yet display the number of fresh
+  operators / the pool size (the data exists in the state:
+  `fresh_operators`).
 - Campaign argument: "operating a private TLD = sitting on the
   finality committee of the decentralized DNS" — verifiable
   on-chain.
@@ -166,26 +180,28 @@ like any other (mempool, production by anyone).
 - Bit-exact determinism: the window and the election are pure
   functions of the applied state (journaled, bit-exact undo).
 - Never panic on network data: malformed heartbeat → typed
-  rejection (`InvalidHeartbeat`, `HeartbeatDuplicate`,
+  rejection (`InvalidOwner`, `StaleHeartbeat`, `HeartbeatDuplicate`,
   `OperatorAlreadyDelegated`).
 - Possession is unconditional; only checkpoint signing is
   conditional.
 
 ## 10. Implementation plan
 
-| Step | Crate | Content | Size |
-|---|---|---|---|
-| 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validation | M |
-| 2 | blockchain | sliding window (journaled), filtered pool, election, ~15 tests | L |
-| 3 | network | automatic emission, tx relay | S |
-| 4 | CLI | `tx build heartbeat` (debug), status display | S |
-| 5 | docs | this RFC → normative, protocol.md/finality update | S |
+| Step | Crate | Content | Size | State |
+|---|---|---|---|---|
+| 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validation | M | done |
+| 2 | blockchain | sliding window (journaled), filtered pool, election, ~15 tests | L | done |
+| 3 | network | automatic emission, tx relay | S | done |
+| 4 | CLI | `tx build heartbeat` (debug), status display | S | partial (`tx sign`/`verify` only) |
+| 5 | docs | this RFC → normative, protocol.md/finality update | S | to do |
 
 ## 11. Open decisions (to be settled by Benoît)
 
 1. `HEARTBEAT_WINDOW_EPOCHS = 2` — comfortable or too loose?
    (2 epochs = an operator can miss one epoch without losing its
-   signing seat.)
+   signing seat.) *This is the value coded today.*
 2. `MAX_SEATS_PER_OPERATOR = 1` — or tolerate 2-3 for small
-   operators hosting several namespaces?
+   operators hosting several namespaces? *Coded value: 1.*
 3. Expose `operator_status` via RPC at step 3 or later?
+   *Became moot: the local control RPC was removed (p2p-only
+   node) — the surface is still to be defined.*

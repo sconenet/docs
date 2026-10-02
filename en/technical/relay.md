@@ -1,4 +1,4 @@
-# Network relay (M4) — architecture, flows, and control RPC
+# Network relay (M4) — architecture, flows, and CLI control
 
 > Normative specification of the Scone network relay (`scone-network`).
 > Any doc/code divergence = bug (fix the source of truth).
@@ -8,16 +8,17 @@
 The **relay** is Scone's full P2P node: it maintains the canonical
 blockchain (RAM + `NodeStore` redb), relays transactions and blocks,
 produces blocks (devnet mode), serves the sync protocol, publishes and
-resolves `SignedDnsRecord`s in a Kademlia DHT, and exposes a **local
-control RPC** queried by the CLI.
+resolves `SignedDnsRecord`s in a Kademlia DHT, and exposes the
+**p2p protocol** (`/scone/reqres/1`) that the CLI queries directly
+(RPC→p2p unification: the JSON TCP channel is gone).
 
 ```text
                     ┌────────────────────────────────────────┐
                     │              scone relay               │
   P2P (libp2p)      │                                        │
-  QUIC :4001 ◄──────┤  Swarm libp2p                          │
-                    │  ├─ identify  (address discovery)      │
-                    │  ├─ ping      (liveness)               │
+  QUIC (udp,        │  Swarm libp2p                          │
+  ephemeral port    │  ├─ identify  (address discovery)      │
+  by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
                     │                                        │
@@ -25,9 +26,10 @@ control RPC** queried by the CLI.
                     │  ├─ Blockchain (full validation)       │
                     │  ├─ Mempool (bounded, dedup by TxId)   │
                     │  ├─ BlockBuilder (devnet production)   │
+                    │  ├─ Fork parking (bounded, 2048)       │
                     │  └─ Sync driver (batched catch-up)     │
                     │                                        │
-  CLI ◄─────────────┤  Control RPC (TCP 127.0.0.1, JSON)     │
+  CLI ◄─────────────┤  reqres p2p (QUIC, same messages)      │
                     └────────────────┬───────────────────────┘
                                      │
                               NodeStore (redb)
@@ -210,7 +212,7 @@ bounded: never more than one block in flight per peer.
 5. dial each multiaddr and register it in the Kademlia table
    (a dead dial is ignored — the others make up the network).
 
-### Receiving a transaction (P2P or RPC `submit_tx`)
+### Receiving a transaction (P2P or CLI `submit tx` submission)
 
 1. strict bounded decoding (`MAX_MESSAGE_LEN`);
 2. full cryptographic validation (`validate_transaction`:
@@ -284,9 +286,40 @@ With `--anchor-key` (`.sconekey` keyfile, passphrase via
   finalizes, and relays, but never signs;
 - `GetCheckpoints` → the `checkpoint_window()` window is served;
 - any loop error is logged and swallowed — never fatal;
-- the status RPC exposes `checkpoints` and `finalized_epoch`.
+- the status (`GetStatus`) exposes `checkpoints` and `finalized_epoch`.
 
-### Sync (catch-up)
+### Fork parking and reorgs (sticky-minority fix)
+
+A sister block at the same height, or a block whose parent is not
+the current tip (`ParentNotTip`/`UnknownParent`), is NEVER lost:
+it is **parked** (bounded map, `PARKED_CAP = 2048` blocks, ~KiB
+each — bounded worst-case RAM; a full parking silently ignores
+newcomers). Hashes already offered to `accept_block` are
+deduplicated (`seen_blocks`): a re-gossiped losing block is not
+re-evaluated.
+
+At EVERY `Produce` tick, `reconsider_parked`:
+
+1. linear drain of parked blocks whose parent became the tip;
+2. if a parked branch is stronger than the current tip (fork-choice
+   rules UNCHANGED: finality floor, longest chain, lowest hash),
+   adoption — the displaced suffix is itself parked (BOTH sides
+   of the fork stay evaluable).
+
+This un-sticks a node that adopted the losing side of an
+equal-height fork: the winning block, offered once then refused,
+is periodically re-evaluated instead of being forgotten forever
+(finding chaos-30: two sister blocks 15 ms apart).
+
+**Reorg persistence**: adopting another branch cannot go through
+the monotonic append (`NonMonotonicHeight`). The relay applies
+`rewind_to_height(fork point)` then `persist_state_snapshot`
+(rewrite of the live state from the chain's export) then a
+monotonic re-append of the winning suffix (see `storage.md`). A
+persistence failure is logged and degraded (heals at boot via
+replay) — never fatal.
+
+## Sync (catch-up)
 
 On each connection to a peer, the relay requests
 `GetBlocks(start = local_height + 1)`. Each received `Block` that
@@ -298,13 +331,13 @@ malicious peer cannot get anything invalid accepted.
 
 ### Record DHT
 
-- **put** (RPC `put_record`): strict bounded decoding
+- **put** (`record put`): strict bounded decoding
   (`MAX_DHT_CACHE_ENTRY`), verification against on-chain state
   (owner, sequence, recomputed `record_hash` — see "Record
   verification"), then `kad.put_record` (local storage +
   replication to the closest peers, `Quorum::Majority` of the
   replication factor) and persistent redb cache.
-- **get** (RPC `get_record`): `kad.get_record`; the waiter is bound
+- **get** (`record get`): `kad.get_record`; the waiter is bound
   to its `QueryId` and the requested `DomainId` — a reply only
   resolves the matching query, and the record key must be exactly
   the requested domain (checked **before** on-chain verification).
@@ -328,101 +361,83 @@ if:
    `record_hash` committed on-chain.
 
 Otherwise: silent rejection on the P2P side, explicit error on the
-RPC side. The record's Ed25519 signature is **verified on receipt**
+CLI side. The record's Ed25519 signature is **verified on receipt**
 by the relay (`ResolveLocal`: the owner's public key is known
 on-chain, the signature must unlock — a record signed by another
 key is rejected, `record rejected`); it is also transported for
 future verifiers — the on-chain commitment remains the primary
 integrity control.
 
-## Local control RPC
+## CLI control (RPC→p2p unification)
 
-TCP socket **127.0.0.1 only** (the CLI runs on the same machine).
-One request per connection.
+The JSON TCP RPC server has been **removed**: the CLI (and the
+registrar's axum bridge) speak the p2p protocol **directly** —
+same wire (`/scone/reqres/1`), same handlers on the relay side,
+zero parallel channel. Every command opens a QUIC connection to
+the node's multiaddr (`--peer`), exchanges ONE `Message`, closes.
 
-### Frame format (both directions)
+Control messages served by the relay:
 
-```text
-len: u32 big-endian || JSON UTF-8 || '\n'
-```
+- `GetStatus` → `NodeStatus { network, nat_reachable, tip,
+  height, domain_count, mempool, peers, finalized_epoch,
+  checkpoints }` (displayed by `scone status`);
+- `LookupName { name }` → `NameState` (on-chain state, like
+  `lookup`);
+- `GetOwnedNames { owner }` → `OwnedNames` (live domains + TLDs
+  of an `OwnerId`);
+- `Transaction (tx)` → submission with free gossip (the relay
+  rebroadcasts to peers);
+- `GetRecord { domain_id }` / `Record (r)` — DHT resolution and
+  publication (like `record get`/`record put`);
+- application rejection → `Message::Error(msg)` (reaches the
+  client as a readable message, not an EOF).
 
-`len` includes the trailing `\n`. Bound: 512 KiB (`MAX_RPC_LEN`) —
-beyond that, a typed error without reading the body.
+The client brings up a minimal libp2p swarm (request-response +
+identify), 30 s call timeout (20 s round trip). Default `--peer`:
+`/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (local dev node;
+the full multiaddr with the real peer id is announced by the
+relay on stdout via the `p2p:` line).
 
-### Requests
-
-All in JSON, discriminated by `"method"`:
-
-```json
-{"method": "status"}
-{"method": "submit_tx", "tx_hex": "<canonical hex of the signed Transaction>"}
-{"method": "lookup", "name": "example.uip"}
-{"method": "put_record", "record_hex": "<canonical hex of the SignedDnsRecord>"}
-{"method": "get_record", "name": "example.uip"}
-{"method": "domain_info", "name": "example.uip"}
-```
-
-### Responses
-
-```json
-{"status": "ok", "data": { … }}
-{"status": "error", "message": "…"}
-```
-
-`data` shapes per method:
-
-- **status**: `{"peer_id", "network"` ("scone-testnet" |
-  "scone-mainnet", M8b), `"tip"` (64-hex), `"height"`, `"peers"`,
-  `"domain_count", "mempool"}`
-- **submit_tx**: `{"txid": "<64-hex>"}` (tx accepted into the
-  mempool; production happens at the next tick)
-- **lookup**: `{"name", "domain_id", "registered": bool, "owner",
-  "sequence", "record_hash"}` (on-chain fields absent if not
-  registered)
-- **put_record**: `{"published": "<domain_id 64-hex>"}`
-- **get_record**: `{"record": "<canonical hex>", "verified": true}`
-  — the reply is **never** sent without successful on-chain
-  verification; not found / not verified → `error`.
-- **domain_info** (M5): `{"name", "domain_id", "registered": bool,
-  ["owner", "sequence", "record_hash"], "dns": [ … ]}`. Rich
-  exploration in **local reads only** (no network request, no DHT
-  waiter): the `dns` part is only filled if this node holds a local
-  cached `SignedDnsRecord` that fully verifies against the current
-  on-chain state (rules of "Record verification"); otherwise
-  `dns: []`. Each `dns` entry is an object
-  `{"type": "A"|"AAAA"|"CNAME"|"NS"|"MX"|"TXT"|"TYPE<code>",
-  "value": …}` (MX adds `"preference"`).
-
-### Time semantics
-
-`status`, `submit_tx`, `lookup`, `put_record`, and `domain_info`
-reply immediately. `get_record` launches an asynchronous Kademlia
-query: the RPC connection stays open until resolution (30 s bound
-on the relay side, 60 s on the client side).
+The internal `RelayCommand` channel survives for the embedded DNS
+surface (`ResolveLocal`, one in-process round trip, never a DHT
+waiter — see `dns.md`).
 
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR]
+scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolete, ignored)]
+            [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology] [--topology-min-connections U] [--topology-target-connections U] [--topology-max-connections U]
             [--topology-optimization-interval-secs U64] [--topology-min-score-improvement F64]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE]
-scone status [--rpc ADDR]
-scone submit tx --hex HEX [--rpc ADDR]
-scone lookup NAME [--rpc ADDR]
-scone domain register NAME --identity ID [--dir DIR] [--passphrase-env VAR] [--rpc ADDR]
-scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env VAR] [--rpc ADDR]
-scone domain info NAME [--rpc ADDR]
-scone record put NAME --file FILE [--rpc ADDR]      # FILE = canonical hex
-scone record get NAME [--rpc ADDR]
+scone status [--peer MULTIADDR]
+scone submit tx --hex HEX [--peer MULTIADDR]
+scone lookup NAME [--peer MULTIADDR]
+scone domain register NAME --identity ID [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
+scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
+scone domain info NAME [--peer MULTIADDR]
+scone record put NAME --file FILE [--peer MULTIADDR]      # FILE = canonical hex
+scone record get NAME [--peer MULTIADDR]
+scone dig NAME [--dns ADDR] [--qtype A|AAAA|TXT|MX|NS|CNAME|ANY]
 ```
 
-`--rpc` defaults to `127.0.0.1:7474` (the port `scone relay` binds
-by default; two relays on the same machine each pass their own
-`--rpc`). Relay absent → clear message "cannot reach the relay — is
-'scone relay' running?", non-zero exit.
+Every control command speaks QUIC directly to the relay's
+multiaddr (`--peer`, default local node — RPC→p2p unification, no
+more JSON TCP channel). Relay absent → clear message "p2p node
+unreachable — is a relay running?", non-zero exit. The `--rpc`
+flag is kept but **obsolete and ignored** (the RPC server was
+removed; script compatibility only).
+
+**Anchor auto (default ON)**: without `--anchor-key`, an anchor
+keyfile is generated/persisted automatically in the data dir
+(`anchor.sconekey`, passphrase `SCONE_ANCHOR_PASS` if defined,
+otherwise randomly generated and written to `anchor.pass`) — the
+relay becomes a producer as soon as its key owns live
+domains/TLDs (PoS eligibility is never free). `--no-anchor-auto`
+keeps the relay strictly passive. The default env var of
+`--anchor-passphrase-env` is `SCONE_ANCHOR_PASS`.
 
 `--network` (M8b): `testnet` by default (project in dev), explicit
 `mainnet`. Sets the genesis, PoW difficulties, and the default
@@ -514,11 +529,12 @@ separate workstream.
 | Resource | Bound |
 |---|---|
 | P2P frame | `MAX_MESSAGE_LEN` (1 MiB) before parsing |
-| RPC frame | 512 KiB before parsing |
-| Simultaneous RPC connections | `MAX_RPC_CONNECTIONS` (64, semaphore) |
-| Simultaneous DHT waiters | `MAX_DHT_WAITERS` (256) |
-| Mempool | 4096 tx (typed rejection beyond) |
-| Blocks per sync reply | 1 per round-trip; ≤ 10,000 batches per peer |
+| Mempool | 4096 tx (typed rejection beyond); `MAX_PENDING_PER_DOMAIN = 4` pending txs per domain |
+| Mempool grace | `MAX_GRACE_ATTEMPTS = 10` reinsertions of a tx flushed for a non-definitive reason (≈ 7 min at 40 s/cycle), then eviction |
+| Fork parking | `PARKED_CAP = 2048` competing blocks |
+| Accumulated checkpoints | `MAX_PENDING_CHECKPOINTS = 256` (eviction: smallest data hash) |
+| Simultaneous DHT waiters | `MAX_DHT_WAITERS` (256); DHT lookup bounded to 30 s (`DHT_LOOKUP_TIMEOUT`) |
+| Blocks per sync reply | 1 per round-trip; ≤ 10,000 batches per peer (`MAX_SYNC_ROUNDS`); protocol bound `MAX_BLOCKS_PER_REQUEST = 128` on the request |
 | DHT record | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | Chain in RAM | genesis + tip window (history served from the store) |
 
@@ -528,9 +544,13 @@ Anti-loop rule (H2): a transaction is only re-broadcast if it was
 An already-canonical block is detected and ignored before
 `push_block` (no re-store, no re-broadcast).
 
-Open decisions: persistent network identity of the relay, real
-fork choice, PoW consensus, DNS resolver, broadcast gossip
-(currently: unicast request-response to each known peer).
+Open decisions: persistent network identity of the relay, broadcast
+gossip (currently: unicast request-response to each known peer).
+Resolved since the initial writing: real fork choice (parking +
+reconsider_parked, see above), PoW consensus (signed producer +
+anchor committee), DNS resolver (the `--dns` surface, see
+dns.md), control channel (RPC→p2p unification: no more JSON
+TCP).
 
 ## Graceful shutdown (SIGTERM / SIGINT)
 

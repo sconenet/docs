@@ -114,7 +114,7 @@ silencieusement.
 ```bash
 scone identity generate --name <n> [--dir <répertoire>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <répertoire>]
-scone identity show --name <n> [--dir <répertoire>] [--passphrase-env VAR]
+scone identity show <n> [--dir <répertoire>] [--passphrase-env VAR]
 ```
 
 - Répertoire par défaut : `$HOME/.scone/keys`.

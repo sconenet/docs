@@ -139,9 +139,10 @@ Claim of a TLD (registry separate from the domain registry, M7): the
 TLD is **carried in cleartext** like a domain's name (M8b — the PoW
 challenge derives from the name), and `tld_id` is the `SCONE-TLD-V1`
 derivation of that name, disjoint from every `DomainId` by
-construction. State rules (M8b): TLD free + PoW at the network
-difficulty **for the label's length** (`pow_length` curve — see
-`blockchain.md`); claimed is closed (assign-only).
+construction. State rules (M8b): TLD free + not ICANN-reserved
+(`IcannTldReserved` — ICANN root TLDs are claimable by no one) + PoW
+at the **length-based** difficulty of the label (`pow_length` curve —
+see `blockchain.md`); claimed is closed (assign-only).
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -163,23 +164,30 @@ their `RecordHash` only.
 ### RecordData
 
 ```text
-RecordData = type.v || payload(type)
+RecordData = type.v || ttl.v || payload(type)
 ```
 
-The type codes are the **real DNS codes** (IANA):
+The type codes are the **real DNS codes** (IANA). The TTL (seconds,
+varint) follows the type code and covers the whole record: bounds
+`MIN_TTL = 1` .. `MAX_TTL = 2,592,000` (30 days; default
+`DEFAULT_TTL = 86,400`).
 
 | Code | Type | Payload |
 |---|---|---|
 | 1 | A | 4 bytes |
 | 2 | NS | `name` |
 | 5 | CNAME | `name` |
+| 12 | PTR | `name` |
 | 15 | MX | `preference.v`, `name` |
 | 16 | TXT | `str` ≤ 4096 |
 | 28 | AAAA | 16 bytes |
+| 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
+| 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (see below) |
 | other | Unknown | code.v + `bytes` ≤ 4096 |
 
-Example: `A 192.0.2.1` → `01 c0 00 02 01`.
+Example: `A 192.0.2.1` (TTL 86,400) → `01 80 a3 05 c0 00 02 01`
+(type, TTL varint, address).
 
 An `Unknown` carrying a known code is rejected at encoding (decoding
 can never produce one).
@@ -193,6 +201,9 @@ GeoRoute  = scope || count.v(≤ 32) || endpoint…
 scope     = 0x00                    -- world
           | 0x01 continent.v        -- UN M49
           | 0x02 country.v          -- ISO 3166-1 numeric
+          | 0x03 region.v           -- region code
+          | 0x04 asn.v              -- AS number
+          | 0x05 prefix.addr[16] || prefix.len u8   -- IP prefix (normalized)
 endpoint  = target || priority.v || weight.v
 target    = 0x00 octets[4]          -- binary IPv4
           | 0x01 octets[16]         -- binary IPv6
@@ -247,7 +258,7 @@ scheme.)*
 ### BlockHeader
 
 ```text
-version.v height.v prev_hash[32] tx_root[32] timestamp.v consensus(bytes ≤ 256)
+version.v height.v prev_hash[32] tx_root[32] timestamp.v consensus(bytes ≤ 65,536)
 ```
 
 - `version`: protocol version (rules above);
@@ -257,9 +268,11 @@ version.v height.v prev_hash[32] tx_root[32] timestamp.v consensus(bytes ≤ 256
 - `tx_root`: commitment over the transaction list (Merkle tree defined
   by `scone-blockchain`, see `/docs/en/technical/blockchain.md`);
 - `timestamp`: ordering information (Unix, seconds);
-- `consensus`: **opaque** payload reserved for future consensus rules
-  (PoW fields, difficulty…). The protocol does not interpret it; only
-  its bound and length are guaranteed.
+- `consensus`: producer payload (`SCONE-BLOCK-V2 ‖ pk[32] ‖
+  sig[64]`, see `blockchain.md`) — a network's genesis carries the raw
+  `network_id`, and an allocation genesis (mainnet kickstarter) may
+  carry an `ALLOC-V1` manifest (≤ 60 KiB); bounded by
+  `MAX_CONSENSUS_LEN` (64 KiB).
 
 ### Block
 
@@ -297,6 +310,13 @@ not exceed `MAX_MESSAGE_LEN` (1 MiB).
 | `0x09` | `Record` | both | `SignedDnsRecord` | — | — |
 | `0x0a` | `Checkpoint` | both | `Checkpoint` | signers ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | both | — | — | checkpoint window |
+| `0x0c` | `GetStatus` | both | — | — | `NodeStatus` |
+| `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finality) | — | — |
+| `0x0e` | `LookupName` | both | `name(str)` | — | `NameState` |
+| `0x0f` | `NameState` | both | on-chain state of the name + TLD | — | — |
+| `0x10` | `GetOwnedNames` | both | `owner[32]` | — | `OwnedNames` |
+| `0x11` | `OwnedNames` | both | owner's live domains + TLDs | — | — |
+| `0x12` | `Error` | reply | application-level error message (`str`) | — | — |
 
 ### Checkpoint (M5)
 
@@ -315,9 +335,10 @@ oldest to newest) via one or more `Checkpoint` messages.
 
 `TxId` is now defined by `scone-blockchain`
 (`BLAKE3-256("SCONE-TX-V1" || canonical(Transaction))`, see
-`/docs/en/technical/blockchain.md`). Deliberately deferred: the
-`GetTransaction` message and the mempool — their definition depends on
-consensus decisions.
+`/docs/en/technical/blockchain.md`). The mempool and windowed
+anti-replay (`TxReplay`, `REPLAY_WINDOW_BLOCKS = 256`) are shipped in
+the relay (M4); only `GetTransaction` remains deferred (its
+definition depends on the remaining consensus decisions).
 
 ## Blockchain / DHT split
 
@@ -344,6 +365,7 @@ if and only if:
 | Constant | Value | Role |
 |---|---|---|
 | `MAX_NAME_LEN` | 253 | length of a name |
+| `MAX_TLD_LEN` | 63 | length of a TLD |
 | `MAX_TXT_LEN` | 4096 | TXT string |
 | `MAX_PROOF_LEN` | 256 | registration proof |
 | `MAX_SIGNATURE_LEN` | 128 | signature (Ed25519 = 64) |
@@ -352,7 +374,7 @@ if and only if:
 | `GEO_MAX_ENDPOINTS` | 32 | endpoints per GeoRoute scope |
 | `MAX_UNKNOWN_DATA` | 4096 | data of an unknown type |
 | `MAX_TXS_PER_BLOCK` | 4096 | transactions per block |
-| `MAX_CONSENSUS_LEN` | 256 | consensus payload of a header |
+| `MAX_CONSENSUS_LEN` | 64 KiB | consensus payload of a header (widened for the `ALLOC-V1` genesis manifest — mainnet kickstarter) |
 | `MAX_BLOCKS_PER_REQUEST` | 128 | blocks per `GetBlocks` |
 | `MAX_MESSAGE_LEN` | 1 MiB | transport frame (recommended) |
 
@@ -408,8 +430,10 @@ Decoding never panics on network data.
 - cross-cutting rule: `owner` and all hashes/commitments are
   **recomputed**, never taken from a provided value.
 
-## Consensus rules (future)
+## Consensus rules
 
-Not defined. Open topics: algorithm (PoW/PoS/hybrid), registration PoW
-difficulty, anti-spam fees, conflict resolution, claim
-expiry/renewal, owner key rotation.
+Shipped (described in `/docs/en/technical/blockchain.md`): signed
+block producer (`SCONE-BLOCK-V2` payload, checkpoint-elected
+committee), finality by aggregated checkpoints (`SCONE-CKPT-V1`, fork
+choice at the finality floor), registration PoW by name length.
+Remaining topics: fine-grained anti-spam fees, owner key rotation.

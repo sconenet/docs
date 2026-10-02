@@ -112,7 +112,7 @@ generations cannot silently overwrite each other.
 ```bash
 scone identity generate --name <n> [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
-scone identity show --name <n> [--dir <directory>] [--passphrase-env VAR]
+scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
 
 - Default directory: `$HOME/.scone/keys`.

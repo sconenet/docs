@@ -44,15 +44,21 @@ Blockchain state
 ## Crates et dépendances
 
 ```text
-scone-crypto    ← couche la plus basse : primitives pures sur octets
+scone-crypto     ← couche la plus basse : primitives pures sur octets
     ▲
-scone-core      ← types du protocole (dépend de scone-crypto)
+scone-core       ← types du protocole (dépend de scone-crypto)
     ▲
 scone-protocol  ← format binaire wire/blockchain
     ▲
 scone-blockchain← logique blockchain, état canonique (en mémoire)
-    ▲
+    ▲               └ scone-topology (moteur pur, zéro réseau/fs/async ;
+                     alimenté par scone-network) — scone-genesis (outil
+                     binaire de préparation de la genèse mainnet)
 scone-storage   ← persistance locale : backend redb + snapshots vérifiés
+    ▲
+scone-network   ← relay p2p : libp2p/QUIC, mempool, sync, DHT, DNS
+    ▲
+scone-keystore  ← keyfiles chiffrés `.sconekey` (dépend de scone-crypto)
     ▲
 scone           ← binaire / application
 ```
@@ -64,8 +70,9 @@ Le `DomainId` doit être calculable dès le socle
 doit pas contaminer le core. Résolution :
 
 - `scone-crypto` est la couche la plus basse : fonctions purement
-  déterministes sur octets, zéro type du core, aucune dépendance
-  réseau/système → aucune circularité possible ;
+  déterministes sur octets (plus l'OS RNG pour la génération de clés),
+  zéro type du core, aucune dépendance réseau/filesystem/async →
+  aucune circularité possible ;
 - `scone-core` ne l'utilise que pour le hachage ;
 - les signatures Ed25519 et les clés vivent dans `scone-crypto` et
   opèrent sur des octets (payloads canoniques produits par
@@ -80,7 +87,9 @@ dans ce crate : libp2p, redb, tokio/async, réseau, fichiers, OS, serveur
 DNS, logique blockchain.
 
 **scone-crypto** — primitives cryptographiques. Aujourd'hui : `hash256`
-(BLAKE3). Prévu : signatures (Ed25519), clés, proof of work, Merkle tree.
+(BLAKE3), signatures et clés Ed25519 (`SigningKey`,
+`PublicKey`, `Signature`, vérification groupée stricte), enveloppe AEAD
+de groupes de records (XChaCha20-Poly1305). Prévu : Merkle tree.
 Règle : aucun algorithme maison, dépendances auditées uniquement.
 
 **scone-protocol** — format binaire du protocole : encodage/décodage
@@ -95,10 +104,13 @@ stockage. Référence du format : `/docs/fr/technical/protocol.md`.
 identification des transactions (`TxId`), arbre de Merkle ordonné,
 `BlockHash`, genèse déterministe, validation des blocs et transactions,
 règles d'application à l'état (`DomainState`/`ChainState`, en mémoire,
-accès direct par `DomainId`), détection minimale de forks et
-abstraction du consensus (`trait Consensus`, impl permissive par
-défaut). Interdits dans ce crate : réseau, DHT, stockage (redb),
-serveur DNS, consensus concret (PoW/difficulté/fork choice). Référence :
+accès direct par `DomainId`), détection de forks et choix de branche
+(`fork_choice` : plancher de finalité + chaîne la plus longue +
+tie-break par hash), finalité par checkpoints et abstraction du
+consensus (`trait Consensus`, impl permissive par défaut). Le PoW
+d'enregistrement (mine/verify, difficultés par réseau) vit dans
+`scone-core`. Interdits dans ce crate : réseau, DHT, stockage (redb),
+serveur DNS. Référence :
 `/docs/fr/technical/blockchain.md`.
 
 **scone-storage** — persistance locale (livrée). Le backend concret est
@@ -109,9 +121,32 @@ paginé, le journal de blocs, les snapshots vérifiés (manifeste + pages
 hachés) et le chemin de restauration/replay après redémarrage. Référence :
 `/docs/fr/technical/storage.md`.
 
+**scone-network** — relay p2p du nœud : swarm libp2p/QUIC, relais de
+transactions et blocs (validation locale systématique), mempool borné,
+sync de blocs bornée (128 blocs/requête), DHT Kademlia pour les
+`SignedDnsRecord`, serveur DNS UDP (GeoDNS optionnel, fallback
+récursif), boucle checkpoint/heartbeat des anchors (le CLI parle
+QUIC p2p direct au relay, plus de RPC local). Référence :
+`/docs/fr/technical/relay.md`.
+
+**scone-keystore** — stockage chiffré des clés de signature Ed25519
+(fichiers `.sconekey` : Argon2id + XChaCha20-Poly1305). Ce crate prend
+en charge le filesystem pour que `scone-crypto` reste pur. Référence :
+`/docs/fr/technical/keystore.md`.
+
+**scone-topology** — moteur PUR d'optimisation locale de topologie p2p :
+zéro réseau, zéro filesystem, zéro async. Ne connaît ni libp2p ni le
+swarm : `scone-network` l'alimente en observations (RTT ping,
+connexions) et reçoit des décisions de gestion de voisinage.
+
+**scone-genesis** — binaire outil (kickstarter) de préparation de la
+genèse mainnet : manifeste JSON versionné, allocations, bloc
+déterministe.
+
 **scone** — binaire/CLI. Ne dépend d'une crate que lorsqu'il l'utilise
 réellement (aujourd'hui : scone-network pour le relay, scone-blockchain,
-scone-storage, scone-keystore, scone-protocol, scone-core).
+scone-storage, scone-keystore, scone-protocol, scone-core,
+scone-crypto, scone-topology).
 
 ## Le nœud
 

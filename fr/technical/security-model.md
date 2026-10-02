@@ -16,7 +16,7 @@ d'attaque existent ; toutes trois sont fermées structurellement :
 ### 1. Avant la seed — impossible de grinder sa position
 
 La seed de l'epoch N+1 dérive du **hash du checkpoint N**, signé par
-quorum (⌈2n/3⌉ du comité N). Le checkpoint N engage le `state_root`
+quorum (floor(2n/3)+1 du comité N — `quorum_for`). Le checkpoint N engage le `state_root`
 d'un état qui **fixe le pool** (base PoS = état exact au bloc finalisé,
 `FinalizedBase.pool`). Produire une autre seed exigerait un autre
 checkpoint quorum-signé — c'est-à-dire corrompre ≥ 1/3 du comité N,

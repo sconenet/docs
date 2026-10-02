@@ -48,13 +48,13 @@ Ordre par criticité des actifs, 1 composant = 1 checklist :
   (pas de représentation ambiguë → 2 clés, 1 owner).
 - Ed25519 : strict DESERIALISATION (clé non canonique rejetée ?),
   vérification à séparation de contexte (chaque usage a son tag de
-  domaine : SCONE-TX-SIGN-V1, SCONE-BLOCK-V2, record DHT — aucun
+  domaine : SCONE-TX-SIG-V1, SCONE-BLOCK-V2, record DHT — aucun
   cross-protocol replay possible).
 - Keystore : passphrase → clé (KDF ? itérations ?), zéroisation,
   permissions fichier, pad oracle sur le ciphertext.
 
 ### 2.2 Application des transactions (jour 5) — le cœur
-Pour CHAQUE variante de Transaction (10 aujourd'hui) :
+Pour CHAQUE variante de Transaction (13 aujourd'hui) :
 - La tx est-elle idempotente au replay (txid unique, nonce/séquence) ?
 - Le contrôle d'ownership précède-t-il tout effet ? (signer == owner
   appris on-chain, jamais cru depuis la tx elle-même.)

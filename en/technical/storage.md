@@ -43,6 +43,12 @@ visible to the rest of the code (blockchain, future M4 relay):
   Name→Id index (P0.2), O(1) point lookup, no iteration over
   domains (default `None` = backend without index, the caller
   falls back to `iterate_domains` or the chain state);
+- `tld_floors_all` / `snapshot_tld_floors_all` — read the
+  lifetime floors of open TLDs (owner-option: dedicated tables,
+  live `tld_floors_v1` and frozen `snapshot_v3_floors`);
+- `rewind_to_height(h)` — reorg: removes the blocks above `h` and
+  brings `tip`/`tip_height` back to `h` in ONE transaction
+  (preliminary to `persist_state_snapshot`, see below);
 - `meta_get` / `meta_set`;
 - `snapshot_meta` / `snapshot_domains` / `snapshot_tlds` — boot
   state snapshot read (M6b; empty defaults = backend without
@@ -74,6 +80,8 @@ Rules:
 | `snapshot_v3_meta` (M6b) | `u64` = 0 (single slot) | `height(8 BE) ‖ tip_hash(32)` = exactly 40 B |
 | `snapshot_v3_domains` (M6b) | `DomainId` (32 B, byte order) | `DomainStateBytes` (same format as `domains`) |
 | `snapshot_v3_tlds` (M6b) | `TldId` (32 B, byte order) | `TldStateBytes` (same format as `tlds`) |
+| `tld_floors_v1` (owner-option) | `TldId` (32 B, byte order) | `u64` (expiry floor, redb implicit BE) |
+| `snapshot_v3_floors` (M6b) | `TldId` (32 B, byte order) | `u64` — frozen copy of the floors (state AT the snapshot, not the tip) |
 
 Additional `meta` key (P0.3/P0.4):
 
@@ -261,6 +269,26 @@ control/repair path.
 
 The relay (M4) will use: `load_chain` at startup, then for every
 accepted block `push_block` (RAM) then `store_block` (disk).
+
+## Reorg persistence (`rewind_to_height` + `persist_state_snapshot`)
+
+A reorg (switch to a stronger sister branch) cannot go through the
+monotonic append — writing the winning suffix would fail with
+`NonMonotonicHeight`. The dedicated path (sticky-minority fix,
+relay + store):
+
+1. `rewind_to_height(fork_height)` — ONE redb transaction removes
+   the blocks above the fork point and brings `tip`/`tip_height`
+   back (the name index and live states are fixed in the next
+   step);
+2. `persist_state_snapshot(store, chain)` — rewrites the live
+   tables (`domains`, `tlds`, name index, TLD floors) from the
+   post-reorg RAM state export: the live tables NEVER describe the
+   LOSING branch at boot;
+3. monotonic re-append of the adopted suffix (ordinary deltas).
+
+A persistence failure on this path is logged and degraded (the
+store heals at boot via replay) — never fatal.
 
 ## Boot state snapshot (M6b)
 
@@ -512,9 +540,13 @@ page    = "SCONE-SNAP-PAGE-V1"
         ‖ index(4) ‖ height(8) ‖ state_root(32)      ← every page is
         ‖ entry_count(4) ‖ entries                   self-identifying
 
-entry   = kind(0x01 domain | 0x02 TLD) ‖ id(32) ‖ len(2) ‖ state
-          (state = DomainStateBytes 57/89 B or TldStateBytes 34 B —
-           the existing canonical storage formats, reused)
+entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
+          ‖ [len(2) ‖ state | floor(8 BE)]
+          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+           the existing canonical storage formats, reused; kind
+           0x03 (lifetime floor of an open TLD, owner-option) has
+           a dedicated format WITHOUT a length prefix:
+           id(32) ‖ floor(8 BE), fixed size)
 ```
 
 Page order: all domain entries (increasing ids), then all TLD
@@ -522,7 +554,12 @@ entries (increasing ids) — the order of the store's cursor
 pagination. Every page carries `(index, height, checkpoint's
 state_root, entries)`: a lone page knows which snapshot it belongs
 to. Pages of 256 entries at export
-(`VERIFIED_SNAPSHOT_PAGE_ENTRIES`); DoS bounds at import.
+(`VERIFIED_SNAPSHOT_PAGE_ENTRIES`); DoS bounds at import. TLD
+floors (`tld_floors_v1`) are part of the portable format: kind
+0x03 carries them, and the import requires them strictly
+ascending and targeting a TLD PRESENT in the snapshot —
+otherwise the importer would never kill what an exporter would
+kill (silent fork, rejected).
 
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 

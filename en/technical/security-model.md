@@ -17,7 +17,7 @@ attack windows exist; all three are structurally closed:
 ### 1. Before the seed — impossible to grind one's position
 
 The seed of epoch N+1 derives from the **hash of checkpoint N**,
-quorum-signed (⌈2n/3⌉ of committee N). Checkpoint N commits the
+quorum-signed (floor(2n/3)+1 of committee N — `quorum_for`). Checkpoint N commits the
 `state_root` of a state that **fixes the pool** (PoS base = exact
 state at the finalized block, `FinalizedBase.pool`). Producing a
 different seed would require a different quorum-signed checkpoint

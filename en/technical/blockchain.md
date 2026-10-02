@@ -7,8 +7,10 @@ The reference implementation is the crate
 `scone-protocol` (canonical encoding), `scone-core` (business rules), and
 `scone-crypto` (BLAKE3).
 
-Current scope: **in-memory** blockchain logic, without concrete consensus,
-network, or storage (see [Deferred to consensus](#deferred-to-consensus)).
+Current scope: blockchain logic with real consensus (signed producer,
+checkpoints, finality), **in-memory state** on top of a KV backend
+(concrete storage lives in `scone-storage`) — see
+[Deferred to consensus](#deferred-to-consensus).
 
 ## Identities and hash domain separation
 
@@ -136,13 +138,16 @@ difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
 ```
 
 (0.415 = log₂(4/3); since difficulty is an integer number of bits, the
-exact curve is approximated in steps — deviation ≤ 5%.) Mainnet
-benchmarks: 1 character = 42 bits (≥ 7 days at 6 M hashes/s), 5 chars =
-40 bits (~2 days), 19 chars = 35 bits (~1.6 h), 29+ chars = 30-bit
-floor (~3 min). **Opening** an existing TLD (`SetTldOpen`) stays at
-flat difficulty: the tx carries only the `tld_id`, the name has paid
-for its length at creation. Pure function (determinism: two nodes
-compute the same difficulty for the same name).
+exact curve is approximated in steps — deviation ≤ 5%.) Private-TLD
+mainnet benchmarks: 1 character = 42 bits (≥ 7 days at 6 M hashes/s),
+5 chars = 40 bits (~2 days), 19 chars = 35 bits (~1.6 h), 29+ chars =
+30-bit floor (~3 min). The domain and the born-open TLD follow the
+same curve with apex − 2 (40 bits mainnet). **Opening** an existing
+private TLD (`SetTldOpen`) stays at flat difficulty
+(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): the tx
+carries only the `tld_id`, the name has paid for its length at
+creation. Pure function (determinism: two nodes compute the same
+difficulty for the same name).
 
 Genesis is a protocol constant **per network**, reproducible from the
 constants alone (no randomness, no local clock, no network):
@@ -156,6 +161,12 @@ constants alone (no randomness, no local clock, no network):
 | `timestamp` | `GENESIS_TIMESTAMP = 0` (purely structural) |
 | `consensus` | the canonical bytes of the `network_id` |
 | transactions | empty |
+
+**Allocation genesis** variant (mainnet kickstarter, M-next): the
+`consensus` field carries `network_id ‖ ALLOC-V1 ‖ count.v ‖ entries`
+(pre-paid domains/TLDs, canonical sort by name, manifest ≤ 60 KiB,
+≤ 2048 allocations) — this widened format is what justifies
+`MAX_CONSENSUS_LEN` = 64 KiB (see `scone-blockchain::genesis_alloc`).
 
 The `network_id` in the consensus payload makes the genesis hashes —
 and therefore the entire blockchain — **disjoint across networks**: a
@@ -185,8 +196,10 @@ ChainState   = NetworkParams                  (bound network, M8b)
 * `registered_at` / `valid_until` (M8b): registration expiry,
   evaluated against the **parent block's timestamp** (deterministic,
   committed in the header — never the local clock);
-* `open` (M8b): `false` at claim time (closed = assign-only), `true`
-  after a `SetTldOpen` (self-registration with PoW);
+* `open`: a private TLD can be **born open** (`RegisterTld` with
+  `open = 0x01` — no one, self-service) or **closed** at claim time
+  (closed = assign-only), then become open via `SetTldOpen`
+  (self-registration with PoW) — **irreversibly**;
 
 - direct access by `DomainId` (32 bytes): never a `String` as key,
   never a full scan — a necessary condition to target hundreds of
@@ -212,18 +225,24 @@ never applied, never pooled by a mainnet node, and vice versa).
 
 **REGISTER_TLD**:
 
-- the TLD must be **free** (absent from the TLD registry);
+- the TLD must be **free** (absent from the TLD registry) and **not
+  ICANN-reserved** (`IcannTldReserved`: ICANN root TLDs belong to no
+  one on Scone);
 - **mandatory PoW**: `pow::verify` on the challenge
-  `SCONE-TLD-V1 || tld` (derived from the name carried by the tx) at
-  the network's `tld_pow_difficulty` — the digest is recomputed from
-  scratch
+  `SCONE-TLD-V1 || tld` (derived from the name carried by the tx), at
+  the **length-based** difficulty of the label (`pow_length`):
+  private birth → `tld_difficulty` (network apex), open birth
+  (`open = 0x01`) → `open_tld_difficulty` (apex − 2) — the digest is
+  recomputed from scratch
   (`SCONE-POW-V2 || network || challenge || epoch || nonce`), the
-  self-declared difficulty must equal the network constant, and the
-  **epoch declared** by the proof must equal
+  self-declared difficulty must equal the expected difficulty, and
+  the **epoch declared** by the proof must equal
   `height/POW_WINDOW` of the applying block (V2 epoch salt against
   pre-mining — typed rejection `ProofEpochMismatch`, see
   `transactions.md`);
-- on application: `{ owner, open: false }` — **closed by default**
+- on application: `open = 0x01` → `{ Open }` (no one — self-service,
+  PoS seat released, death floor laid at `now + grace`);
+  `open = 0x00` → `{ Private { owner } }` — **closed by default**
   (assign-only); opening is explicit via `SetTldOpen`.
 
 **REGISTER (RegisterDomain)**:
@@ -235,7 +254,8 @@ never applied, never pooled by a mainnet node, and vice versa).
 - the domain must be **free**: absent from the state AND outside any
   grace window of an expired registration (see GC below);
 - **mandatory PoW**: challenge `SCONE-DOMAIN-V1 || name` at the
-  `domain_pow_difficulty` (the TLD being open, this is the
+  **length-based difficulty of the leftmost label**
+  (`pow_length::domain_difficulty` — the TLD being open, this is the
   self-service entry price);
 - on application: `{ owner, sequence: 0, record_hash: None,
   registered_at: now, valid_until: now + 1 year }` — **registration
@@ -256,7 +276,8 @@ block (undo-log).
 
 **TRANSFER_TLD (0x47)**:
 
-- the TLD must exist (`UnknownTld` otherwise);
+- the TLD must exist and be **private** (`UnknownTld` / `TldIsOpen`
+  otherwise — an open TLD belongs to no one);
 - the signer must be the current owner (`NotTldOwner` otherwise);
 - on application: `owner = new_owner` (the recipient's identity is
   opaque; the binding to the keys that can spend it is done by
@@ -265,27 +286,46 @@ block (undo-log).
 
 **REVOKE_TLD (0x6B)**:
 
-- the TLD must exist, signer = current owner;
+- the TLD must exist and be **private** (an open TLD cannot be
+  revoked — `TldIsOpen`: it dies naturally at GC), signer = current
+  owner;
 - on application: the TLD is removed from the registry and becomes
   re-claimable by a fresh `RegisterTld` (PoW included).
 
 **SET_TLD_OPEN (0xB8)**:
 
-- the TLD must exist, signer = current owner;
-- **opening = mandatory PoW**: when `tx.open = true`, `pow::verify`
-  on the challenge `SCONE-TLD-OPEN-V1 || tld_id` at the network's
-  `open_tld_pow_difficulty` (the proof travels in the tx's signed
-  `open_proof` field — closing is free);
-- on application: `open = tx.open`.
+- the TLD must exist and be **private** (already open → `TldIsOpen`:
+  the former owner is erased, no legitimate key exists anymore to
+  sign for it); `open = 0x00` (closing) → typed rejection
+  `TldCloseUnsupported` as early as pure validation: **opening is
+  irreversible** (owner-option);
+- signer = current owner (`NotTldOwner`);
+- **opening = mandatory PoW**: `pow::verify` on the challenge
+  `SCONE-TLD-OPEN-V1 || tld_id` at the network's flat
+  `open_tld_pow_difficulty` (6 bits testnet / 22 bits mainnet), V2
+  epoch salt included (the proof travels in the tx's signed
+  `open_proof` field);
+- on application: `TldState::Open` — **the owner is erased**
+  (irreversible, PoS seat released), a death floor is laid at
+  `now + grace`.
 
 **ASSIGN_DOMAIN (0xD4)**:
 
-- the TLD of the carried name must exist (open or closed — the owner
-  can always assign), signer = owner of the TLD (`NotTldOwner`);
+- the TLD of the carried name must exist and be **private**
+  (`TldIsOpen` otherwise: an open TLD is self-service only), signer =
+  owner of the TLD (`NotTldOwner`);
 - the domain must be free (same grace rule as REGISTER);
 - on application: `{ owner: assignee, sequence: 0, record_hash:
   None, registered_at: now, valid_until: now + 1 year }`. **No
   PoW**: it is the namespace owner who vouches.
+
+**TRANSFER_DOMAIN (0xE2, M8c)**:
+
+- the domain must exist (`UnknownDomain` otherwise), signer = current
+  owner (`NotOwner`);
+- on application: `owner = new_owner` (the PoS seat follows the
+  domain in the owner pool, symmetric with `TransferTld`). No
+  sequence: the first applied transfer wins (chain order).
 
 **RENEW_DOMAIN (0x3C)**:
 
@@ -295,7 +335,9 @@ block (undo-log).
 - `valid_until ≤ now + 3 years` (`RenewalExceedsTerm` —
   anti-hoarding bound: **1 renewal term = 1 year, 3 years ahead
   maximum**);
-- on application: `valid_until = tx.valid_until`.
+- on application: `valid_until = tx.valid_until`; the renewal also
+  postpones the death floor of the underlying open TLD (the tx
+  carries the canonical name for that purpose).
 
 **Deterministic GC (M8b)**: before applying a block's transactions,
 the chain evaluates expirations at the **parent block's timestamp**:
@@ -417,7 +459,7 @@ BlockBuilder::after(parent_height, prev_hash)
 - `version` = `PROTOCOL_VERSION`;
 - the `MAX_TXS_PER_BLOCK` bound enforced at insertion
   (`TooManyTransactions`);
-- the `consensus` payload (future PoW fields) and the `timestamp` are
+- the `consensus` payload (signed producer payload) and the `timestamp` are
   supplied by the caller: concrete consensus plugs in via the existing
   [`Consensus`](#consensus-abstraction) trait, symmetrically to
   validation;
@@ -441,7 +483,8 @@ competing blocks:
   the same winner, tested);
 - **finality floor**: a branch one of whose ancestors contradicts a
   finalized checkpoint (included in the `prev_checkpoint_hash` of an
-  accepted checkpoint) is refused (`FinalityConflict`);
+  accepted checkpoint) is refused (typed error
+  `Consensus("branch contradicts a finalized checkpoint")`);
 - adoption = replay from genesis of the winning branch's blocks
   (bit-exact determinism tested: two nodes receiving the same blocks
   in different orders end up in the same state);
@@ -669,8 +712,9 @@ reproducible byte for byte.
 ### Parameters and duration bounds
 
 Default values: `produce_interval` 7 ticks, `sign_interval` 16
-heights, `sync_interval` 29–41 ticks, `horizon` 200k–500k virtual
-ticks. Every test embeds a wall-clock guard < 60 s in debug mode
+heights, `sync_interval` 29–60 ticks (41 by default, lowered in some
+tests), `horizon` 200k–500k virtual ticks. Every test embeds a
+wall-clock guard < 60 s in debug mode
 (`assert_under_60s`). The dominant cost is the validation kernel
 (~9 ms per empty `push_block_with_gc` in debug, Ed25519
 unoptimized): scenarios stay under ~8 nodes × 500 blocks.

@@ -40,6 +40,12 @@ reste du code (blockchain, futur relay M4) :
   persistant (P0.2), lookup ponctuel O(1), sans itération des
   domaines (défaut `None` = backend sans index, l'appelant retombe
   sur `iterate_domains` ou l'état chaîne) ;
+- `tld_floors_all` / `snapshot_tld_floors_all` — lecture des
+  planchers de vie des TLDs ouverts (owner-option : tables dédiées
+  `tld_floors_v1` vivante et `snapshot_v3_floors` gelée) ;
+- `rewind_to_height(h)` — reorg : retire en UNE transaction les
+  blocs au-dessus de `h` et ramène `tip`/`tip_height` à `h`
+  (préalable à `persist_state_snapshot`, voir ci-dessous) ;
 - `meta_get` / `meta_set` ;
 - `snapshot_meta` / `snapshot_domains` / `snapshot_tlds` — lecture du
   snapshot d'état de boot (M6b ; défauts vides = backend sans
@@ -71,6 +77,8 @@ Règles :
 | `snapshot_v3_meta` (M6b) | `u64` = 0 (slot unique) | `height(8 BE) ‖ tip_hash(32)` = 40 o exactement |
 | `snapshot_v3_domains` (M6b) | `DomainId` (32 o, ordre octet) | `DomainStateBytes` (même format que `domains`) |
 | `snapshot_v3_tlds` (M6b) | `TldId` (32 o, ordre octet) | `TldStateBytes` (même format que `tlds`) |
+| `tld_floors_v1` (owner-option) | `TldId` (32 o, ordre octet) | `u64` (plancher d'expiration, BE implicite redb) |
+| `snapshot_v3_floors` (M6b) | `TldId` (32 o, ordre octet) | `u64` — copie figée des planchers (état AU snapshot, pas à la pointe) |
 
 Clé de `meta` supplémentaire (P0.3/P0.4) :
 
@@ -258,6 +266,26 @@ complet reste possible et sert de contrôle/repair.
 
 Le relay (M4) utilisera : `load_chain` au démarrage, puis pour chaque
 bloc accepté `push_block` (RAM) puis `store_block` (disque).
+
+## Persistance des reorgs (`rewind_to_height` + `persist_state_snapshot`)
+
+Un reorg (bascule vers une branche sœur plus forte) ne peut passer
+par l'append monotone — écrire le suffixe gagnant échouerait en
+`NonMonotonicHeight`. Le chemin dédié (fix de la minorité collante,
+relay + store) :
+
+1. `rewind_to_height(fork_height)` — UNE transaction redb retire
+   les blocs au-dessus du point de fourche et ramène
+   `tip`/`tip_height` (l'index de noms et les états vivants sont
+   corrigés à l'étape suivante) ;
+2. `persist_state_snapshot(store, chain)` — réécrit les tables
+   vivantes (`domains`, `tlds`, index de noms, planchers TLD)
+   depuis l'export de l'état RAM post-reorg : les tables vivantes
+   ne décrivent JAMAIS la branche perdante au boot ;
+3. ré-append monotone du suffixe adopté (deltas ordinaires).
+
+Une défaillance de persistance sur ce chemin est journalisée et
+dégradée (le store se répare au boot par rejeu) — jamais fatale.
 
 ## Snapshot d'état de boot (M6b)
 
@@ -511,9 +539,13 @@ page    = "SCONE-SNAP-PAGE-V1"
         ‖ index(4) ‖ height(8) ‖ state_root(32)      ← chaque page est
         ‖ entry_count(4) ‖ entries                     auto-identifiante
 
-entry   = kind(0x01 domaine | 0x02 TLD) ‖ id(32) ‖ len(2) ‖ état
-          (état = DomainStateBytes 57/89 o ou TldStateBytes 34 o —
-           les formats de stockage canoniques existants, réutilisés)
+entry   = kind(0x01 domaine | 0x02 TLD | 0x03 plancher TLD) ‖ id(32)
+          ‖ [len(2) ‖ état | floor(8 BE)]
+          (état = DomainStateBytes 57/89 o ou TldStateBytes 2/34 o —
+           les formats de stockage canoniques existants, réutilisés ;
+           le kind 0x03 (plancher de vie d'un TLD ouvert,
+           owner-option) a un format dédié SANS préfixe de longueur :
+           id(32) ‖ floor(8 BE), taille fixe)
 ```
 
 Ordre des pages : toutes les entrées domaine (ids croissants),
@@ -522,6 +554,11 @@ pagination curseur du store. Chaque page porte `(index, hauteur,
 state_root du checkpoint, entrées)` : une page seule sait à quel
 snapshot elle appartient. Pages de 256 entrées à l'export
 (`VERIFIED_SNAPSHOT_PAGE_ENTRIES`) ; bornes DoS à l'import.
+Les planchers TLD (`tld_floors_v1`) font partie du format
+portatif : le kind 0x03 les porte, et l'import les exige
+croissants et ciblant un TLD PRÉSENT dans le snapshot — sinon
+l'importateur ne tuerait jamais ce que l'exportateur tuerait
+(fork silencieux, rejet).
 
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 
