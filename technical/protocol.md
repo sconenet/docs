@@ -123,8 +123,11 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 Le `RegisterDomain` porte le **nom canonique en clair**, suivi de
 son `DomainId` — la cohérence `domain_id == DomainId(name)` est
 re-vérifiée au décodage (recomputée, jamais crue). `proof` porte le
-PoW de registration (12 octets : nonce + difficulté, vérifié à
-l'application contre la constante du réseau — M8b). `public_key` est
+PoW de registration (20 octets : nonce + époque + difficulté — sel
+d'époque V2 `epoch = height/144` du bloc appliquant, vérifié
+STRICTEMENT à l'application contre la constante du réseau et
+l'époque du bloc ; rejet typé `ProofEpochMismatch` sur écart —
+M8b/V2, voir `transactions.md`). `public_key` est
 la clé Ed25519 du signataire (32 octets exactement) ; `owner` doit
 être la dérivation BLAKE3 de cette clé (recomputé, jamais cru) ;
 `signature` fait exactement 64 octets.

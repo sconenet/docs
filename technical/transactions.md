@@ -323,39 +323,72 @@ Propriétés :
 Le champ `proof` de `RegisterDomain` et `RegisterTld` porte la preuve
 de travail de registration (module `scone-core::pow`).
 
-### Digest
+### Digest (V2 — sel d'époque, anti pré-minage)
 
 ```text
-digest = BLAKE3-256("SCONE-POW-V1" || network || challenge || nonce_le64)
+epoch  = block_height / POW_WINDOW        (POW_WINDOW = 144 blocs)
+digest = BLAKE3-256("SCONE-POW-V2" || network || challenge || epoch_le64 || nonce_le64)
 ```
 
 `network` est le `network_id` canonique (M8b) : une preuve minée pour
 un réseau n'est pas une preuve sur un autre.
-```
 
 `challenge` est l'entrée de dérivation de l'objet claimé —
 `"SCONE-TLD-V1" || tld` pour un TLD, `"SCONE-DOMAIN-V1" || nom` pour
 un domaine : exactement les octets hashés pour `TldId` / `DomainId`,
 si bien qu'une preuve n'est jamais rejouable entre namespaces ni
-entre kinds d'objets. `nonce_le64` est l'encodage little-endian sur
-8 octets du nonce.
+entre kinds d'objets. `epoch_le64` et `nonce_le64` sont les encodages
+little-endian sur 8 octets de l'époque et du nonce.
 
 La preuve est valide quand `digest` a au moins `difficulty` bits de
 zéro en tête.
 
-### Charge utile wire (12 octets fixes)
+#### Sel d'époque — anti pré-minage / Epoch salt — anti pre-mining
+
+Le digest V1 ne liait ni le temps ni la hauteur : n'importe qui
+pouvait pré-miner aujourd'hui des preuves pour des milliers de noms
+puis les enregistrer en rafale au lancement mainnet (squattage) — la
+preuve était autonome et valait au premier bloc venu. Le digest V2
+sale la preuve avec l'**époque du bloc qui APPLIQUE la transaction**
+:
+
+- `epoch = block_height / POW_WINDOW`, `POW_WINDOW = 144` blocs
+  (~2,6 h à 65 s/bloc) : une fenêtre de grâce pour l'utilisateur
+  honnête (miner, puis soumettre dans la fenêtre), un re-minage
+  obligatoire au-delà / a grace window for the honest user, mandatory
+  re-mining beyond it ;
+- la preuve DÉCLARE son époque sur le wire ; à l'application,
+  l'époque déclarée doit ÊTRE celle du bloc appliquant — égalité
+  stricte, **aucune fenêtre de tolérance** (une fenêtre rendrait le
+  pré-minage à nouveau possible : c'est le mineur qui choisit quand
+  soumettre) / strict equality, NO tolerance window (a window would
+  re-open pre-mining: the submitter chooses when to submit) ;
+- admission mempool (best effort) : la hauteur future du bloc est
+  inconnue — le relais vérifie contre l'époque de `hauteur courante +
+  1`, la vérification stricte à l'application reste l'autorité /
+  mempool admission (best effort): the relay verifies against
+  `epoch(current_height + 1)`; strict application-time verification
+  remains the authority ;
+- rejeu déterministe : la preuve PORTE son époque, un bloc historique
+  re-vérifie à l'identique sur tout nœud.
+
+Changement cassant pré-mainnet : le format V1 (12 octets) est rejeté
+sans rétrocompatibilité.
+
+### Charge utile wire (20 octets fixes)
 
 ```text
-nonce_le64 || difficulty_le32
+nonce_le64 || epoch_le64 || difficulty_le32
 ```
 
-La difficulté voyage avec la preuve, mais elle est
-**producteur-déclarée et donc jamais crue** : le vérificateur la
-compare à la **constante protocole** du kind de registration, et un
-payload dont la difficulté déclarée diffère de la constante (plus
-basse *ou* plus haute) est rejeté (`InvalidProof`). Le nonce est
-ensuite re-vérifié à la difficulté constante, digest recomputé de
-zéro.
+La difficulté et l'époque voyagent avec la preuve, mais elles sont
+**producteur-déclarées et donc jamais crues** : le vérificateur
+compare la difficulté à la **constante protocole** du kind de
+registration (un payload dont la difficulté déclarée diffère de la
+constante — plus basse *ou* plus haute — est rejeté,
+`InvalidProof`), et l'époque à celle du bloc appliquant
+(`ProofEpochMismatch` en cas d'écart). Le nonce est ensuite
+re-vérifié à la difficulté constante, digest recomputé de zéro.
 
 ### Difficultés (paramètres **par réseau**, M8b)
 
@@ -489,4 +522,5 @@ depuis l'identité du keystore, jamais repris de l'entrée.
 | Version | Contenu | Statut |
 |---|---|---|
 | 1 | `public_key` + `signature` embarquées, payload `SCONE-TX-SIG-V1`, octet de version `0x01`, `RegisterDomain` porte le nom, `RegisterTld` (0x93), famille M8a : `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — formats wire normatifs ; M8b : champ `network` signé en tête de chaque payload, `RegisterTld` porte le nom, règles d'état complètes, difficultés PoW par réseau | remplacée |
-| 1 (2026-09, wire sans network) | **retrait du champ `network` du wire de toutes les transactions** : le network_id vit uniquement dans le payload de signature (`signing_payload(tx, network)` l'injecte en tête) ; la séparation de réseaux repose sur la signature (`InvalidSignature` sur payload étranger, l'erreur `WrongNetwork` disparaît) ; `TX_FORMAT_VERSION` reste `0x01` (testnet relançable, pas de coexistence) ; **tous les TxId changent** (le TxId est le hash de l'encodage wire signé, qui perd 14-15 octets) ; digest PoW, genèse et data-dirs per-network inchangés | courante |
+| 1 (2026-09, wire sans network) | **retrait du champ `network` du wire de toutes les transactions** : le network_id vit uniquement dans le payload de signature (`signing_payload(tx, network)` l'injecte en tête) ; la séparation de réseaux repose sur la signature (`InvalidSignature` sur payload étranger, l'erreur `WrongNetwork` disparaît) ; `TX_FORMAT_VERSION` reste `0x01` (testnet relançable, pas de coexistence) ; **tous les TxId changent** (le TxId est le hash de l'encodage wire signé, qui perd 14-15 octets) ; digest PoW, genèse et data-dirs per-network inchangés | remplacée |
+| 1 (2026-10, PoW V2 sel d'époque) | **digest PoW V2 anti pré-minage** : `BLAKE3("SCONE-POW-V2" ‖ network ‖ challenge ‖ epoch_le ‖ nonce_le)` avec `epoch = block_height / 144` du bloc QUI APPLIQUE la tx ; charge utile wire de la preuve 12 → **20 octets** (`nonce_le ‖ epoch_le ‖ difficulty_le`), l'époque déclarée est vérifiée STRICTEMENT contre l'époque du bloc appliquant (rejet typé `ProofEpochMismatch`, aucune tolérance), best-effort `(height+1)/144` à l'admission mempool ; changement cassant pré-mainnet : le payload V1 12 octets est rejeté, **tous les TxId changent** (le champ `proof` s'allonge de 8 octets) | courante |

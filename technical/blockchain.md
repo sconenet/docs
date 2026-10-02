@@ -218,8 +218,13 @@ inversement).
 - **PoW obligatoire** : `pow::verify` sur le challenge
   `SCONE-TLD-V1 || tld` (dérivé du nom porté par la tx) à la
   difficulté `tld_pow_difficulty` du réseau — le digest est
-  recalculé de zéro (`SCONE-POW-V1 || network || challenge || nonce`),
-  la difficulté auto-déclarée doit égaler la constante réseau ;
+  recalculé de zéro
+  (`SCONE-POW-V2 || network || challenge || epoch || nonce`), la
+  difficulté auto-déclarée doit égaler la constante réseau, et
+  l'**époque déclarée** par la preuve doit égaler
+  `height/POW_WINDOW` du bloc appliquant (sel d'époque V2 anti
+  pré-minage — rejet typé `ProofEpochMismatch`, voir
+  `transactions.md`) ;
 - à l'application : `{ owner, open: false }` — **fermé par défaut**
   (assign-only) ; l'ouverture est explicite via `SetTldOpen`.
 
