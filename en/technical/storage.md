@@ -550,7 +550,9 @@ entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
 ```
 
 Page order: all domain entries (increasing ids), then all TLD
-entries (increasing ids) — the order of the store's cursor
+entries (increasing ids), then the TLD lifetime floors FROZEN at the
+snapshot height (`snapshot_tld_floors_all` — not the live table) —
+the order of the store's cursor
 pagination. Every page carries `(index, height, checkpoint's
 state_root, entries)`: a lone page knows which snapshot it belongs
 to. Pages of 256 entries at export
@@ -564,7 +566,10 @@ kill (silent fork, rejected).
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 
 Serializes the state of the LAST FINALIZED CHECKPOINT — not the
-tip. Prerequisite: the store holds an M6b persisted snapshot
+tip. Emits domains, TLDs, then the TLD lifetime floors frozen at the
+snapshot height (export/import symmetry: the export historically
+omitted floors — fixed, regression test
+`export_carries_tld_lifetime_floors`). Prerequisite: the store holds an M6b persisted snapshot
 (`snapshot_v3_*`) exactly at the checkpoint's height (the
 `CHECKPOINT_KEEP`/`SNAPSHOT_INTERVAL` window guarantees such a
 state is regularly available); the block's anchor is RECOMPUTED

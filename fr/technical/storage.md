@@ -549,7 +549,7 @@ entry   = kind(0x01 domaine | 0x02 TLD | 0x03 plancher TLD) ‖ id(32)
 ```
 
 Ordre des pages : toutes les entrées domaine (ids croissants),
-puis toutes les entrées TLD (ids croissants) — l'ordre de la
+puis toutes les entrées TLD (ids croissants), puis les planchers TLD GELÉS à la hauteur du snapshot (`snapshot_tld_floors_all` — pas la table vivante) — l'ordre de la
 pagination curseur du store. Chaque page porte `(index, hauteur,
 state_root du checkpoint, entrées)` : une page seule sait à quel
 snapshot elle appartient. Pages de 256 entrées à l'export
@@ -563,6 +563,10 @@ l'importateur ne tuerait jamais ce que l'exportateur tuerait
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 
 Sérialise l'état du DERNIER CHECKPOINT FINALISÉ — pas la pointe.
+Émet les domaines, les TLD, puis les planchers TLD gelés à la
+hauteur du snapshot (symétrie export/import : historiquement
+l'export oubliait les planchers — corrigé, test de non-régression
+`export_carries_tld_lifetime_floors`).
 Prérequis : le store détient un snapshot M6b persisté
 (`snapshot_v3_*`) exactement à la hauteur du checkpoint (la fenêtre
 `CHECKPOINT_KEEP`/`SNAPSHOT_INTERVAL` garantit qu'un tel état est
