@@ -88,7 +88,7 @@ transactions, records DNS, blocs (`Block`/`BlockHeader` au champ
 consensus opaque) et messages P2P, avec limites de taille vérifiées
 avant allocation, rejet des formes non canoniques et versionnement
 (`PROTOCOL_VERSION`). Aucune logique de consensus, de réseau ou de
-stockage. Référence du format : `/docs/technical/protocol.md`.
+stockage. Référence du format : `/docs/fr/technical/protocol.md`.
 
 **scone-blockchain** — logique blockchain et état canonique :
 identification des transactions (`TxId`), arbre de Merkle ordonné,
@@ -98,7 +98,7 @@ accès direct par `DomainId`), détection minimale de forks et
 abstraction du consensus (`trait Consensus`, impl permissive par
 défaut). Interdits dans ce crate : réseau, DHT, stockage (redb),
 serveur DNS, consensus concret (PoW/difficulté/fork choice). Référence :
-`/docs/technical/blockchain.md`.
+`/docs/fr/technical/blockchain.md`.
 
 **scone-storage** — abstraction de stockage local. Le backend concret sera
 `redb`, caché derrière un trait minimal afin que blockchain/DHT/DNS ne
@@ -154,7 +154,7 @@ Deux profils de nœuds :
 Ce chemin est OPT-IN : l'import d'un snapshot vérifié est une
 action explicite de l'opérateur (`import_verified_snapshot`),
 jamais automatique — le comportement par défaut d'un nœud existant
-ne change pas. Détails normatifs : `/docs/technical/storage.md`,
+ne change pas. Détails normatifs : `/docs/fr/technical/storage.md`,
 sections « Snapshot d'état VÉRIFIÉ » et « Bootstrap d'état ».
 
 ## Flux de résolution DNS (futur, provisoire)

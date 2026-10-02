@@ -109,7 +109,7 @@ La transaction `RegisterTld` (claim signée d'un TLD, `owner` toujours
 recomputé de la clé embarquée) fait partie de l'enum `Transaction` et
 du format wire depuis M7b : discriminant `0x93` (constante opaque
 arbitraire), payload signé `SCONE-TX-SIG-V1`, règles complètes dans
-`/docs/technical/transactions.md`. Le `RegisterDomain` d'un domaine
+`/docs/fr/technical/transactions.md`. Le `RegisterDomain` d'un domaine
 porte parallèlement le nom canonique en clair.
 
 ## Réservation/gouvernance des TLDs
@@ -120,7 +120,7 @@ est complète : claim avec PoW (difficulté par réseau), namespace
 **fermé** par défaut (assign-only), ouverture explicite
 (`SetTldOpen`), transfert (`TransferTld`), abandon (`RevokeTld`,
 re-claimable). Les domaines expirent après 1 an (renouvelables,
-grâce 30 j — voir `/docs/technical/blockchain.md`).
+grâce 30 j — voir `/docs/fr/technical/blockchain.md`).
 
 **TLD de la racine ICANN** : réservés. `RegisterTld` sur un TLD de la
 liste figée IANA (`is_icann_tld`, ~1 440 entrées + RFC 2606) est

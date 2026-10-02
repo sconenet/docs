@@ -255,7 +255,7 @@ Toutes les `produce_interval` secondes (2 s par défaut) : si le
 mempool est non-vide, un bloc est assemblé par `BlockBuilder`
 (`timestamp = now`) **signé par un producteur autorisé** (payload
 `SCONE-BLOCK-V2` dans `header.consensus`, voir
-`/docs/technical/blockchain.md`) et suit exactement le chemin
+`/docs/fr/technical/blockchain.md`) et suit exactement le chemin
 d'acceptation d'un bloc reçu. Un relay sans tx ne produit rien.
 
 Clé de production : la clé anchor (`--anchor-key`) quand le relay en

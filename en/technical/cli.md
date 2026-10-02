@@ -1,0 +1,70 @@
+# CLI (`scone`) — logging and verbosity
+
+> Normative behavior of the `scone` binary's logging. Any doc/code
+> divergence = bug (fix the source of truth).
+
+## Principles
+
+- **stdout is reserved for command output** (`scone show`,
+  `identity list`, `status`, …). A script can redirect stdout
+  without ever finding logs in it — piping stays reliable. Accepted
+  exception: `scone relay` emits **one** data line
+  `p2p: <multiaddr>` on stdout as soon as the listener is bound
+  (usable data for `--bootstrap`, not a log; emitted exactly once,
+  flushed immediately).
+- **All logs go to stderr** (compact `tracing` format), including
+  the relay's — the relay already logged to stderr before the
+  migration.
+- The CLI's user-facing error messages (`scone: <error>`) stay on
+  stderr: this is UX, not logs.
+
+## Levels and `--verbose` / `-v`
+
+| Invocation | Effective level |
+|---|---|
+| `scone <cmd>` (without `-v`) | `warn` |
+| `scone relay` (without `-v`) | `info` |
+| `scone -v <cmd>` / `scone relay -v` | `info` |
+| `scone -vv …` | `debug` |
+| `scone -vvv …` (and more) | `trace` |
+
+`-v`/`--verbose` is a **global and repeatable** flag: it is
+accepted before or after the subcommand (`scone -vv identity list`
+and `scone identity list -vv` are equivalent).
+
+**Why `scone relay` stays at INFO by default**: the relay is a
+daemon — it must log its activity (RPC/p2p listening, accepted and
+produced blocks, connected peers, rejections) to be operable,
+without requiring a flag. One-shot commands, on the other hand,
+stay silent (WARN) so as not to pollute a terminal or a script.
+
+## `RUST_LOG` (override)
+
+If the `RUST_LOG` environment variable is set, it **entirely
+replaces** the level derived from `-v` (`env-filter` syntax):
+
+```bash
+RUST_LOG=debug scone identity list        # debug without -v
+RUST_LOG=error scone -vv relay            # error wins over -vv
+RUST_LOG=scone_network=trace,info scone relay   # per-target
+```
+
+## Level semantics (code convention)
+
+- `error!`: failures (no call sites today — network failures are
+  swallowed as `warn!` and only fatal local failures surface as a
+  typed error from `run()`);
+- `warn!`: hostile or malicious network entries turned away,
+  stale txs evicted from the mempool, conflicting txs dropped
+  during production, outbound/inbound failures, DHT key mismatch;
+- `info!`: block accepted/produced, RPC/p2p listening, peer
+  connected, relay startup (state checkpoints);
+- `debug!`: internal details (tx accepted, peer disconnected, RPC
+  round trip, keystore listing, kad events under
+  `SCONE_KAD_DEBUG`);
+- `trace!`: reserved for payloads (no call sites today).
+
+Library crates (`scone-network`, …) emit `tracing` macros but
+**initialize no subscriber**: initialization lives only in the
+`scone` binary (before subcommand dispatch — the relay needs its
+logs from boot).

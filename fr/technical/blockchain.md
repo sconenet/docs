@@ -3,7 +3,7 @@
 Document de référence de la couche blockchain : identités, hash, genèse,
 état canonique, ordre des transactions et validation des blocs.
 L'implémentation de référence est la crate
-[`scone-blockchain`](../../crates/scone-blockchain), au-dessus de
+[`scone-blockchain`](../../../crates/scone-blockchain), au-dessus de
 `scone-protocol` (encodage canonique), `scone-core` (règles métier) et
 `scone-crypto` (BLAKE3).
 
@@ -17,8 +17,8 @@ préfixe n'est jamais réutilisé entre deux usages :
 
 | Type | Rôle | Préfixe | Formule |
 |---|---|---|---|
-| `DomainId` | identité du nom de domaine | `SCONE-DOMAIN-V1` | voir `/docs/general/naming.md` |
-| `RecordHash` | identité du contenu DNS | `SCONE-RECORD-V1` | voir `/docs/technical/protocol.md` |
+| `DomainId` | identité du nom de domaine | `SCONE-DOMAIN-V1` | voir `/docs/fr/general/naming.md` |
+| `RecordHash` | identité du contenu DNS | `SCONE-RECORD-V1` | voir `/docs/fr/technical/protocol.md` |
 | `TxId` | identité de la transaction | `SCONE-TX-V1` | ci-dessous |
 | `BlockHash` | identité du bloc | `SCONE-BLOCK-V1` | ci-dessous |
 
@@ -194,7 +194,7 @@ ChainState   = NetworkParams                  (réseau lié, M8b)
   centaines de milliards de domaines ;
 - `record_hash == None` tant qu'aucun `UpdateDomain` n'a été appliqué ;
 - les espaces d'ids TLD et domaine sont **disjoints par construction**
-  (préfixes de dérivation distincts, voir `/docs/general/naming.md`) :
+  (préfixes de dérivation distincts, voir `/docs/fr/general/naming.md`) :
   enregistrer le TLD `uip` ne peut jamais squatter l'identité d'un
   domaine, ni l'inverse.
 
@@ -372,7 +372,7 @@ pour argent comptant :
    fonction pure de la chaîne canonique, élaguée du même pas ;
    l'index est reconstruit au boot par le stockage (rescan des
    derniers `min(256, hauteur)` blocs persistés — M8, voir
-   `/docs/technical/storage.md`) : un nœud redémarré rejette les
+   `/docs/fr/technical/storage.md`) : un nœud redémarré rejette les
    mêmes rejeux qu'un nœud vivant. Au-delà de la fenêtre, une
    ré-inclusion reste soumise aux règles d'état (double claim,
    replay de séquence).
@@ -391,7 +391,7 @@ pour argent comptant :
 7. pour chaque transaction, dans l'ordre : validation
    **cryptographique** (`validate_transaction` : binding
    owner/clé recomputé + `verify_strict` sur le payload signé
-   recomputé de zéro, voir `/docs/technical/transactions.md`), puis
+   recomputé de zéro, voir `/docs/fr/technical/transactions.md`), puis
    application à l'état canonique sous **journal d'annulation**
    (undo-log : une entrée par transaction appliquée, coût
    O(transactions du bloc) et non O(domaines)) ;

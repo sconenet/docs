@@ -115,7 +115,7 @@ tag = 0x02 : record_hash absent  → 57 octets exactement
 
 - `registered_at` / `valid_until` (M8b) : l'expiration de
   l'enregistrement (1 an à la claim, renouvelable, voir
-  `/docs/technical/blockchain.md`).
+  `/docs/fr/technical/blockchain.md`).
 
 Les encodages M7 (41/73 octets, sans expiration) sont **illégitimes**
 depuis M8b : décodage strict → `Corrupted`. (Un store M7 se régénère
@@ -322,7 +322,7 @@ est O(tip − H) avec H garanti récent.
 ## Index anti-replay TXID reconstruit au boot (M8)
 
 L'index anti-replay (`included`, TxId → hauteur d'inclusion, fenêtre
-`REPLAY_WINDOW_BLOCKS = 256` — voir `/docs/technical/blockchain.md`)
+`REPLAY_WINDOW_BLOCKS = 256` — voir `/docs/fr/technical/blockchain.md`)
 est une **fonction pure de la chaîne canonique** : il n'est jamais
 persisté. `load_chain` ne rejouant pas l'historique, une chaîne
 restaurée démarrait avant M8 avec un index **vide** — un nœud

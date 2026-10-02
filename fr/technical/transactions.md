@@ -4,8 +4,8 @@ Document de référence **normatif** du format de transaction signée.
 Il spécifie les champs, l'ordre wire exact, les tailles, le payload
 signé et les règles de validation, de manière à permettre une
 implémentation indépendante sans lire le Rust. L'implémentation de
-référence est [`scone-protocol`](../../crates/scone-protocol)
-(encodage) et [`scone-blockchain`](../../crates/scone-blockchain)
+référence est [`scone-protocol`](../../../crates/scone-protocol)
+(encodage) et [`scone-blockchain`](../../../crates/scone-blockchain)
 (validation).
 
 `PROTOCOL_VERSION` = **1**. Il n'existe qu'un seul ensemble de
@@ -32,7 +32,7 @@ le signataire (voir [Payload signé](#payload-signé)) — et reste séparé
 par réseau dans le digest PoW. Une transaction **signée** pour un
 réseau ne vérifie donc jamais sur un autre : sa signature échoue
 (`InvalidSignature`) sur le payload recomputé par la chaîne, qui
-injecte son propre réseau (voir `/docs/technical/blockchain.md` —
+injecte son propre réseau (voir `/docs/fr/technical/blockchain.md` —
 réseaux et genèse).
 
 ### Discriminants (table normative)
@@ -134,7 +134,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `signature` | **exactement 64 octets** | signature Ed25519 du payload signé |
 
 L'espace des `TldId` est **disjoint** de celui des `DomainId`
-(préfixes de dérivation distincts — voir `/docs/general/naming.md`) :
+(préfixes de dérivation distincts — voir `/docs/fr/general/naming.md`) :
 enregistrer le TLD `uip` (claim sur le namespace `*.uip`) ne peut
 jamais squatter l'identité d'un domaine, ni l'inverse. Règle d'état à
 l'application : le TLD doit être libre (registre séparé de celui des
@@ -144,7 +144,7 @@ domaines).
 
 Cinq types complètent le registre TLD et le cycle de vie des
 domaines. Formats wire normatifs depuis M8a ; **règles d'état
-complètes depuis M8b** (voir `/docs/technical/blockchain.md`) :
+complètes depuis M8b** (voir `/docs/fr/technical/blockchain.md`) :
 owner-du-TLD requis, PoW là où une claim est auto-service,
 expirations et grâce côté domaines. Aucun payload ne porte de champ
 `network` sur le wire (il vit dans le seul payload de signature).
@@ -438,7 +438,7 @@ Une transaction est valide si et seulement si :
    une tx signée pour un autre réseau échoue ici
    (`InvalidSignature`, anti-replay cross-chain) ;
 5. **règles d'état** (à l'application dans un bloc — M8b, voir
-   `/docs/technical/blockchain.md`) :
+   `/docs/fr/technical/blockchain.md`) :
    RegisterTld → TLD libre + PoW (difficulté réseau) ;
    RegisterDomain → TLD enregistré **et ouvert** + domaine libre
    (grâce comprise) + PoW ;
@@ -494,7 +494,7 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 ### RegisterTld `uip`, timestamp 42
 
 Payload signé (vecteur épinglé) — le `TldId` est le vecteur de
-dérivation épinglé dans `/docs/general/naming.md` :
+dérivation épinglé dans `/docs/fr/general/naming.md` :
 
 ```text
 53434f4e452d54582d5349472d5631       préfixe SCONE-TX-SIG-V1

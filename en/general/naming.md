@@ -1,0 +1,133 @@
+# Naming
+
+## Alphabet
+
+Lowercase ASCII letters, digits, and hyphens (LDH, RFC 1123):
+`[a-z0-9-]`, with the hyphen neither in first nor last position of a
+label. No uppercase, no underscore, no unicode.
+
+Validation is **strict**: a non-canonical name is rejected, never
+corrected. `"ABC"` → error (no silent lowercasing). Rationale: a
+protocol boundary must be deterministic; implicit canonicalization
+creates identity ambiguities.
+
+## TLD
+
+A TLD is a DNS label like any other: the generic label limit
+(RFC 1035: 63 bytes) applies, not a shorter TLD-specific limit.
+
+- pattern: `[a-z0-9-]{1,63}` (LDH, no leading/trailing hyphen)
+- coded limit: `TldName::MAX_LEN = 63` bytes
+- valid: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, a TLD of
+  exactly 63 bytes
+- invalid: a 64-byte TLD, `ABC`, `-ab`, `ab-`, `éxemple`,
+  empty string
+
+## Domains
+
+- shape: `label[.label]*.tld` — at least two labels (`name.tld`);
+- each label: LDH `[a-z0-9-]{1,63}`, hyphen neither leading nor trailing;
+- total length: ≤ 253 bytes;
+- no empty labels (`a..b`, `.a`, `a.` invalid);
+- the last label must be a valid TLD.
+
+### Subdomains
+
+The `DomainName` type accepts the full hierarchy from the start:
+
+```text
+example.uip
+shop.example.uip
+api.shop.example.uip
+```
+
+A subdomain has a `DomainId` **distinct** from its parent's.
+Subdomain allocation rules (rights of the parent's owner, etc.) are
+future work.
+
+## Canonicalization
+
+A validated name is already canonical: `canonical() == as_str()`.
+Therefore rejected today: uppercase, punctuation other than the `.`
+separator, spaces, unicode, invisible characters, etc.
+
+## DomainId
+
+```text
+DomainId = BLAKE3-256("SCONE-DOMAIN-V1" || canonical_name)
+```
+
+- deterministic: same canonical name ⇒ same id, everywhere, forever;
+- injective in practice: two distinct names ⇒ two distinct ids;
+- the raw name must **never** serve as an internal identifier
+  (blockchain keys, DHT keys) — only for input and display;
+- the `SCONE-DOMAIN-V1` prefix isolates derivation domains: changing
+  the rule (alphabet, normalization) amounts to creating a new
+  versioned namespace (`SCONE-DOMAIN-V2`), without rewriting the
+  existing one.
+
+### Textual representation
+
+**Lowercase** hexadecimal encoding (`0-9a-f`) of the 32 raw bytes:
+exactly 64 characters, no prefix (`0x`), never truncated.
+
+```text
+DomainId([0xab; 32]) → "ababababababababababababababababababababababababababababababababab"
+DomainId([0x00; 32]) → "0000000000000000000000000000000000000000000000000000000000000000"
+```
+
+This form is produced by `Display` (the Rust `Debug` prints
+`DomainId(<hex>)`, same string). Any output consumed by a human or a
+machine outside the canonical binary format — logs, error messages,
+CLI (`scone show`) — MUST use this representation and no other (no
+truncation, no prefix, no uppercase).
+
+## Limits and future rules (not settled)
+
+- internationalized names (IDN) via punycode;
+- minimum length of second-level labels;
+- expiration/renewal of domain claims.
+
+## TLDId (M7a)
+
+A registrable TLD carries its own identity, distinct from that of
+any domain:
+
+```text
+TldId = BLAKE3-256("SCONE-TLD-V1" || tld)
+```
+
+- the `SCONE-TLD-V1` prefix is **distinct** from `SCONE-DOMAIN-V1`:
+  the TLD and domain id spaces are disjoint by construction —
+  registering the TLD `uip` (a claim on the `*.uip` namespace) can
+  never squat a domain's identity, nor the reverse;
+- same display rules as `DomainId`: lowercase hex, 64 characters,
+  never truncated;
+- pinned vector (derivation pinned by test):
+  `TldId("uip") = ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e`.
+
+The `RegisterTld` transaction (signed claim of a TLD, `owner`
+always recomputed from the embedded key) is part of the
+`Transaction` enum and the wire format since M7b: discriminant
+`0x93` (arbitrary opaque constant), signed payload
+`SCONE-TX-SIG-V1`, full rules in `/docs/en/technical/transactions.md`.
+A domain's `RegisterDomain` meanwhile carries the canonical name in
+cleartext.
+
+## TLD reservation/governance
+
+Opened by M7a: `RegisterTld` claims a free TLD for the benefit of
+the identity derived from the signing key. Since M8b governance is
+complete: claim with PoW (per-network difficulty), namespace
+**closed** by default (assign-only), explicit opening
+(`SetTldOpen`), transfer (`TransferTld`), abandonment
+(`RevokeTld`, re-claimable). Domains expire after 1 year
+(renewable, 30-day grace — see `/docs/en/technical/blockchain.md`).
+
+**ICANN root TLDs**: reserved. `RegisterTld` on a TLD from the
+pinned IANA list (`is_icann_tld`, ~1,440 entries + RFC 2606) is
+rejected with a typed error (`IcannTldReserved`) — the legacy root
+belongs to the existing DNS. At resolution time, these names are
+forwarded to the configured upstreams (`--dns-upstream`) or
+REFUSED without an upstream. TLDs added by ICANN later remain
+claimable (pinned list: consistency > freshness).

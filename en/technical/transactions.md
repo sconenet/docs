@@ -1,0 +1,525 @@
+# Signed transactions (format v1)
+
+**Normative** reference document for the signed transaction format.
+It specifies the fields, the exact wire order, the sizes, the signed
+payload and the validation rules, so as to enable an independent
+implementation without reading the Rust. The reference implementation
+is [`scone-protocol`](../../../crates/scone-protocol) (encoding) and
+[`scone-blockchain`](../../../crates/scone-blockchain) (validation).
+
+`PROTOCOL_VERSION` = **1**. There is only one set of formats: any
+version byte other than `0x01` (in a transaction) or different from
+the local version (in a block) is rejected with `UnsupportedVersion`.
+
+## Overview
+
+```text
+Transaction = disc u8 || version u8 || payload
+```
+
+| Field | Size | Role |
+|---|---|---|
+| `disc` | 1 B | transaction type (table below) |
+| `version` | 1 B | **exactly `0x01`** (tx format version) |
+
+**Transactions no longer carry a `network` field on the wire**
+(2026-09 change): the `network_id` (`str` ≤ 16, ASCII `[a-z0-9-]` —
+e.g. `scone-testnet`, 13 bytes) lives **only in the signing payload**
+— it is injected there as the first field by the signer (see [Signed
+payload](#signed-payload)) — and stays per-network in the PoW digest.
+A transaction **signed** for one network therefore never verifies on
+another: its signature fails (`InvalidSignature`) against the payload
+recomputed by the chain, which injects its own network (see
+`/docs/en/technical/blockchain.md` — networks and genesis).
+
+### Discriminants (normative table)
+
+Each discriminant is a **fixed, arbitrary opaque constant**: the
+values are deliberately chosen distinct, so that the wire **never**
+suggests a logical order between types (no 0x01/0x02/0x03…
+sequence). `0x00` is **never** a valid type (typical corruption byte).
+Future types will take any unused free value, documented once and for
+all in this table.
+
+| Discriminant | Type | Role |
+|---|---|---|
+| `0x21` | `RegisterDomain` | claim of a domain |
+| `0x52` | `UpdateDomain` | new version of a domain's DNS data |
+| `0x93` | `RegisterTld` | claim of a top-level domain (M7) |
+| `0x47` | `TransferTld` | transfer of a TLD to a new owner (M8a) |
+| `0x6B` | `RevokeTld` | abandonment of a TLD (M8a) |
+| `0xB8` | `SetTldOpen` | **irreversible** opening of a TLD to self-registration (one-way, owner-option; `open=false` is a typed rejection) |
+| `0xD4` | `AssignDomain` | direct assignment of a domain by the TLD's owner (M8a) |
+| `0x3C` | `RenewDomain` | extension of a domain's registration (M8a; carries the canonical name since owner-option — an open TLD follows the expiry) |
+| `0x15` | `SlashTx` | evidence of anchor equivocation + banning (M9) |
+
+Any version byte other than `0x01` is explicitly rejected
+(`UnsupportedVersion(received value)`): an unknown or obsolete format
+is never parsed by accident.
+
+## SLASH_TX (0x15, M9)
+
+On-chain evidence that an anchor signed two **conflicting checkpoints
+at the same epoch** (equivocation). Anyone can submit it — the
+evidence is cryptographic and self-contained:
+
+```text
+offender[32] | evidence_a (CheckpointData 116 B)
+  | sig_a[64] | evidence_b (CheckpointData) | sig_b[64]
+  | reporter_pk[32] | reporter_signature[64]
+```
+
+- `validate()` checks the structure: same epoch, distinct
+  `signing_hash`es, two distinct signatures, reporter signatures over
+  the canonical payload;
+- state rules (journaled, revertible on reorg): the accused's BOTH
+  signatures must verify against the TWO distinct signing hashes at
+  the same epoch; the accused must be in the eligible pool
+  (`SlashOffenderNotInPool` otherwise); then **banning** — the key is
+  removed from the PoS pool persistently (blacklist in state);
+- minimal sanction: the accused's domains/TLDs are NOT seized
+  (documented M9 decision);
+- same checkpoint twice = not equivocation (rejected); different
+  epochs = rejected; forged signature = rejected.
+
+## REGISTER_DOMAIN (0x21)
+
+```text
+name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `name` | `str` ≤ 253 | canonical name of the claimed domain, **carried in cleartext** (see below) |
+| `domain_id` | 32 raw bytes | **must** equal `DomainId(name)` (recomputed, never trusted) |
+| `owner` | 32 raw bytes | **must** be the derivation of `public_key` (see below) |
+| `timestamp` | varint | ordering information (Unix, seconds) |
+| `proof` | `bytes` ≤ 256 | registration PoW payload (see [below](#registration-proof-of-work-pow)) |
+| `open` | `0x00\|0x01` | **open** birth: the TLD lands directly in `TldState::Open` (no one, self-service + PoW, a single PoW at the `open_tld_pow_difficulty` rate — cheaper than private: common resource, no PoS seat nor exclusivity); **private** birth: historical behavior (owner, PoS seat, `tld_pow_difficulty`) |
+| `public_key` | 32 raw bytes | signer's Ed25519 public key (RFC 8032) |
+| `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
+
+### The name is carried by the transaction
+
+`RegisterDomain` transports the canonical name in cleartext, followed
+by its `DomainId`. The consistency `domain_id == DomainId(name)` is
+re-checked at encoding, decoding and validation (defense in depth):
+a `RegisterDomain` whose id does not match the carried name is
+invalid. The `DomainId` remains the consensus identity (chain and DHT
+keys); the carried name makes the chain self-descriptive and covers
+the entire claim in the signature.
+
+## REGISTER_TLD (0x93)
+
+Claim of a top-level domain (TLD registry, M7):
+
+```text
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|0x01) public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `tld` | `str` ≤ 63 | canonical name of the TLD **carried in cleartext** (M8b: the PoW challenge derives from the name, just as `RegisterDomain` carries its own) |
+| `tld_id` | 32 raw bytes | identity of the TLD: `BLAKE3-256("SCONE-TLD-V1" || tld)` — **must** be the derivation of `tld` (recomputed) |
+| `owner` | 32 raw bytes | derivation of `public_key` |
+| `timestamp` | varint | ordering information (Unix, seconds) |
+| `proof` | `bytes` ≤ 256 | registration PoW payload (see [below](#registration-proof-of-work-pow)) |
+| `open` | `0x00\|0x01` | **open** birth: the TLD lands directly in `TldState::Open` (no one, self-service + PoW, a single PoW at the `open_tld_pow_difficulty` rate — cheaper than private: common resource, no PoS seat nor exclusivity); **private** birth: historical behavior (owner, PoS seat, `tld_pow_difficulty`) |
+| `public_key` | 32 raw bytes | signer's Ed25519 public key |
+| `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
+
+The `TldId` space is **disjoint** from the `DomainId` space (distinct
+derivation prefixes — see `/docs/en/general/naming.md`): registering the
+TLD `uip` (a claim on the `*.uip` namespace) can never squat a
+domain's identity, nor the reverse. State rule at application: the TLD
+must be free (registry separate from the domain registry).
+
+## The M8a family — wire formats
+
+Five types complete the TLD registry and the domain lifecycle.
+Normative wire formats since M8a; **full state rules since M8b** (see
+`/docs/en/technical/blockchain.md`): TLD owner required, PoW wherever a
+claim is self-service, expirations and grace on the domain side. No
+payload carries a `network` field on the wire (it lives in the signing
+payload only).
+
+### TRANSFER_TLD (0x47)
+
+```text
+tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `tld_id` | 32 raw bytes | the transferred TLD |
+| `owner` | 32 raw bytes | derivation of `public_key` (current owner / signer) |
+| `new_owner` | 32 raw bytes | recipient's identity (opaque: any value is syntactically valid; binding to the keys that can spend it is an M8b state rule) |
+| `public_key` | 32 raw bytes | signer's Ed25519 public key |
+| `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
+
+No timestamp or sequence: a TLD has exactly one owner at a time; the
+first applied transfer wins (chain order alone).
+
+### REVOKE_TLD (0x6B)
+
+```text
+tld_id[32] owner[32] public_key[32] signature[64]
+```
+
+Voluntary abandonment of a TLD (re-claimable afterwards by a fresh
+`RegisterTld`). Signed by the current owner; deliberately without
+timestamp or sequence — a revoke is one-shot against the current
+state.
+
+### SET_TLD_OPEN (0xB8)
+
+```text
+tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `open` | 1 byte | **strictly `0x00` or `0x01`** (canonical form; any other value → decoding error, never coercion) |
+| `open_proof` | `proof` (length-varint + bytes) | **signed** field; mandatory and verified when `open = 0x01` (opening PoW, network's `open_tld_pow_difficulty`, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`); empty when `open = 0x00` (closing is free) |
+
+A **closed** TLD = assign-only (domains created exclusively by the
+TLD's owner via `AssignDomain`); an **open** TLD = anyone can do the
+registration PoW and claim a free domain (`RegisterDomain`).
+**Opening** costs an extra proof of work (lighter than the TLD claim:
+~3 days on mainnet versus ~1 week), paid once by the owner in
+`SetTldOpen` — the proof travels in the signed `open_proof` field and
+cannot be substituted after signing.
+
+### ASSIGN_DOMAIN (0xD4)
+
+```text
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+```
+
+Mirror of `RegisterDomain`: the canonical name is carried in
+cleartext and `domain_id` must equal `DomainId(name)` (recomputed at
+decoding, encoding and validation). Signed by the **owner of the
+name's TLD** (checked at application, M8b); `assignee` becomes the
+domain's first owner (opaque, like `new_owner`).
+
+### RENEW_DOMAIN (0x3C)
+
+```text
+domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `valid_until` | varint | new registration expiry (Unix, seconds) |
+
+Signed by the domain's current owner; whether `valid_until` actually
+extends the expiry (and by at most one renewal term) is a state rule
+(M8b).
+
+## UPDATE_DOMAIN (0x52)
+
+```text
+domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `domain_id` | 32 raw bytes | target domain |
+| `owner` | 32 raw bytes | derivation of `public_key` |
+| `sequence` | varint | **> 0**, must equal `current + 1` at application |
+| `record_hash` | 32 raw bytes | commitment to the DHT record set |
+| `public_key` | 32 raw bytes | signer's Ed25519 public key |
+| `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
+
+Note: `UpdateDomain` carries **no** `timestamp` — ordering goes
+through `sequence`. It also does not carry the name: the domain is
+already registered, the id suffices.
+
+### Strict bounds
+
+- `public_key`: **exactly 32 raw bytes**, no length prefix. A pk that
+  does not decode as a curve point → `InvalidTransactionKey` error at
+  decoding.
+- `signature`: **exactly 64 raw bytes**, no length prefix, no margin.
+  Any other size is a hard decoding error (truncation rejected).
+- `proof`: length-varint + bytes, capped at 256
+  (`MAX_PROOF_LEN`), checked before allocation.
+- `name`: length-varint + UTF-8 bytes, capped at 253
+  (`MAX_NAME_LEN`), revalidated by the `scone-core` naming rules.
+
+## Owner derivation
+
+Hard rule: **the owner is always recomputed, never trusted**.
+
+```text
+PublicKeyRef = BLAKE3-256("SCONE-PUBKEY-V1" || public_key)
+OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
+```
+
+A transaction whose `owner` does not match the derivation of its own
+`public_key` is invalid (`InvalidOwner` on the core side,
+`OwnerKeyMismatch` on the chain side), rejected at encoding, decoding
+**and** chain validation (defense in depth).
+
+## Signed payload
+
+The signed payload is the canonical encoding of the transaction
+**without the signature field**, prefixed by a domain separation tag —
+**with the target chain's `network_id` injected at the head**:
+
+```text
+signing_payload(tx, network) = "SCONE-TX-SIG-V1"
+                              || canonical_encode(tx_without_signature, network)
+```
+
+where `canonical_encode(tx_without_signature, network)` follows the
+wire structure above, discriminant and version byte included, stopping
+before `signature`, **with `network` as the first field** — this is
+the ONLY place the network appears. The chain recomputes the payload
+with ITS own network: a transaction signed for another network fails
+signature verification (`InvalidSignature`); this is the anti
+cross-chain replay mechanism.
+
+```text
+REGISTER_DOMAIN_no_sig = disc(0x21) version(0x01) network name domain_id[32] owner[32]
+                            timestamp.v proof public_key[32]
+REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[32]
+                            timestamp.v proof public_key[32]
+UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
+                            sequence.v record_hash[32] public_key[32]
+TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
+                            new_owner[32] public_key[32]
+REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
+                            public_key[32]
+SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
+                            open(0x00|0x01) open_proof(proof) public_key[32]
+ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
+                            assignee[32] public_key[32]
+RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network domain_id[32] owner[32]
+                            valid_until.v public_key[32]
+```
+
+Properties:
+
+- deterministic and pure: same transaction ⇒ same payload everywhere;
+- the ASCII prefix `SCONE-TX-SIG-V1` (15 bytes,
+  hex `53434f4e452d54582d5349472d5631`) prevents any reuse of the
+  signature in another hash domain of the protocol;
+- all fields except `signature` are covered — **including the name
+  carried by a `RegisterDomain`**: modifying any one of them
+  invalidates the signature;
+- the injected `network_id` is covered: the same unsigned tx signed
+  for two networks produces two distinct payloads (hence two distinct
+  signatures).
+
+## Registration proof of work (PoW)
+
+The `proof` field of `RegisterDomain` and `RegisterTld` carries the
+registration proof of work (`scone-core::pow` module).
+
+### Digest (V2 — epoch salt, anti pre-mining)
+
+```text
+epoch  = block_height / POW_WINDOW        (POW_WINDOW = 144 blocks)
+digest = BLAKE3-256("SCONE-POW-V2" || network || challenge || epoch_le64 || nonce_le64)
+```
+
+`network` is the canonical `network_id` (M8b): a proof mined for one
+network is not a proof on another.
+
+`challenge` is the derivation input of the claimed object —
+`"SCONE-TLD-V1" || tld` for a TLD, `"SCONE-DOMAIN-V1" || name` for a
+domain: exactly the bytes hashed for `TldId` / `DomainId`, so that a
+proof is never replayable across namespaces nor across object kinds.
+`epoch_le64` and `nonce_le64` are the little-endian 8-byte encodings
+of the epoch and the nonce.
+
+The proof is valid when `digest` has at least `difficulty` leading
+zero bits.
+
+#### Epoch salt — anti pre-mining
+
+The V1 digest bound neither time nor height: anyone could pre-mine
+proofs today for thousands of names, then register them in a burst at
+mainnet launch (squatting) — the proof was self-contained and valid at
+whatever block came first. The V2 digest salts the proof with the
+**epoch of the block that APPLIES the transaction**:
+
+- `epoch = block_height / POW_WINDOW`, `POW_WINDOW = 144` blocks
+  (~2.6 h at 65 s/block): a grace window for the honest user (mine,
+  then submit within the window), mandatory re-mining beyond it;
+- the proof DECLARES its epoch on the wire; at application, the
+  declared epoch must BE that of the applying block — strict
+  equality, **NO tolerance window** (a window would re-open
+  pre-mining: the submitter chooses when to submit);
+- mempool admission (best effort): the future block height is
+  unknown — the relay verifies against the epoch of
+  `current height + 1`; strict application-time verification remains
+  the authority;
+- deterministic replay: the proof CARRIES its epoch, a historical
+  block re-verifies identically on any node.
+
+Breaking change pre-mainnet: the V1 format (12 bytes) is rejected
+with no backward compatibility.
+
+### Wire payload (20 fixed bytes)
+
+```text
+nonce_le64 || epoch_le64 || difficulty_le32
+```
+
+The difficulty and the epoch travel with the proof, but they are
+**producer-declared and therefore never trusted**: the verifier
+compares the difficulty against the **protocol constant** for the
+registration kind (a payload whose declared difficulty differs from
+the constant — lower *or* higher — is rejected, `InvalidProof`), and
+the epoch against that of the applying block (`ProofEpochMismatch` on
+mismatch). The nonce is then re-verified at the constant difficulty,
+digest recomputed from scratch.
+
+### Difficulties (**per-network** parameters, M8b)
+
+| Kind | testnet | mainnet |
+|---|---|---|
+| `RegisterTld` | 8 bits (symbolic, ms) | 24 bits |
+| `RegisterDomain` (open TLD) | 4 bits (symbolic) | 20 bits |
+
+Claiming a whole namespace always costs ~16× claiming one name inside
+it. The difficulties live in
+`scone-core::network::NetworkParams`; changing a value = a consensus
+change **for that network**.
+
+Measured calibration (2026-10, `cargo run --release -p scone-core
+--example pow_bench` — single-thread throughput ~7.7 M H/s on a
+reference x86-64):
+
+| Kind (mainnet) | difficulty | average real time |
+|---|---|---|
+| `RegisterTld` | 24 bits | ~7 s |
+| `RegisterDomain` | 20 bits | ~54 ms |
+
+At ~65 s/block: a TLD claim costs ~0.1 block of single-core CPU, a
+domain ~1 ms of block — symbolic for a user, costly to industrialize
+at scale (anti-squat). To recalibrate if hardware targets drop
+(mobile ARM: ~4–8× slower).
+
+State branches (M8b, shipped): `RegisterTld` ALWAYS requires its PoW;
+`RegisterDomain` requires it on an **open** TLD (the closed path is
+assign-only — `AssignDomain`, no PoW, signed by the TLD's owner).
+
+## Validation rules
+
+A transaction is valid if and only if:
+
+1. **strict decoding**: structure and bounds above respected (known
+   discriminant, version `0x01`, pk 32 B, signature 64 B, core
+   invariants re-checked at decoding);
+2. **owner/pk binding**: `owner == OwnerId::from(public_key)`
+   (recomputed);
+3. **name/id consistency** (RegisterDomain): `domain_id ==
+   DomainId(name)` (recomputed);
+4. **signature**: Ed25519 `verify_strict` of `signature` against the
+   signed payload **recomputed from scratch** with the chain's network
+   (never taken from a peer or from the transaction as provided) — a
+   tx signed for another network fails here (`InvalidSignature`,
+   anti cross-chain replay);
+5. **state rules** (at application in a block — M8b, see
+   `/docs/en/technical/blockchain.md`):
+   RegisterTld → TLD free + PoW (network difficulty);
+   RegisterDomain → TLD registered **and open** + domain free (grace
+   included) + PoW;
+   UpdateDomain → existing domain, current `owner`,
+   `sequence == current + 1`;
+   TransferTld / RevokeTld / SetTldOpen → existing TLD, signer =
+   the TLD's owner;
+   AssignDomain → existing TLD, signer = the TLD's owner, free domain
+   (no PoW);
+   RenewDomain → existing domain, owner, strict extension ≤ 3 years.
+
+Verification uses `verify_strict` (rejection of malleable signatures
+and weak/non-canonical keys), as required for untrusted data.
+
+## Operation order in `push_block`
+
+Cryptographic validation (2 to 4) takes place for each transaction
+**before** state application, on an atomic working state per block;
+any error leaves the chain rigorously unchanged.
+
+## Block assembly
+
+`BlockBuilder` (`scone-blockchain`) assembles a block from a
+transaction queue: `tx_root` recomputed over the ordered list, header
+chained onto the parent hash (`prev_hash`), `version` =
+`PROTOCOL_VERSION`. The consensus payload (future PoW) and the
+timestamp are provided by the caller; the existing `Consensus` trait
+is used symmetrically with validation.
+
+## Hex examples (real, reproducible vectors — M8b)
+
+### RegisterDomain `example.uip`, timestamp 42, testnet
+
+Signed payload (pinned vector, generated by `scone tx build
+register-domain --name example.uip --timestamp 42`). The `network`
+appears here because this is the SIGNING PAYLOAD (its only place);
+the signed wire transaction itself contains none:
+
+```text
+53434f4e452d54582d5349472d5631       SCONE-TX-SIG-V1 prefix
+21                                    disc REGISTER_DOMAIN (0x21)
+01                                    format version
+0d 73636f6e652d746573746e6574         network (str, "scone-testnet")
+0b 6578616d706c652e756970             name (str, length 11)
+e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
+7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
+2a                                    timestamp (varint, 42)
+0c 010000000000000004000000           proof (12 B: nonce 1, difficulty 4 — testnet)
+2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
+```
+
+### RegisterTld `uip`, timestamp 42
+
+Signed payload (pinned vector) — the `TldId` is the derivation vector
+pinned in `/docs/en/general/naming.md`:
+
+```text
+53434f4e452d54582d5349472d5631       SCONE-TX-SIG-V1 prefix
+93 01                                 disc REGISTER_TLD + version
+0d 73636f6e652d746573746e6574         network (str, "scone-testnet")
+03 756970                             tld (str, "uip")
+ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
+7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner
+2a                                    timestamp (varint, 42)
+0c 740400000000000008000000           proof (12 B: nonce 0x474, difficulty 8 — testnet)
+2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk
+```
+
+(The full values are reproducible via `scone tx build
+register-domain --name example.uip --timestamp 42`,
+`scone tx build register-tld --tld uip --timestamp 42` then
+`scone tx sign`. Since M8b the PoW is mined automatically at testnet
+difficulty — nonces vary from run to run; only network/name/id/owner/
+pk are stable. Since the 2026-09 wire change, the hex of the signed
+transaction (`scone tx sign`) NO LONGER contains the bytes
+`0d 73636f6e652d746573746e6574`: the network travels only in the
+payload to be signed.)
+
+## Test and debug CLI
+
+```bash
+scone tx build register-domain --name example.uip --timestamp 42  # hex of the payload to sign
+scone tx build register-tld --tld uip --timestamp 42              # same, TLD claim
+scone tx sign <payload|tx-hex> --identity alice                   # full signed tx (hex)
+scone tx verify <tx-hex>                                          # full local validation
+```
+
+`sign` accepts as input the payload from `build` or a complete
+transaction; in all cases the owner and key are **recomputed** from
+the keystore identity, never taken from the input.
+
+## Version history
+
+| Version | Contents | Status |
+|---|---|---|
+| 1 | embedded `public_key` + `signature`, payload `SCONE-TX-SIG-V1`, version byte `0x01`, `RegisterDomain` carries the name, `RegisterTld` (0x93), M8a family: `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — normative wire formats; M8b: `network` field signed at the head of every payload, `RegisterTld` carries the name, full state rules, per-network PoW difficulties | superseded |
+| 1 (2026-09, wire without network) | **removal of the `network` field from the wire of all transactions**: the network_id lives only in the signing payload (`signing_payload(tx, network)` injects it at the head); network separation relies on the signature (`InvalidSignature` on a foreign payload, the `WrongNetwork` error disappears); `TX_FORMAT_VERSION` stays `0x01` (relaunchable testnet, no coexistence); **all TxIds change** (the TxId is the hash of the signed wire encoding, which loses 14–15 bytes); PoW digest, genesis and per-network data-dirs unchanged | superseded |
+| 1 (2026-10, PoW V2 epoch salt) | **anti pre-mining PoW digest V2**: `BLAKE3("SCONE-POW-V2" ‖ network ‖ challenge ‖ epoch_le ‖ nonce_le)` with `epoch = block_height / 144` of the block that APPLIES the tx; proof wire payload 12 → **20 bytes** (`nonce_le ‖ epoch_le ‖ difficulty_le`), the declared epoch is verified STRICTLY against the applying block's epoch (typed rejection `ProofEpochMismatch`, no tolerance), best-effort `(height+1)/144` at mempool admission; breaking change pre-mainnet: the 12-byte V1 payload is rejected, **all TxIds change** (the `proof` field grows by 8 bytes) | current |

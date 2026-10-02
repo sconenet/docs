@@ -1,0 +1,547 @@
+# Network relay (M4) — architecture, flows, and control RPC
+
+> Normative specification of the Scone network relay (`scone-network`).
+> Any doc/code divergence = bug (fix the source of truth).
+
+## Overview
+
+The **relay** is Scone's full P2P node: it maintains the canonical
+blockchain (RAM + `NodeStore` redb), relays transactions and blocks,
+produces blocks (devnet mode), serves the sync protocol, publishes and
+resolves `SignedDnsRecord`s in a Kademlia DHT, and exposes a **local
+control RPC** queried by the CLI.
+
+```text
+                    ┌────────────────────────────────────────┐
+                    │              scone relay               │
+  P2P (libp2p)      │                                        │
+  QUIC :4001 ◄──────┤  Swarm libp2p                          │
+                    │  ├─ identify  (address discovery)      │
+                    │  ├─ ping      (liveness)               │
+                    │  ├─ kad       (record DHT)             │
+                    │  └─ reqres    (scone-prot. messages)   │
+                    │                                        │
+                    │  Relay core (single task)              │
+                    │  ├─ Blockchain (full validation)       │
+                    │  ├─ Mempool (bounded, dedup by TxId)   │
+                    │  ├─ BlockBuilder (devnet production)   │
+                    │  └─ Sync driver (batched catch-up)     │
+                    │                                        │
+  CLI ◄─────────────┤  Control RPC (TCP 127.0.0.1, JSON)     │
+                    └────────────────┬───────────────────────┘
+                                     │
+                              NodeStore (redb)
+```
+
+`crates/scone-network` is the **only async crate** in the workspace:
+everything below it (crypto → core → protocol → blockchain →
+storage) remains synchronous and pure.
+
+## Connection admission (P1.5)
+
+Hard limits at the swarm level (libp2p `connection_limits` behavior,
+the first entry of `SconeBehaviour`):
+
+- `MAX_TOTAL_CONNECTIONS = 128` — cap on established connections
+  (incoming + outgoing) per relay; excess incoming is REFUSED,
+  never queued;
+- `MAX_PER_PEER_CONNECTIONS = 4` — a single peer cannot monopolize
+  the total quota by opening many connections;
+- `MAX_PENDING_INCOMING = 32` — slowloris guard: unauthenticated
+  half-connections never wait indefinitely.
+
+These limits complement the existing per-message limits
+(`MAX_MESSAGE_LEN` 1 MiB) and per-budget limits (sync `max ≤ 128`
+blocks, DNS TCP 64 connections/512 B/5 s). A connection-flood
+attacker gets refusals, not memory growth.
+
+## Peer discovery
+
+Three complementary mechanisms, in this priority order:
+
+1. **Explicit seeds** (`--bootstrap`, full multiaddrs) — always take
+   priority; providing a non-empty list REPLACES everything else.
+   `--no-builtin-seeds` empties the embedded seeds for 100% private
+   deployments.
+2. **Embedded seeds** (`builtin_seeds(network)` in
+   `scone-network/src/config.rs`) — frozen at each official binary
+   release, per network. An unconfigured relay joins the network
+   alone. (Empty on testnet as long as the public testnet is not
+   deployed.)
+3. **Learned directory** (`<data-dir>/peers.json`) — every address
+   learned via `identify` is retained (last seen, cap of 200
+   entries) and saved ~1×/min at the production tick. On boot with
+   no seed and no bootstrap, the directory is recomposed: the relay
+   finds its usual peers without configuration. It is a cache:
+   missing/corrupted file = empty directory, never an error.
+
+### Local topology optimization (`--topology`, opt-in)
+
+The relay can actively optimize its neighborhood using the pure
+`scone-topology` engine (see the crate's docs). **Disabled by
+default**; `--topology` enables it, limits are tunable:
+
+```
+scone relay --topology \
+  [--topology-min-connections 8] \
+  [--topology-target-connections 16] \
+  [--topology-max-connections 32] \
+  [--topology-optimization-interval-secs 60] \
+  [--topology-min-score-improvement 0.15]
+```
+
+An inconsistent config (`min > target > max`, threshold outside
+`[0,1]` — `NaN` included —, zero interval) is a **typed startup
+error**, never silent behavior. `--topology-*` flags provided
+without `--topology` trigger a warning (they are ignored).
+
+**View (`TopologyView`)** — fed by swarm events:
+
+- successful `ping` → RTT observation (median window of 8 samples);
+- failed `ping` → reliability penalty;
+- `identify` received → addresses (≤ 4/peer) + announced protocols
+  (kad/reqres/identify/relay bitmask);
+- connection established → connected state, direction
+  (incoming/outgoing), age, detected circuit-relay;
+- connection closed → penalty + churn counter ONLY if unsolicited
+  (a voluntary eviction does not count);
+- outgoing dial failure → reliability penalty.
+
+The view is bounded (500 peers; beyond that, only connected peers
+are memorized).
+
+**`kad_required` from the kbuckets** — before each evaluation, the
+relay walks the Kademlia routing table: a peer is protected if it is
+`Connected` in a bucket, or `Disconnected` in a SATURATED bucket
+(k = 20). A protected peer is NEVER chosen for eviction.
+
+**Optimization loop** — every
+`--topology-optimization-interval-secs` (60 s by default):
+
+1. recompute `kad_required` (kbuckets);
+2. engine evaluation (hysteresis: 120 s grace period, minimum score
+   improvement of +15%, eviction cooldown 600 s);
+3. decision applied: `AddCandidate` → dial the candidate;
+   `Replace` → close the evicted peer (ONCE — progressive, no
+   looping) then dial the replacement;
+4. a **metrics** snapshot is logged (INFO level):
+   known/connected/incoming/outgoing/circuit/protected counts,
+   mean/median RTT, distinct IP buckets, max concentration, churn
+   (replacements/disconnections).
+
+The neighborhood score is NEVER a trust measure (see the
+`scone-topology` docs): no consensus decision derives from it.
+
+### Reachability (AutoNAT) and transport relay (circuit-relay v2)
+
+Every relay runs AutoNAT (client + server): the node asks its peers
+to attempt a dial BACK to it; the verdict (`reachable`: yes =
+reachable from the outside, no = behind NAT, unknown = not yet
+tested) is refreshed every 5 min and exposed in `NodeStatus` (field
+`nat_reachable`, wire varint 0/1/2) — the CLI displays it
+(`scone status`). Private addresses count
+(`only_global_ips = false`): a LAN mesh tests its LAN reachability.
+
+A reachable relay enables circuit-relay v2 **hop** (it can relay
+traffic for NATed peers) and **DCUtR** (hole-punching: two nodes
+connected via circuit attempt a direct connection and release the
+relay). A relay deemed NATed automatically requests a reservation
+from the first known reachable peer and listens through it (address
+`/p2p/<relay>/p2p-circuit`).
+
+Production rule: a relayed NATed node should not become a block
+producer (degraded latency/availability) — the PoS rule (seat =
+living domain) does not forbid it yet; to be documented as an
+operational requirement before the public testnet.
+
+## Transport and libp2p protocols
+
+| Protocol | Name | Role |
+|---|---|---|
+| QUIC (quic-v1) | — | Main transport (udp) |
+| identify | `/scone/id/1` | Peer address discovery (fills the Kademlia table) |
+| ping | libp2p standard | Liveness |
+| Kademlia | `/scone/kad/1` | DHT: key = `DomainId` (32 B), value = canonical encoding of the `SignedDnsRecord` |
+| request-response | `/scone/reqres/1` | scone-protocol application messages |
+
+### Application frame (`/scone/reqres/1`)
+
+Each frame is `len: u32 BE || bytes` where the bytes are the
+canonical encoding of a `Message` from `scone-protocol` (the
+existing codec — no second format). The length is bounded by
+`limits::MAX_MESSAGE_LEN` **before** any read or allocation: a peer
+announcing a larger frame is rejected at no memory cost.
+
+Exchanged messages (one per request/response round-trip):
+
+| Message | Direction | Reply |
+|---|---|---|
+| `Hello { version }` | handshake | `Hello` (local version) |
+| `Ping` / `Pong` | liveness | `Pong` |
+| `GetBlock { hash }` | query | `Block` (RAM window) or `Pong` if unknown |
+| `GetBlocks { start, max }` | sync | **one** `Block` (height `start`), or `Pong` if none |
+| `Block (b)` | block relay | `Pong` (ack) |
+| `Transaction (tx)` | tx relay | `Pong` (ack) |
+| `GetRecord { domain_id }` | local DHT | `Record` (local cache) or `Pong` |
+| `Record (r)` | publication | `Pong` if accepted, error otherwise |
+
+Rule: **exactly one reply per request**; acknowledgment messages
+are `Pong`. Sync replies carry one block at a time — catch-up
+iterates on the requester side (see "Sync"). This is deliberately
+bounded: never more than one block in flight per peer.
+
+## Relay behavior
+
+### Startup
+
+0. network resolution (`--network testnet|mainnet`, testnet default
+   while the project is in dev — M8b). The data-dir is **per
+   network** (`~/.scone/<network>/`): a non-empty store holding a
+   chain from another network is refused (`Corrupted`);
+1. open/create the redb store (`<data-dir>/chain.redb`);
+2. `load_chain(store, network)`: O(1) tip + paginated domain states
+   (RAM window: genesis + tip);
+3. swarm construction (ephemeral per-session Ed25519 identity —
+   persisting the network identity is an open decision);
+4. compose the boot list (see
+   [Peer discovery](#peer-discovery)): explicit `--bootstrap`
+   (must end with `/p2p/<peer-id>`) ELSE the network's embedded
+   seeds ELSE the learned directory (`peers.json`);
+5. dial each multiaddr and register it in the Kademlia table
+   (a dead dial is ignored — the others make up the network).
+
+### Receiving a transaction (P2P or RPC `submit_tx`)
+
+1. strict bounded decoding (`MAX_MESSAGE_LEN`);
+2. full cryptographic validation (`validate_transaction`:
+   owner/key binding, `verify_strict` over the canonical payload);
+3. state pre-check (cheap mirror of the `push_block` rules —
+   PoW, which is costly, is only verified at push time). Network
+   separation is enforced at step 2: the signature payload injects
+   the RELAY's network, a tx signed elsewhere fails with
+   `InvalidSignature` (wire 2026-09: no more `network` field);
+   `RegisterDomain` → TLD of the registered name
+   (`UnknownTld` otherwise, D1/M7c) **and open** (`TldClosed`
+   otherwise, M8b) then name free; `UpdateDomain` → known domain,
+   exact sequence `current + 1`, owner; `RegisterTld` → free TLD;
+   `TransferTld`/`RevokeTld`/`SetTldOpen` → known TLD + owner
+   signer; `AssignDomain` → TLD owner + free name;
+   `RenewDomain` → known domain + owner;
+4. mempool insertion (fixed capacity, dedup by `TxId` —
+   re-submitting a tx already in the pool is a no-op);
+5. broadcast to peers (except the sender).
+
+### Receiving a block (P2P, sync, or self-produced)
+
+1. `push_block`: existing full validation (parent = canonical tip,
+   height, recomputed Merkle root, every transaction validated then
+   applied — atomic per block);
+2. if accepted: the relay reads the application outcome
+   (`push_block_with_gc` → hash + domains removed by the
+   deterministic GC) and persists via `store_block_with_removals`
+   (atomic delta append: block + tip + modified states — upserts
+   AND removals: expired domains, revoked TLDs). A restart can
+   therefore never resurrect an expired registration;
+3. mempool reconciliation (included txs are removed);
+4. broadcast to peers (except the sender).
+
+An invalid block is rejected with a typed error; the relay keeps
+running. No panic on network data.
+
+### Block production (M5: signed producer)
+
+Every `produce_interval` seconds (2 s by default): if the mempool
+is non-empty, a block is assembled by `BlockBuilder`
+(`timestamp = now`) **signed by an authorized producer** (payload
+`SCONE-BLOCK-V2` in `header.consensus`, see
+`/docs/en/technical/blockchain.md`) and follows exactly the
+acceptance path of a received block. A relay with no txs produces
+nothing.
+
+Production key: the anchor key (`--anchor-key`) when the relay is
+armed with one — an anchor is an authorized producer — otherwise
+the fixed devnet key, valid as long as the producer pool is empty
+(open bootstrap: genesis). As soon as a living domain/TLD exists, a
+block signed by the devnet key is rejected (`InvalidProducer`).
+
+### Anchor loop (finality, M5)
+
+With `--anchor-key` (`.sconekey` keyfile, passphrase via
+`--anchor-passphrase-env`, default `SCONE_ANCHOR_PASSPHRASE`):
+
+- after each accepted/produced block, if this node is a member of
+  the current committee **and** the committee reaches
+  `MIN_FINALITY_COMMITTEE_SIZE`, the relay signs the proposed
+  checkpoint via its `SignerGuard` (`signer-state.dat` in the
+  data-dir — one key = one vote/epoch, crash-safe fail-closed) and
+  gossips it;
+- received signatures (`Message::Checkpoint`) are accumulated by
+  `CheckpointData` hash (bounded to 256 entries); at
+  `quorum_for(committee size)` member signatures on the SAME
+  data → `accept_checkpoint` + broadcast of the finalized
+  checkpoint;
+- a relay without an anchor key stays **passive**: it accumulates,
+  finalizes, and relays, but never signs;
+- `GetCheckpoints` → the `checkpoint_window()` window is served;
+- any loop error is logged and swallowed — never fatal;
+- the status RPC exposes `checkpoints` and `finalized_epoch`.
+
+### Sync (catch-up)
+
+On each connection to a peer, the relay requests
+`GetBlocks(start = local_height + 1)`. Each received `Block` that
+exactly completes the expected height triggers the request for the
+next height, until exhaustion (`Pong` = nothing more) or
+`MAX_SYNC_ROUNDS` (10,000) batches — an absolute bound even against
+a lying peer. Received blocks go through full validation: a
+malicious peer cannot get anything invalid accepted.
+
+### Record DHT
+
+- **put** (RPC `put_record`): strict bounded decoding
+  (`MAX_DHT_CACHE_ENTRY`), verification against on-chain state
+  (owner, sequence, recomputed `record_hash` — see "Record
+  verification"), then `kad.put_record` (local storage +
+  replication to the closest peers, `Quorum::Majority` of the
+  replication factor) and persistent redb cache.
+- **get** (RPC `get_record`): `kad.get_record`; the waiter is bound
+  to its `QueryId` and the requested `DomainId` — a reply only
+  resolves the matching query, and the record key must be exactly
+  the requested domain (checked **before** on-chain verification).
+  The result is then verified against the chain before being
+  returned. Cap on simultaneous requests: `MAX_DHT_WAITERS` (256);
+  beyond that, immediate error. A successfully verified resolution
+  is written to the persistent cache (M5): local reads
+  (`domain_info`) then serve it without a new DHT query.
+- Kademlia runs in server mode, with no record TTL (the chain
+  governs validity, not time).
+
+### Record verification ("the chain is the authority" rule)
+
+A resolved or received `SignedDnsRecord` is only accepted/returned
+if:
+
+1. the domain is registered on-chain;
+2. `record.owner` = current on-chain owner;
+3. `record.sequence` = current on-chain sequence;
+4. `record_hash(record.record)` (recomputed BLAKE3) = the
+   `record_hash` committed on-chain.
+
+Otherwise: silent rejection on the P2P side, explicit error on the
+RPC side. The record's Ed25519 signature is **verified on receipt**
+by the relay (`ResolveLocal`: the owner's public key is known
+on-chain, the signature must unlock — a record signed by another
+key is rejected, `record rejected`); it is also transported for
+future verifiers — the on-chain commitment remains the primary
+integrity control.
+
+## Local control RPC
+
+TCP socket **127.0.0.1 only** (the CLI runs on the same machine).
+One request per connection.
+
+### Frame format (both directions)
+
+```text
+len: u32 big-endian || JSON UTF-8 || '\n'
+```
+
+`len` includes the trailing `\n`. Bound: 512 KiB (`MAX_RPC_LEN`) —
+beyond that, a typed error without reading the body.
+
+### Requests
+
+All in JSON, discriminated by `"method"`:
+
+```json
+{"method": "status"}
+{"method": "submit_tx", "tx_hex": "<canonical hex of the signed Transaction>"}
+{"method": "lookup", "name": "example.uip"}
+{"method": "put_record", "record_hex": "<canonical hex of the SignedDnsRecord>"}
+{"method": "get_record", "name": "example.uip"}
+{"method": "domain_info", "name": "example.uip"}
+```
+
+### Responses
+
+```json
+{"status": "ok", "data": { … }}
+{"status": "error", "message": "…"}
+```
+
+`data` shapes per method:
+
+- **status**: `{"peer_id", "network"` ("scone-testnet" |
+  "scone-mainnet", M8b), `"tip"` (64-hex), `"height"`, `"peers"`,
+  `"domain_count", "mempool"}`
+- **submit_tx**: `{"txid": "<64-hex>"}` (tx accepted into the
+  mempool; production happens at the next tick)
+- **lookup**: `{"name", "domain_id", "registered": bool, "owner",
+  "sequence", "record_hash"}` (on-chain fields absent if not
+  registered)
+- **put_record**: `{"published": "<domain_id 64-hex>"}`
+- **get_record**: `{"record": "<canonical hex>", "verified": true}`
+  — the reply is **never** sent without successful on-chain
+  verification; not found / not verified → `error`.
+- **domain_info** (M5): `{"name", "domain_id", "registered": bool,
+  ["owner", "sequence", "record_hash"], "dns": [ … ]}`. Rich
+  exploration in **local reads only** (no network request, no DHT
+  waiter): the `dns` part is only filled if this node holds a local
+  cached `SignedDnsRecord` that fully verifies against the current
+  on-chain state (rules of "Record verification"); otherwise
+  `dns: []`. Each `dns` entry is an object
+  `{"type": "A"|"AAAA"|"CNAME"|"NS"|"MX"|"TXT"|"TYPE<code>",
+  "value": …}` (MX adds `"preference"`).
+
+### Time semantics
+
+`status`, `submit_tx`, `lookup`, `put_record`, and `domain_info`
+reply immediately. `get_record` launches an asynchronous Kademlia
+query: the RPC connection stays open until resolution (30 s bound
+on the relay side, 60 s on the client side).
+
+## CLI
+
+```
+scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR]
+            [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
+            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
+            [--topology] [--topology-min-connections U] [--topology-target-connections U] [--topology-max-connections U]
+            [--topology-optimization-interval-secs U64] [--topology-min-score-improvement F64]
+            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE]
+scone status [--rpc ADDR]
+scone submit tx --hex HEX [--rpc ADDR]
+scone lookup NAME [--rpc ADDR]
+scone domain register NAME --identity ID [--dir DIR] [--passphrase-env VAR] [--rpc ADDR]
+scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env VAR] [--rpc ADDR]
+scone domain info NAME [--rpc ADDR]
+scone record put NAME --file FILE [--rpc ADDR]      # FILE = canonical hex
+scone record get NAME [--rpc ADDR]
+```
+
+`--rpc` defaults to `127.0.0.1:7474` (the port `scone relay` binds
+by default; two relays on the same machine each pass their own
+`--rpc`). Relay absent → clear message "cannot reach the relay — is
+'scone relay' running?", non-zero exit.
+
+`--network` (M8b): `testnet` by default (project in dev), explicit
+`mainnet`. Sets the genesis, PoW difficulties, and the default
+data-dir (`~/.scone/<network>/`); a tx from another network is
+refused in typed fashion (`WrongNetwork`).
+
+The offline surface `scone tx build` covers the full M8b family
+(`set-tld-open`, `assign-domain`, `renew-domain`, `transfer-tld`,
+`revoke-tld`); `register`/`register-tld` claims mine their PoW at
+the default testnet difficulty (a few ms).
+
+The `--geo-*`/`--health-*` options enable GeoDNS and health
+checking **of the embedded DNS resolver**: full semantics,
+precedence order, and the local GeoIP table are documented in
+[`dns.md`](dns.md#geodns-geographic-routing-opt-in) — disabled by
+default, classic path unchanged.
+
+### `domain register|update` (M5) — signed transactions in one command
+
+These commands chain build → sign (keystore) → submit →
+(confirmation) in a single invocation; they remove the M4 devnet
+shell pipe `tx build | tx sign | submit tx`.
+
+- **register**: builds a signed `RegisterDomain` (timestamp = now,
+  empty proof in devnet), submits it, waits for on-chain
+  confirmation (sequence ≥ 0, 30 s timeout). An already registered
+  name is refused client-side AND relay-side.
+- **update**: the records file is the sole source of truth. The
+  sequence (on-chain + 1) and the `record_hash` (canonical BLAKE3
+  of the file's records) are **derived**, never entered: signer and
+  verifiers cannot diverge. After the UpdateDomain confirmation,
+  the `SignedDnsRecord` (records from the file + owner + Ed25519
+  signature over the canonical encoding) is published to the DHT
+  via `put_record` (which re-verifies against the chain). An
+  unregistered domain, a non-owner identity, or a file error fail
+  cleanly, without touching the chain.
+
+#### Records file
+
+Text, one record per line, `#` = comment, blank lines ignored; the
+sorted canonical encoding makes the file's order have no effect on
+the committed hash. The file is the COMPLETE set (an update
+replaces, it does not merge). Types:
+
+```text
+A 192.0.2.1
+AAAA 2001:db8::1
+CNAME www.example.uip
+NS ns1.example.uip
+MX 10 mail.example.uip
+TXT free text (spaces normalized)
+```
+
+Typed errors: unknown type, invalid IP/name (with line number),
+empty set, duplicate, > `MAX_RECORDS_PER_SET`.
+
+## `--genesis` (founders)
+
+`scone relay --genesis genesis.bin` — **founder nodes only**
+(kickstarter campaign; the file is produced by the `scone-genesis`
+binary). Normative rules:
+
+1. The file is rejected **before reading** if it exceeds 1 MiB,
+   then strictly decoded (`decode_complete`: no trailing bytes).
+   The hash of block 0 is **recomputed**, never read from the file.
+2. Semantic validation: height 0, `consensus` starting with the
+   requested network's network id (`--network`), no transactions,
+   canonical allocation manifest. Any violation = typed error at
+   startup (never a panic, the daemon does not start).
+3. **Virgin** data-dir: the chain is born on the allocated genesis —
+   allocations are applied in RAM **before any disk write**, then
+   persisted (seeded states + genesis block under a meta key). The
+   first produced block can therefore only extend the allocated
+   genesis.
+4. **Already productive** data-dir: the store's birth genesis is
+   the `prev_hash` of block 1 (self-certifying). Equal file hash =
+   silent OK (the option is **redundant after the first startup**);
+   different = typed refusal — a node joins a network via sync,
+   never via `--genesis`.
+5. Restart **without** the option: a founder-born data-dir recovers
+   its allocated genesis via the meta key (RAM rebind at every
+   boot).
+
+The constant genesis hash pin (anti network-divergence) is a
+separate workstream.
+
+## Limits and memory guarantees
+
+| Resource | Bound |
+|---|---|
+| P2P frame | `MAX_MESSAGE_LEN` (1 MiB) before parsing |
+| RPC frame | 512 KiB before parsing |
+| Simultaneous RPC connections | `MAX_RPC_CONNECTIONS` (64, semaphore) |
+| Simultaneous DHT waiters | `MAX_DHT_WAITERS` (256) |
+| Mempool | 4096 tx (typed rejection beyond) |
+| Blocks per sync reply | 1 per round-trip; ≤ 10,000 batches per peer |
+| DHT record | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
+| Chain in RAM | genesis + tip window (history served from the store) |
+
+Anti-loop rule (H2): a transaction is only re-broadcast if it was
+**actually inserted** into the mempool (first sight); a duplicate
+(already in the pool or already in the chain) is never re-relayed.
+An already-canonical block is detected and ignored before
+`push_block` (no re-store, no re-broadcast).
+
+Open decisions: persistent network identity of the relay, real
+fork choice, PoW consensus, DNS resolver, broadcast gossip
+(currently: unicast request-response to each known peer).
+
+## Graceful shutdown (SIGTERM / SIGINT)
+
+The `scone relay` daemon (foreground) catches SIGTERM and SIGINT
+via `tokio::signal`: on the signal, the `Relay::run` future is
+cancelled (`tokio::select!` in the binary), which drops the libp2p
+Swarm and closes the QUIC sockets. The tokio runtime is then
+stopped with a bounded shutdown (≤ 2 s) that drops the detached
+DNS tasks (UDP/TCP) and closes their sockets — the goal is that a
+`kill` leaves no orphaned UDP socket (case observed on testnet 60).
+A signal-driven shutdown logs `relay shutting down (signal)` (INFO,
+stderr) and exits with exit code **0**: a requested shutdown is not
+a failure. If handler installation failed, the signal's default
+behavior applies (degradation, never a panic).
