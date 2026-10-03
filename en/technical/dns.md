@@ -460,10 +460,10 @@ comment, blank lines ignored:
 - `asn`: `u32`, optional (`.` = absent);
 - `region`: opaque `u32`, optional (`.` = absent).
 
-Resolution: the resolver's IP (today the reference IP — the
-**per-client** one, source IP of the DNS query, is the natural
-evolution, not yet wired) is compared in 16 bytes; the rule with
-the **longest matching prefix** wins (on a tie, the first in
+Resolution: the **source IP of the DNS query** (per-client:
+UDP `recv_from` / TCP `peer_addr`; unknown → the resolver's
+reference IP) is compared in 16 bytes; the rule with the
+**longest matching prefix** wins (on a tie, the first in
 file order); no match → empty position (World).
 
 **Strictness**: the file is operator-configured — an invalid

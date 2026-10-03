@@ -453,11 +453,11 @@ commentaire, lignes vides ignorées :
 - `asn` : `u32`, optionnel (`.` = absent) ;
 - `region` : `u32` opaque, optionnel (`.` = absent).
 
-Résolution : l'IP du resolver (aujourd'hui l'IP de référence —
-le **per-client**, IP source de la requête DNS, est l'évolution
-naturelle non encore branchée) est comparée en 16 octets ; la règle
-au **plus long préfixe matchant** gagne (à égalité, la première par
-ordre du fichier) ; sans match → position vide (World).
+Résolution : l'**IP source de la requête DNS** (per-client :
+UDP `recv_from` / TCP `peer_addr` ; si inconnue → IP de référence
+du resolver) est comparée en 16 octets ; la règle au **plus long
+préfixe matchant** gagne (à égalité, la première par ordre du
+fichier) ; sans match → position vide (World).
 
 **Strictesse** : le fichier est configuré par l'opérateur — une
 ligne invalide (préfixe malformé, pays non numérique, continent
