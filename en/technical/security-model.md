@@ -5,9 +5,13 @@
 ## Overview
 
 The committee of epoch N+1 is drawn from the seed
-`next_seed(hash(checkpoint N)) = blake3("SCONE-SEED-V1" || hash(checkpoint N))`,
+`next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 over the **eligibility pool frozen at the block finalized by
-checkpoint N**.
+checkpoint N**. `signing_hash` is the hash of the checkpoint's
+**content** (epoch, height, block, prev, state root — signature set
+excluded): the seed is a pure function of WHAT was finalized, never
+of WHICH quorum subset signed it — two views holding distinct (both
+valid) subsets of the same checkpoint elect the same committee.
 
 ## Threat: grinding the committee seed
 
@@ -47,7 +51,7 @@ temporally impossible.
 ### 4. Last-producer bias (withholding attack)
 
 The producer of the last block before a checkpoint could withhold
-its block to influence `hash(checkpoint N)` and hence the seed.
+its block to influence `signing_hash(checkpoint N)` and hence the seed.
 Two safeguards:
 
 - the checkpoint signs a state at height H, and the **pool is

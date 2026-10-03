@@ -5,8 +5,13 @@
 ## Vue d'ensemble
 
 Le comité de l'epoch N+1 est tiré de la seed
-`next_seed(hash(checkpoint N)) = blake3("SCONE-SEED-V1" || hash(checkpoint N))`,
+`next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 sur le **pool d'éligibilité gelé au bloc finalisé par le checkpoint N**.
+`signing_hash` est le hash du **contenu** du checkpoint (epoch, hauteur,
+bloc, prev, state root — ensemble de signatures exclu) : la seed est une
+fonction pure de CE QUI a été finalisé, jamais de QUEL sous-ensemble de
+quorum a signé — deux vues détenant des sous-ensembles distincts (tous
+deux valides) du même checkpoint élisent le même comité.
 
 ## Menace : grinding de la seed du comité
 
@@ -46,7 +51,7 @@ temporellement impossible.
 ### 4. Last-producer bias (attaque par retenue)
 
 Le producteur du dernier bloc avant un checkpoint pourrait retenir
-son bloc pour influencer `hash(checkpoint N)` et donc la seed. Deux
+son bloc pour influencer `signing_hash(checkpoint N)` et donc la seed. Deux
 garde-fous :
 
 - le checkpoint signe un état à la hauteur H, et le **pool est évalué
