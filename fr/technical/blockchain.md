@@ -115,18 +115,25 @@ API : `block_hash(&BlockHeader) -> Result<BlockHash>`.
 
 ## Réseaux et genèse (M8b)
 
-Scone définit deux réseaux disjoints, identifiés par un
+Scone définit trois réseaux disjoints, identifiés par un
 `network_id` canonique (1..=16 octets ASCII `[a-z0-9-]`) :
 
 | Réseau | `network_id` | apex TLD 1 car. | apex domaine | plancher |
 |---|---|---|---|---|
 | testnet | `scone-testnet` | 8 bits | 6 bits | 2 bits |
 | mainnet | `scone-mainnet` | 42 bits | 40 bits | 30 bits |
+| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit |
 
 Les paramètres vivent dans `scone-core::network::NetworkParams`
-(instances nommées `TESTNET` / `MAINNET`, lookup
+(instances nommées `TESTNET` / `MAINNET` / `DEVNET`, lookup
 `NetworkParams::by_name`). Changer une difficulté = changement de
 consensus **pour ce réseau**.
+
+**Invariant structurel** : la devnet est une troisième
+`NetworkParams` complète — jamais un sous-ensemble de flags testnet.
+La testnet reste **strictement identique** à ce qu'elle était avant
+l'ajout de la devnet (mêmes constantes Argon2id, mêmes courbes, mêmes
+fenêtres d'époque) ; la suite de tests épingle cet invariant.
 
 **Difficulté variable par longueur** (`scone-core::pow_length`) : la
 difficulté d'une création dépend de la longueur du **label créé** (le
@@ -178,6 +185,29 @@ bloc testnet ne peut jamais s'attacher à une chaîne mainnet
 API : `genesis_of(&NetworkParams) -> Block`,
 `genesis_hash_of(NetworkId) -> BlockHash` ; les alias `genesis()` /
 `genesis_hash()` désignent la testnet (défaut de développement).
+
+### Devnet — réseau local réinitialisable
+
+La devnet (`scone-devnet`) est le troisième réseau, dédié à
+l'itération locale rapide :
+
+- **Genèse propre** : le `network_id` `scone-devnet` dans le payload
+  consensus produit un hash de genèse distinct de la testnet ET de la
+  mainnet — aucune genèse, aucun bloc, aucune signature, aucune
+  preuve PoW ne franchit la frontière (replay impossible).
+- **PoW quasi nul** : courbe épinglée dans 0..=2 bits
+  (`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1` — la décroissance par
+  longueur s'applique quand même) : un claim TLD ou domaine se mine
+  en quelques millisecondes, pour exercer exactement le même chemin
+  de code que les autres réseaux.
+- **Consensus PoS rapide** : mêmes paramètres que la testnet (comité
+  de 4, époques de 10 s) pour une finalité rapide en maillage local.
+- **Réinitialisation** : la chaîne vit dans son data-dir dédié
+  (`~/.scone/devnet/` par défaut). **Effacer ce répertoire puis
+  relancer le relay réinitialise la chaîne** (genèse fraîche, store
+  vierge) — aucun outil supplémentaire n'est nécessaire. Ne JAMAIS
+  pointer un data-dir devnet vers un data-dir d'un autre réseau : un
+  store non vide qui tient une autre chaîne est refusé (`Corrupted`).
 
 ## État canonique
 

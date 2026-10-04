@@ -423,20 +423,27 @@ difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
 |---|---|---|
 | testnet | 8 bits / 2 bits | 6 bits / 2 bits |
 | mainnet | 42 bits / 30 bits | 40 bits / 30 bits |
+| devnet | 2 bits / 1 bit | 1 bit / 1 bit |
 
 A **born-open** TLD (`RegisterTld` with `open = 0x01`) pays the
 "opening" curve (apex − 2, like `domain_difficulty`); **opening an
 existing private TLD** (`SetTldOpen`) stays at flat difficulty
-(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet — the tx
+(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet /
+2 bits devnet — the tx
 carries only the `tld_id`, the name paid for its length at creation).
 Mainnet benchmarks (private TLD, ~6 M hashes/s): 1 character = 42
 bits (≥ 7 days), 5 chars = 40 bits (~2 days), 19 chars = 35 bits
 (~1.6 h), 29+ chars = 30-bit floor (~3 min). The curves live in
 `scone-core::pow_length` (constants `MAINNET_APEX = 42`,
-`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`); the
+`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
+`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); the
 flat parameters (`tld_pow_difficulty`, etc.) remain in
 `scone-core::network::NetworkParams`. Changing a value = a consensus
-change **for that network**.
+change **for that network**. Invariant: the devnet is a complete
+third `NetworkParams` and testnet stays strictly identical to its
+pre-devnet constants (Argon2id parameters, curves, windows) — the
+devnet shares NO constant with the other networks beyond the code
+itself.
 
 Measured calibration of the flat summits (2026-10, `cargo run
 --release -p scone-core --example pow_bench` — single-thread

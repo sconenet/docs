@@ -114,18 +114,25 @@ API: `block_hash(&BlockHeader) -> Result<BlockHash>`.
 
 ## Networks and genesis (M8b)
 
-Scone defines two disjoint networks, identified by a canonical
+Scone defines three disjoint networks, identified by a canonical
 `network_id` (1..=16 ASCII bytes `[a-z0-9-]`):
 
 | Network | `network_id` | 1-char TLD apex | domain apex | floor |
 |---|---|---|---|---|
 | testnet | `scone-testnet` | 8 bits | 6 bits | 2 bits |
 | mainnet | `scone-mainnet` | 42 bits | 40 bits | 30 bits |
+| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit |
 
 The parameters live in `scone-core::network::NetworkParams`
-(named instances `TESTNET` / `MAINNET`, lookup via
+(named instances `TESTNET` / `MAINNET` / `DEVNET`, lookup via
 `NetworkParams::by_name`). Changing a difficulty = a consensus change
 **for that network**.
+
+**Structural invariant**: the devnet is a complete third
+`NetworkParams` — never a subset of testnet flags. Testnet stays
+**strictly identical** to what it was before the devnet was added
+(same Argon2id constants, same curves, same epoch windows); the test
+suite pins this invariant.
 
 **Length-variable difficulty** (`scone-core::pow_length`): the
 difficulty of a creation depends on the length of the **created label**
@@ -177,6 +184,28 @@ everything.
 API: `genesis_of(&NetworkParams) -> Block`,
 `genesis_hash_of(NetworkId) -> BlockHash`; the aliases `genesis()` /
 `genesis_hash()` refer to testnet (the development default).
+
+### Devnet — resettable local network
+
+The devnet (`scone-devnet`) is the third network, dedicated to fast
+local iteration:
+
+- **Own genesis**: the `scone-devnet` network id in the consensus
+  payload yields a genesis hash distinct from BOTH testnet and
+  mainnet — no genesis, block, signature or PoW proof ever crosses
+  the boundary (replay is impossible).
+- **Near-zero PoW**: curve pinned in the 0..=2 bit range
+  (`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1` — the length decay still
+  applies): a TLD or domain claim mines in milliseconds, exercising
+  exactly the same code path as the other networks.
+- **Fast PoS consensus**: same parameters as testnet (committee of
+  4, 10 s epochs) for quick finality on a local mesh.
+- **Reset**: the chain lives in its own data directory
+  (`~/.scone/devnet/` by default). **Wiping that directory and
+  relaunching the relay resets the chain** (fresh genesis, virgin
+  store) — no extra tooling needed. NEVER point a devnet data dir at
+  another network's data dir: a non-empty store holding another
+  chain is refused (`Corrupted`).
 
 ## Canonical state
 

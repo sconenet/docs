@@ -198,8 +198,8 @@ borné : jamais plus d'un bloc en vol par pair.
 
 ### Démarrage
 
-0. résolution du réseau (`--network testnet|mainnet`, défaut testnet
-   tant que le projet est en dev — M8b). Le data-dir est **par
+0. résolution du réseau (`--network testnet|mainnet|devnet`, défaut
+   testnet tant que le projet est en dev — M8b). Le data-dir est **par
    réseau** (`~/.scone/<réseau>/`) : un store non vide qui tient une
    chaîne d'un autre réseau est refusé (`Corrupted`) ;
 1. ouverture/creation du store redb (`<data-dir>/chain.redb`) ;
@@ -406,7 +406,7 @@ waiter DHT — voir `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolète, ignoré)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolète, ignoré)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
@@ -442,7 +442,10 @@ d'environnement par défaut de `--anchor-passphrase-env` est
 `SCONE_ANCHOR_PASS`.
 
 `--network` (M8b) : `testnet` par défaut (projet en dev), `mainnet`
-explicite. Fixe la genèse, les difficultés PoW et le data-dir par
+explicite, `devnet` pour le réseau local réinitialisable (genèse
+propre `scone-devnet`, PoW quasi nul 0..=2 bits — effacer
+`~/.scone/devnet/` et relancer réinitialise la chaîne). Fixe la
+genèse, les difficultés PoW et le data-dir par
 défaut (`~/.scone/<réseau>/`) ; une tx d'un autre réseau est refusée
 de façon typée (`WrongNetwork`).
 

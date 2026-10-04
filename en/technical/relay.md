@@ -196,9 +196,9 @@ bounded: never more than one block in flight per peer.
 
 ### Startup
 
-0. network resolution (`--network testnet|mainnet`, testnet default
+0. network resolution (`--network testnet|mainnet|devnet`, testnet default
    while the project is in dev — M8b). The data-dir is **per
-   network** (`~/.scone/<network>/`): a non-empty store holding a
+   network** (`~/.scone/<network>/`): a non-empty store that holds a
    chain from another network is refused (`Corrupted`);
 1. open/create the redb store (`<data-dir>/chain.redb`);
 2. `load_chain(store, network)`: O(1) tip + paginated domain states
@@ -405,7 +405,7 @@ waiter — see `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolete, ignored)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
@@ -440,7 +440,10 @@ keeps the relay strictly passive. The default env var of
 `--anchor-passphrase-env` is `SCONE_ANCHOR_PASS`.
 
 `--network` (M8b): `testnet` by default (project in dev), explicit
-`mainnet`. Sets the genesis, PoW difficulties, and the default
+`mainnet`, `devnet` for the resettable local network (own
+`scone-devnet` genesis, near-zero 0..=2 bit PoW — wiping
+`~/.scone/devnet/` and relaunching resets the chain). Sets the
+genesis, PoW difficulties, and the default
 data-dir (`~/.scone/<network>/`); a tx from another network is
 refused in typed fashion (`WrongNetwork`).
 
