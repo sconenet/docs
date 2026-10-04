@@ -573,3 +573,84 @@ scone relay --dns 127.0.0.1:5353 \
             --geo-dns --geo-country 250 --geo-asn 64500 --geo-region 11 \
             --health-check --health-port 443
 ```
+
+
+## DoH / DoT (encrypted transports) — via external frontend
+
+The Scone DNS server speaks **plain UDP and TCP** (RFC 1035 / 7766)
+— that is the native scope, complete and tested. Encrypted
+transports to the *end client* (DoH — DNS-over-HTTPS, RFC 8484;
+DoT — DNS-over-TLS, RFC 7858) are **delegated to a standard
+frontend**: Scone serves the data, the frontend serves the
+transport.
+
+Why this design: a native DoH server would require a full HTTPS
+stack inside the node (certificates, renewal, HTTP/2) — a large
+operational surface for zero benefit before there are browser-side
+end users. Existing frontends do it better and for longer; the node
+stays minimal.
+
+### Example: unbound doing DoH in front of a Scone relay
+
+`/etc/unbound/unbound.conf`:
+
+```
+server:
+    interface: 127.0.0.1
+    port: 5354
+    do-ip4: yes
+    do-udp: no
+    do-tcp: yes
+
+    # DoH (RFC 8484) on 443
+    https-port: 443
+    tls-service-key: "/etc/unbound/scone.key"
+    tls-service-pem: "/etc/unbound/scone.pem"
+
+forward-zone:
+    name: "."
+    forward-addr: 127.0.0.1@5353   # the Scone relay (--dns 127.0.0.1:5353)
+```
+
+The certificate (`scone.pem`/`scone.key`) is obtained like any TLS
+service — e.g. certbot/acme.sh on the resolver's domain. DoH
+clients then point at `https://dns.example.tld/dns-query`.
+
+### Example: knot-resolver doing DoT
+
+`/etc/knot-resolver/kresd.conf`:
+
+```
+net.listen('127.0.0.1', 5353, { kind = 'dns' })
+net.listen('0.0.0.0', 853, { kind = 'tls' })
+tls.cert_file = '/etc/knot-resolver/scone.pem'
+tls.key_file  = '/etc/knot-resolver/scone.key'
+```
+
+### What the frontend adds
+
+- **Encryption of the client→frontend channel** (the hostile
+  segment: the user's network); the frontend→relay segment stays
+  local (same machine or trusted network).
+- **An extra frontend-side cache** (unbound/knot cache too —
+  harmless, the Scone TTLs remain the upper bound).
+- **A stable endpoint** (IPv4/IPv6, domain) while relays move.
+
+### What the frontend does NOT do
+
+- It does not *verify* anything: every answer served by the relay
+  is already verified against the chain before being cached (see
+  "Resolution path"). The frontend relays already-authoritative
+  answers.
+- It does not replace decentralization: a DoH frontend is an
+  *operated* service — the resolver operator's choice, not the
+  protocol's. Every Scone relay stays independently usable over
+  native UDP/TCP.
+
+### Future native implementation (documented, not committed)
+
+A native DoH transport (`--doh ADDR`) remains conceivable: the
+wire format being identical (RFC 8484 reuses binary DNS messages),
+it would be a POST/GET decode + HTTP/2 behind a TLS proxy
+(caddy/nginx handling certificates), the node itself staying
+TLS-free. No work in progress — demand will come with end users.

@@ -568,3 +568,86 @@ scone relay --dns 127.0.0.1:5353 \
             --geo-dns --geo-country 250 --geo-asn 64500 --geo-region 11 \
             --health-check --health-port 443
 ```
+
+
+## DoH / DoT (transports chiffrés) — via frontal externe
+
+Le serveur DNS de Scone parle **UDP et TCP classiques** (RFC 1035 /
+7766) — c'est le périmètre natif, complet et testé. Les transports
+chiffrés vers le *client final* (DoH — DNS-over-HTTPS, RFC 8484 ;
+DoT — DNS-over-TLS, RFC 7858) sont **délégués à un frontal
+standard** : Scone sert les données, le frontal sert le transport.
+
+Pourquoi ce choix : un serveur DoH natif exigerait une pile HTTPS
+complète dans le nœud (certificats, renouvellement, HTTP/2) — une
+surface opérationnelle importante pour un bénéfice nul avant qu'il
+y ait des clients finaux navigateur. Les frontaux existants
+gèrent ça mieux et depuis plus longtemps ; le nœud reste
+minimaliste.
+
+### Exemple : unbound en DoH devant un relay Scone
+
+`/etc/unbound/unbound.conf` :
+
+```
+server:
+    interface: 127.0.0.1
+    port: 5354
+    do-ip4: yes
+    do-udp: no
+    do-tcp: yes
+
+    # DoH (RFC 8484) sur 443
+    https-port: 443
+    tls-service-key: "/etc/unbound/scone.key"
+    tls-service-pem: "/etc/unbound/scone.pem"
+
+forward-zone:
+    name: "."
+    forward-addr: 127.0.0.1@5353   # le relay Scone (--dns 127.0.0.1:5353)
+```
+
+Le certificat (`scone.pem`/`scone.key`) est obtenu comme pour
+n'importe quel service TLS — par exemple via certbot/acme.sh sur le
+domaine du resolver. Les clients DoH pointent alors sur
+`https://dns.exemple.tld/dns-query`.
+
+### Exemple : knot-resolver en DoT
+
+`/etc/knot-resolver/kresd.conf` :
+
+```
+net.listen('127.0.0.1', 5353, { kind = 'dns' })
+net.listen('0.0.0.0', 853, { kind = 'tls' })
+tls.cert_file = '/etc/knot-resolver/scone.pem'
+tls.key_file  = '/etc/knot-resolver/scone.key'
+```
+
+### Ce que le frontal ajoute
+
+- **Chiffrement du canal client→frontal** (le segment hostile :
+  le réseau de l'utilisateur) ; le segment frontal→relay reste
+  local (même machine ou réseau de confiance).
+- **Cache supplémentaire côté frontal** (unbound/knot cachent
+  aussi — inoffensif, les TTL Scone restent la limite haute).
+- **Point de terminaison stable** (IPv4/IPv6, domaine) pendant que
+  les relays bougent.
+
+### Ce que le frontal NE fait PAS
+
+- Il ne *vérifie* rien : toute donnée servie par le relay est déjà
+  vérifiée contre la chaîne avant d'être cachée (voir « Chemin de
+  résolution »). Le frontal relaie des réponses déjà autoritaires.
+- Il ne remplace pas la décentralisation : un frontal DoH est un
+  service *opéré* — c'est le choix de l'opérateur du resolver
+  public, pas du protocole. Chaque relay Scone reste
+  indépendamment utilisable en UDP/TCP natif.
+
+### Choix d'implémentation future (documenté, non engagé)
+
+Un transport DoH natif (`--doh ADDR`) resterait envisageable :
+le format wire étant identique (RFC 8484 réutilise les messages
+DNS binaires), il s'agirait d'un décodage POST/GET + HTTP/2 derrière
+un proxy TLS (caddy/nginx gérant les certificats), le nœud restant
+sans TLS intégré. Aucun travail en cours — la demande arrivera avec
+les clients finaux.
