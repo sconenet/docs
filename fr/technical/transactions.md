@@ -511,9 +511,12 @@ Une transaction est valide si et seulement si :
    TransferTld / RevokeTld / SetTldOpen / AssignDomain → TLD
    existant **et privé**, signataire = owner du TLD ;
    TransferDomain → domaine existant, owner ;
-   RenewDomain → domaine existant, owner, extension stricte ≤ 3 ans,
-   autorisation PoW (TLD ouvert : même PoW que la création) ou PoS
-   (TLD privé : signature du owner du TLD, `proof` vide).
+   RenewDomain → domaine existant, extension stricte ≤ 3 ans,
+   autorisation PoW (TLD ouvert : même PoW que la création,
+   **liée à l'échéance courante** — challenge distinct de
+   l'enregistrement et de tout renouvellement antérieur) ou PoS
+   (TLD privé : signature du owner du TLD ou de son opérateur
+   effectif, `proof` vide).
 
 La vérification utilise `verify_strict` (rejet des signatures
 malléables et des clés faibles/non canoniques), comme exigé pour des

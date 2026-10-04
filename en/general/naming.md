@@ -166,7 +166,10 @@ what belongs to someone. Normative summary:
 
 - **Birth — PoW** (reduced curve vs TLD: mainnet 1 char ≈ 8.5 d,
   floor ≈ half a day).
-- **Renewal — PoW identical to the birth**: every term of life is
+- **Renewal — PoW identical to the birth** (same difficulty
+  curve; the challenge is bound to the current expiry, hence
+  distinct from the registration and every earlier renewal):
+  every term of life is
   paid in work, a domain cannot be "collected" for free (≤ 3 years
   in advance).
 - **Death**: expiry → 30 d grace (renewable) → GC → the name

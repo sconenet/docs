@@ -217,8 +217,12 @@ bounded: never more than one block in flight per peer.
 1. strict bounded decoding (`MAX_MESSAGE_LEN`);
 2. full cryptographic validation (`validate_transaction`:
    owner/key binding, `verify_strict` over the canonical payload);
-3. state pre-check (cheap mirror of the `push_block` rules —
-   PoW, which is costly, is only verified at push time). Network
+3. **anti-replay FIRST** (cheap, state-independent, definitive),
+   then state pre-check (cheap mirror of the `push_block` rules —
+   PoW, which is costly, is only verified at push time): a
+   replayed `RenewDomain` answers `TxReplay`, not a lying PoW
+   error (its proof binds the expiry the first application moved
+   past). Network
    separation is enforced at step 2: the signature payload injects
    the RELAY's network, a tx signed elsewhere fails with
    `InvalidSignature` (wire 2026-09: no more `network` field);
@@ -228,7 +232,8 @@ bounded: never more than one block in flight per peer.
    exact sequence `current + 1`, owner; `RegisterTld` → free TLD;
    `TransferTld`/`RevokeTld`/`SetTldOpen` → known TLD + owner
    signer; `AssignDomain` → TLD owner + free name;
-   `RenewDomain` → known domain + owner;
+   `RenewDomain` → known domain + owner, renewal PoW precheck
+   (bound to the current expiry) at the next height;
 4. mempool insertion (fixed capacity, dedup by `TxId` —
    re-submitting a tx already in the pool is a no-op);
 5. broadcast to peers (except the sender).
@@ -248,7 +253,26 @@ bounded: never more than one block in flight per peer.
 4. broadcast to peers (except the sender).
 
 An invalid block is rejected with a typed error; the relay keeps
-running. No panic on network data.
+running. No panic on network data. Heavy applies (Argon2 + redb
+commit) go through `tokio::task::block_in_place` (sync driver,
+p2p accept, production): the runtime moves ready tasks to other
+workers — applying a block no longer stalls the DNS service or
+the metrics.
+
+### DNS snapshot (publication)
+
+After EVERY applied block (p2p accept — reorgs included —, sync
+driver, production) AND at boot (a restart must not NXDOMAIN
+live names until the next block), the relay publishes the
+**authoritative DNS snapshot** onto the `watch` feed read by the
+DNS surface (full specification in `dns.md`):
+
+- tip extension (the overwhelming path): **O(touched) delta**,
+  copy-on-write — the block's transactions name the touched
+  domains, plus the deterministic GC removals
+  (`AppliedBlock.gc_removed_domains`, evaluated at push time);
+- reorg / boot: **full rebuild** (one paged
+  `ChainState::dns_facts` walk).
 
 ### Block production (M5: signed producer)
 
@@ -368,6 +392,46 @@ key is rejected, `record rejected`); it is also transported for
 future verifiers — the on-chain commitment remains the primary
 integrity control.
 
+## Prometheus metrics
+
+An HTTP endpoint (Prometheus text format 0.0.4, hand-rolled
+exposition — no new dependency) served by a dedicated task:
+
+- **Public by default** on `127.0.0.1:9101` (the CLI applies that
+  default; the library default is `None` — several relays in one
+  process never collide).
+- `--metrics-addr ADDR|off`: another address, or `off` = endpoint
+  disabled.
+- `--metrics-token TOKEN`: switches to **private** mode —
+  `Authorization: Bearer <TOKEN>` required (constant-time
+  comparison, `401` otherwise; the token never appears in logs
+  nor in the exposition).
+- A bind failure **disables the endpoint** (non-fatal warning) —
+  never the node.
+
+The effective bind is announced on stdout (machine-readable
+contract, like `p2p:`): a `metrics: <addr>` line as soon as it
+listens.
+
+**19 counters** (`counter`, monotonic — hot paths:
+`fetch_add(Relaxed)` on a shared `Arc<Metrics>`, never a
+consensus input):
+
+| Group | Series |
+|---|---|
+| Chain | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
+
+**5 gauges** (`scone_height`, `scone_mempool`, `scone_peers`,
+`scone_domains`, `scone_finalized_epoch`) refreshed every 15 s
+through the `RelayCommand` channel (the same path as the CLI
+`status` — single source of truth).
+
+E2E test: `metrics_endpoint_public_and_private` (200 +
+exposition, 401 without/with a wrong token, 200 with Bearer).
+
 ## CLI control (RPC→p2p unification)
 
 The JSON TCP RPC server has been **removed**: the CLI (and the
@@ -411,7 +475,8 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology] [--topology-min-connections U] [--topology-target-connections U] [--topology-max-connections U]
             [--topology-optimization-interval-secs U64] [--topology-min-score-improvement F64]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE]
+            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone submit tx --hex HEX [--peer MULTIADDR]
 scone lookup NAME [--peer MULTIADDR]
@@ -539,6 +604,8 @@ separate workstream.
 | Simultaneous DHT waiters | `MAX_DHT_WAITERS` (256); DHT lookup bounded to 30 s (`DHT_LOOKUP_TIMEOUT`) |
 | Blocks per sync reply | 1 per round-trip; ≤ 10,000 batches per peer (`MAX_SYNC_ROUNDS`); protocol bound `MAX_BLOCKS_PER_REQUEST = 128` on the request |
 | DHT record | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
+| Persistent DHT cache (disk) | double LRU bound: `DHT_CACHE_MAX_ENTRIES` (100,000 entries) AND `DHT_CACHE_MAX_BYTES` (2 GiB) — whichever hits first evicts by key order; GC eviction in the SAME transaction as the block (a domain killed by the chain GC never leaves an orphan entry behind) |
+| DHT negative cache | `DHT_NEGATIVE_TTL_SECS` (30 s), FIFO cap `DHT_NEGATIVE_CAP` (4,096) |
 | Chain in RAM | genesis + tip window (history served from the store) |
 
 Anti-loop rule (H2): a transaction is only re-broadcast if it was

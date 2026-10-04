@@ -25,12 +25,11 @@ Two parts:
 |---|---|
 | [protocol.md](technical/protocol.md) | Canonical wire binary format: LEB128 varints, identifiers, DNS records, blocks, P2P messages, limits, versioning |
 | [transactions.md](technical/transactions.md) | Signed transaction format v1: fields, wire order (RegisterDomain carries the name, arbitrary discriminants), owner derivation, signed payload `SCONE-TX-SIG-V1`, validation rules |
-| [blockchain.md](technical/blockchain.md
-- technical/security-model.md — security model (committee selection, anti-grinding, slashing)) | Blockchain layer: `TxId`, Merkle tree, `BlockHash`, genesis, canonical state, block validation, consensus abstraction |
+| [blockchain.md](technical/blockchain.md) | Blockchain layer: `TxId`, Merkle tree, `BlockHash`, genesis, canonical state, block validation, consensus abstraction |
 | [keystore.md](technical/keystore.md) | `.sconekey` keyfile format (Argon2id + XChaCha20-Poly1305), `scone-keystore` API, `identity` commands |
 | [storage.md](technical/storage.md) | Local redb persistence: table schema, atomic deltas, memory policy, trust model, DoS bounds |
-| [relay.md](technical/relay.md) | Network relay (`scone-network`): libp2p protocols, mempool, sync, Kademlia DHT, local topology, control RPC, full CLI |
-| [dns.md](technical/dns.md) | UDP + TCP DNS server (M6/M7b): resolution path verified against the chain, RFC 1035 codec, TCP RFC 7766 (512-byte UDP / 64 KiB TCP budget, TC bit), recursive fallback, bounds |
+| [relay.md](technical/relay.md) | Network relay (`scone-network`): libp2p protocols, mempool, sync, Kademlia DHT, local topology, Prometheus metrics, DNS snapshot, control RPC, full CLI |
+| [dns.md](technical/dns.md) | UDP + TCP DNS server (M6/M7b): authoritative DNS snapshot, 16-way sharded hot-path cache (shared entries, allocation-free lookup, packed records, name compression), RFC 1035 codec, TCP RFC 7766 (512-byte UDP / 64 KiB TCP budget, TC bit), DHT negative cache, recursive fallback, bounds |
 | [cli.md](technical/cli.md) | Logging and verbosity of the `scone` binary: stdout/stderr, `-v` levels, `RUST_LOG` |
 | [security-model.md](technical/security-model.md) | Security model: committee selection, seed anti-grinding (analysis: VRF not necessary), equivocation and slashing |
 

@@ -262,7 +262,13 @@ complet reste possible et sert de contrôle/repair.
   recevant aussi les domaines retirés par le GC du bloc (M8b) pour
   l'écriture atomique décrite ci-dessus. Le relay alimente cette
   liste depuis `Blockchain::push_block_with_gc` (l'issue
-  d'application expose `gc_removed_domains`).
+  d'application expose `gc_removed_domains`). **Éviction GC du
+  cache DHT** : les entrées `dht_cache` des domaines retirés sont
+  supprimées dans la MÊME transaction que le bloc (les deltas
+  d'append portent la table `dht_cache`) — un enregistrement DHT
+  ne survit jamais au domaine qu'il servait, les entrées expirées
+  ne s'accumulent pas indéfiniment (test :
+  `gc_evicts_the_dht_cache_entry`).
 
 Le relay (M4) utilisera : `load_chain` au démarrage, puis pour chaque
 bloc accepté `push_block` (RAM) puis `store_block` (disque).
@@ -681,6 +687,16 @@ faire allouer :
   `verified_snapshot_v1` (P0.3) avec `StorageError::ReservedKey` —
   écraser la comptabilité interne du store reviendrait à le
   corrompre silencieusement.
+- **Cache DHT borné double (LRU)** : `DHT_CACHE_MAX_ENTRIES`
+  (100 000 entrées) ET `DHT_CACHE_MAX_BYTES` (2 Gio — garde
+  hostile ; chaque entrée est déjà bornée à 64 KiB par
+  `MAX_DHT_CACHE_ENTRY`), la première borne atteinte évince par
+  ordre de clé. Les compteurs (entrées + octets) sont maintenus à
+  l'écriture — jamais de scan pour compter ; la reconstruction
+  exacte n'a lieu qu'à l'ouverture (l'unique full scan, au boot).
+  Accesseurs `dht_cache_entries`/`dht_cache_bytes`, bornes
+  modulables `set_dht_cache_bounds` (test :
+  `dht_cache_respects_the_double_bound`).
 
 ## Modèle de confiance
 

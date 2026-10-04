@@ -164,7 +164,10 @@ ce qui appartient à quelqu'un. Résumé normatif :
 
 - **Naissance — PoW** (courbe réduite vs TLD : mainnet 1 car. ≈ 8,5 j,
   plancher ≈ demi-journée).
-- **Renouvellement — PoW identique à la naissance** : chaque terme de
+- **Renouvellement — PoW identique à la naissance** (même courbe
+  de difficulté ; le challenge est lié à l'échéance courante, donc
+  distinct de l'enregistrement et de tout renouvellement
+  antérieur) : chaque terme de
   vie est payé en travail, un domaine ne se « collectionne » pas
   gratuitement (≤ 3 ans d'avance).
 - **Décès** : expiration → grâce 30 j (renouvelable) → GC → le nom

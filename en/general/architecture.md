@@ -200,12 +200,22 @@ DNS query (example.uip)
     ▼
 Node: DomainId = BLAKE3-256("SCONE-DOMAIN-V1" || "example.uip")
     │
-    ├── local cache (SignedDnsRecord) ──► verification (signature, owner,
-    │                                      sequence, record_hash vs chain)
-    ├── DHT get(DomainId) ──────────────► same verification
+    ├── authoritative DNS snapshot (RAM) ─► unknown/expired → NXDOMAIN
+    │                                          (without touching the core)
+    ├── sharded DNS cache (qname,qtype) ───► hit: shared entry,
+    │                                          lazy verification
+    ├── local cache (SignedDnsRecord) ─────► verification (signature, owner,
+    │                                          sequence, record_hash vs chain)
+    ├── DHT get(DomainId) ─────────────────► same verification
+    │                                          (miss → 30 s negative cache)
     ▼
 DNS answer (if and only if valid)
 ```
+
+The DNS snapshot (existence + expiry of every live domain,
+published after each applied block) guarantees that an existence
+decision never goes through the relay's run loop: the core is
+only touched for actual record fetches.
 
 ## Evolvability
 

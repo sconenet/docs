@@ -265,7 +265,12 @@ control/repair path.
   receiving the domains removed by the block's GC (M8b) for the
   atomic write described above. The relay feeds this list from
   `Blockchain::push_block_with_gc` (the application outcome
-  exposes `gc_removed_domains`).
+  exposes `gc_removed_domains`). **GC eviction of the DHT
+  cache**: the `dht_cache` entries of removed domains are deleted
+  in the SAME transaction as the block (append deltas carry the
+  `dht_cache` table) — a DHT record never outlives the domain it
+  served, expired entries never accumulate forever (test:
+  `gc_evicts_the_dht_cache_entry`).
 
 The relay (M4) will use: `load_chain` at startup, then for every
 accepted block `push_block` (RAM) then `store_block` (disk).
@@ -684,6 +689,16 @@ it allocate:
   and `verified_snapshot_v1` (P0.3) with
   `StorageError::ReservedKey` — overwriting the store's internal
   accounting would silently corrupt it.
+- **Double-bounded DHT cache (LRU)**: `DHT_CACHE_MAX_ENTRIES`
+  (100,000 entries) AND `DHT_CACHE_MAX_BYTES` (2 GiB — hostile
+  case guard; each entry is already capped at 64 KiB by
+  `MAX_DHT_CACHE_ENTRY`), whichever bound hits first evicts by
+  key order. The counters (entries + bytes) are maintained at
+  write time — never a scan to count; the exact rebuild happens
+  only at open (the single full scan, at boot). Accessors
+  `dht_cache_entries`/`dht_cache_bytes`, tunable bounds via
+  `set_dht_cache_bounds` (test:
+  `dht_cache_respects_the_double_bound`).
 
 ## Trust model
 

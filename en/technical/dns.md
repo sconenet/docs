@@ -9,24 +9,28 @@ The **DNS server** is an optional surface of the relay: it answers
 **UDP and TCP** DNS queries (RFC 7766, same port) for Scone names
 **only from data verified against the chain**, and offers an
 **optional recursive fallback** (`addr:port`) for everything else.
-It owns neither chain, nor store, nor DHT: resolution goes through
-the relay (process), via the internal `RelayCommand`/
-`ResolveLocal` channel (in-process, one round trip) — the same
-verified path as the CLI.
+It owns neither chain, nor store, nor DHT: existence/expiry
+decisions go through the **authoritative DNS snapshot** (a RAM
+view published after every applied block — see below), and record
+fetches go through the relay (process), via the internal
+`RelayCommand`/`ResolveLocal` channel (in-process, one round
+trip) — the same verified path as the CLI.
 
 ```text
               UDP+TCP :5353 (default 127.0.0.1)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
-                    ├──┤ Bounded cache (qname,qtype)    │
+                    ├──┤ Sharded cache, 16 ways (qname)  │
                     │  └────────────────────────────────┘
                     │  Scone-shaped name?
-                    │  ├─ YES → apex search by suffix
+                    │  ├─ YES → authoritative DNS snapshot:
+                    │  │        unknown/expired → NXDOMAIN (RAM,
+                    │  │        zero round trips into the core)
+                    │  │        → apex search by suffix
                     │  │        → internal `resolve_local` (relay)
                     │  │           chain + verified record (hash,
                     │  │           owner, sequence) → answers
-                    │  │        apex unknown across the whole chain → NXDOMAIN
                     │  │        apex without a published record → NODATA
                     │  └─ NO → upstream fallback (if configured)
                     │           otherwise REFUSED
@@ -57,19 +61,64 @@ Validation client: `scone dig <name> --dns 127.0.0.1:5353
 
 ## Resolution path (AUTHORITY = the chain, always)
 
-1. **Cache**: key `(qname, qtype)`, capacity 100,000 entries by
-   default (`--dns-cache-limit` to override) AND a hard memory
-   budget of 64 MiB by default (`--dns-cache-max-mem`, e.g.
-   `64MB`): each entry's REAL rdata size is accounted for (~128
-   bytes overhead per entry) and FIFO eviction triggers on the
-   first of the two bounds reached — the memory cap holds even
-   against full-size entries (`MAX_DHT_RECORD_LEN`). TTL 60 s
+0. **Authoritative DNS snapshot**: an immutable view
+   (`Arc<HashMap<DomainId, {valid_until, has_record}>>`,
+   `tokio::sync::watch` feed) published by the relay core **after
+   every applied block** (push, not poll) and at boot.
+   Existence/expiry decisions — NXDOMAIN, expired domain — are
+   served from RAM through this snapshot: one `Arc` clone + one
+   map lookup, **never entering the relay's single-owner run
+   loop**. The full path
+   (`RelayCommand`/`ResolveLocal`) remains reserved for actual
+   record fetches (DHT pulls), rare thanks to the cache. The
+   snapshot NEVER carries record data: existence and expiry only.
+   - **O(touched) copy-on-write deltas**: the map is an
+     `Arc<HashMap>`; a tip extension publishes the block's delta
+     (the block's own transactions name every domain they can
+     change — Register/Assign/Update/Renew/TransferDomain — plus
+     the deterministic expiry-GC removals evaluated at push time)
+     through `Arc::make_mut`: the map is cloned ONLY if a reader
+     still holds the previous view. Boot and reorgs rebuild the
+     full snapshot (one paged backend walk).
+   - Freshness: a reader may see a snapshot a few hundred ms old
+     during a block application — the same staleness a status RPC
+     would have; DNS cache TTLs are unaffected (answers remain
+     authoritative per their origin).
+1. **Sharded cache**: [`ShardedCache`] — 16 independent `Cache`
+   shards keyed by `hash(qname)` (qtype shares the shard:
+   per-name locality). A hot name contends with 1/16th of the
+   traffic instead of queueing behind a single mutex at thousands
+   of qps. GLOBAL bounds (100,000 entries / 64 MiB by default,
+   `--dns-cache-limit` / `--dns-cache-max-mem`) split per shard
+   (documented worst case: a 1 + N/shards factor). Each entry's
+   REAL rdata size is accounted for (~128 bytes overhead per
+   entry) and FIFO eviction triggers on the first of the two
+   bounds reached — the memory cap holds even against full-size
+   entries (`MAX_DHT_RECORD_LEN`). TTL 60 s
    (authoritative) / clamped to 600 s (fallback). The negative
    cache (NXDOMAIN/NODATA) follows the same rules; each entry
    carries its origin (authoritative or fallback) so the AA bit
    stays honest on a hit. **Never cache SERVFAIL** (transient
    local failure) **nor REFUSED** (configuration state): both are
    recomputed on every query. FIFO eviction at capacity.
+   **Hot path (Cloudflare/1.1.1.1-inspired)**:
+   - shared `Arc<CacheEntry>` entries: a hit is a refcount bump,
+     NEVER a deep clone of the rdata (`put` REPLACES the Arc —
+     no shared mutation; TTL is still checked under the shard
+     lock);
+   - **allocation-free lookup**: two-level map
+     (`Box<str>` qname → qtype → entry), the query's borrowed
+     `&str` probes directly (`Borrow<str>`) — the old
+     `(String, u16)` tuple key allocated a fresh `String` on
+     EVERY lookup;
+   - **packed contiguous records**: one `Box<[u8]>` buffer per
+     entry (`u16 rdlen ‖ u16 rtype ‖ u32 ttl ‖ rdata` per
+     record) instead of one `Vec` per record — the memory budget
+     tracks exactly what is allocated;
+   - **RFC 1035 name compression on output**: the owner of
+     authoritative answers is a 2-byte compression pointer
+     (`0xC00C`) into the echoed question — the question is never
+     re-encoded in full per record.
 2. **Scone-shaped?** Strict pre-filter: labels `[a-z0-9-_]`
    (1..63), ≥ 2 labels, TLD 1..63 bytes `[a-z0-9-]` (see
    `TldName::MAX_LEN`), total length ≤ 253 — **and TLD outside
@@ -104,8 +153,10 @@ Validation client: `scone dig <name> --dns 127.0.0.1:5353
   (garbage costs nothing).
 - Response: QR|RD(echo)|RA, **AA only on authoritative answers**
   (chain, fresh or cached — never on fallback nor error RCODEs),
-  question copied verbatim, answers **uncompressed** (owner =
-  qname).
+  question copied verbatim, authoritative answers with an
+  **RFC 1035 compressed owner** (2-byte pointer `0xC00C` into
+  the echoed question); fallback upstream replies are served as
+  is (never re-encoded).
 - Types served: A, AAAA, CNAME, NS, MX, TXT, **PTR, SRV, CAA**
   (+ Unknown re-encoded verbatim; 9 native types in total, rdata
   encoded per RFC — 1035/2782/8659; strict CAA: critical bit 0x80
@@ -141,6 +192,22 @@ Validation client: `scone dig <name> --dns 127.0.0.1:5353
   RCODEs (other than NOERROR/NXDOMAIN) are not cached.
 - **Private by default**: no upstream = REFUSED for names outside
   the Scone shape.
+
+## DHT negative cache (anti-amplification)
+
+An **unanswered DHT pull** (record expected on-chain —
+`record_hash` committed — but absent from the local cache and the
+queried peers) parks the name for `DHT_NEGATIVE_TTL_SECS` (30 s)
+in a bounded negative cache (FIFO, cap `DHT_NEGATIVE_CAP` = 4,096
+names): repeated resolutions of the same name within the TTL are
+**suppressed** (counted, never re-pulled). A scanner — or a hot
+name whose owner never published — can no longer amplify one DNS
+query into a `GetRecord` per mesh peer per query. The negative
+entry dies at TTL, on record arrival (the successful pull writes
+into the real cache), or by being pushed out of the FIFO cap.
+
+Exposed counters (`scone_dht_negative_hits_total`,
+`_expired_total`, `_capped_total` — see "Metrics" in `relay.md`).
 
 ## TCP (M7b, RFC 7766)
 
@@ -183,10 +250,11 @@ client                     server
 | Max TCP response | 65,535 bytes |
 | Concurrent TCP connections | 64 (semaphore, immediate reject) |
 | TCP read timeout | 5 s |
-| Cache | 100,000 entries by default (FIFO) + hard memory budget 64 MiB (`--dns-cache-limit` / `--dns-cache-max-mem`) |
+| Cache | GLOBAL bounds 100,000 entries / 64 MiB by default, split across 16 shards (`--dns-cache-limit` / `--dns-cache-max-mem`) |
 | Authoritative TTL | **per record** (`record.ttl`, bounds 1..=2,592,000 s; the historical constant 60 s remains only for service responses) |
 | Fallback TTL (clamp) | 600 s |
-| Parallel UDP queries | 256 (semaphore; beyond: drop, the client retries) |
+| Parallel UDP queries | 4,096 (`MAX_INFLIGHT_UDP`, semaphore; beyond: drop, the client retries) — tunable `--dns-max-inflight` (min 1) |
+| DHT negative cache | 30 s (`DHT_NEGATIVE_TTL_SECS`), FIFO cap 4,096 names |
 | Timeout per upstream | 2 s |
 
 Project rules honored: never panic on network data; strict
@@ -202,7 +270,9 @@ nor DHT (the relay remains the sole verification authority).
   honesty (authoritative vs fallback vs errors, including cache
   hits), TC=1 truncation of an oversized set, upstream response
   rejection (TXID or question mismatch), no caching of
-  SERVFAIL/REFUSED.
+  SERVFAIL/REFUSED; sharded cache: shard spread, split global
+  bounds, 4 concurrent workers on a hot name; hot path:
+  allocation-free lookup, packed entries, owner compression.
 - M7b: per-transport budget (UDP 512 bytes → TC=1, TCP → full
   set), truncation of a cache hit, real `run_tcp` (set > 512
   served in full, pipelining of 2 queries, oversize query →

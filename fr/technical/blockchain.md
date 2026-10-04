@@ -362,7 +362,23 @@ bloc entier (undo-log).
 
 **RENEW_DOMAIN (0x3C)** :
 
-- le domaine doit exister, signataire = owner courant ;
+- le domaine doit exister ; **le type du TLD est évalué EN PREMIER**
+  (M8c, durcissement) :
+  - **TLD privé** : autorisation **PoS** — le signataire EST
+    l'owner du TLD, ou le siège de l'owner du TLD délègue vers la
+    clé publique du signataire
+    (`effective_operator(tld_owner) == renew.public_key` — la
+    délégation se lit TOUJOURS depuis le TLD owner, jamais
+    l'inverse). Le champ `proof` doit être vide (une preuve
+    non vide = rejet).
+  - **TLD ouvert** : autorisation **PoW** — le signataire est
+    l'owner du domaine courant (`NotOwner` sinon) et la preuve
+    mine le challenge de renouvellement : même difficulté que la
+    création (par longueur de label), **liée à l'échéance
+    courante** (`challenge = DOMAIN_ID_VERSION ‖ nom canonique ‖
+    valid_until actuel`) — la preuve d'un renouvellement est
+    distincte de celle de l'enregistrement et de tout
+    renouvellement antérieur (anti-réutilisation) ;
 - `valid_until` doit **strictement étendre** l'échéance courante
   (`RenewalNotExtending` sinon) ;
 - `valid_until ≤ now + 3 ans` (`RenewalExceedsTerm` — borne

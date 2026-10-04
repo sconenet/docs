@@ -8,10 +8,11 @@
 - **stdout is reserved for command output** (`scone show`,
   `identity list`, `status`, …). A script can redirect stdout
   without ever finding logs in it — piping stays reliable. Accepted
-  exception: `scone relay` emits **one** data line
-  `p2p: <multiaddr>` on stdout as soon as the listener is bound
-  (usable data for `--bootstrap`, not a log; emitted exactly once,
-  flushed immediately).
+  exception: `scone relay` emits the data lines
+  `p2p: <multiaddr>`, `dns: <addr>`, and `metrics: <addr>` on
+  stdout as soon as the listeners are bound
+  (usable data for `--bootstrap` / configuration, not logs;
+  emitted exactly once each, flushed immediately).
 - **All logs go to stderr** (compact `tracing` format), including
   the relay's — the relay already logged to stderr before the
   migration.

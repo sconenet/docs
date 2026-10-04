@@ -8,10 +8,11 @@
 - **stdout est réservé aux sorties de commandes** (`scone show`,
   `identity list`, `status`, …). Un script peut rediriger stdout sans
   jamais y trouver de logs — le piping reste fiable. Exception
-  assumée : `scone relay` émet **une** ligne de données
-  `p2p: <multiaddr>` sur stdout dès que l'écouteur est lié (donnée
-  exploitable pour `--bootstrap`, pas un log ; émise une seule fois,
-  flushée immédiatement).
+  assumée : `scone relay` émet des lignes de données
+  `p2p: <multiaddr>`, `dns: <addr>` et `metrics: <addr>` sur
+  stdout dès que les écouteurs sont liés (données
+  exploitables pour `--bootstrap` / configuration, pas des logs ;
+  émises une seule fois, flushées immédiatement).
 - **Tous les logs vont sur stderr** (format compact `tracing`), y
   compris ceux du relay — le relay loggait déjà sur stderr avant la
   migration.

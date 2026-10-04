@@ -358,7 +358,23 @@ block (undo-log).
 
 **RENEW_DOMAIN (0x3C)**:
 
-- the domain must exist, signer = current owner;
+- the domain must exist; **the TLD kind is evaluated FIRST**
+  (M8c hardening):
+  - **private TLD**: **PoS** authorization — the signer IS the
+    TLD owner, or the TLD owner's seat delegates to the signer's
+    public key
+    (`effective_operator(tld_owner) == renew.public_key` — the
+    delegation is always read FROM the TLD owner, never the
+    other way). The `proof` field must be empty (a non-empty
+    proof = reject).
+  - **open TLD**: **PoW** authorization — the signer is the
+    current domain owner (`NotOwner` otherwise) and the proof
+    mines the renewal challenge: same difficulty as the creation
+    (by label length), **bound to the current expiry**
+    (`challenge = DOMAIN_ID_VERSION ‖ canonical name ‖ current
+    valid_until`) — a renewal's proof is distinct from the
+    registration's and from every earlier renewal's
+    (anti-reuse);
 - `valid_until` must **strictly extend** the current deadline
   (`RenewalNotExtending` otherwise);
 - `valid_until ≤ now + 3 years` (`RenewalExceedsTerm` —
