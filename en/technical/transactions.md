@@ -571,6 +571,7 @@ payload to be signed.)
 ```bash
 scone tx build register-domain --name example.uip --timestamp 42  # hex of the payload to sign
 scone tx build register-tld --tld uip --timestamp 42              # same, TLD claim
+scone tx build heartbeat --identity alice                         # proof of life (RFC proof-of-service)
 scone tx sign <payload|tx-hex> --identity alice                   # full signed tx (hex)
 scone tx verify <tx-hex>                                          # full local validation
 ```

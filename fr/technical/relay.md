@@ -474,7 +474,9 @@ Messages de contrôle servis par le relay :
 
 - `GetStatus` → `NodeStatus { network, nat_reachable, tip,
   height, domain_count, mempool, peers, finalized_epoch,
-  checkpoints }` (l'affiche `scone status`) ;
+  checkpoints, fresh_operators }` (l'affiche `scone status` —
+  `fresh_operators` = opérateurs avec un heartbeat frais, RFC
+  proof-of-service) ;
 - `LookupName { name }` → `NameState` (état on-chain, comme
   `lookup`) ;
 - `GetOwnedNames { owner }` → `OwnedNames` (domaines + TLDs

@@ -311,7 +311,7 @@ not exceed `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0a` | `Checkpoint` | both | `Checkpoint` | signers ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | both | — | — | checkpoint window |
 | `0x0c` | `GetStatus` | both | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finality) | — | — |
+| `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finality, fresh operators) | — | — |
 | `0x0e` | `LookupName` | both | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | both | on-chain state of the name + TLD | — | — |
 | `0x10` | `GetOwnedNames` | both | `owner[32]` | — | `OwnedNames` |

@@ -315,7 +315,7 @@ transport ne devrait pas dépasser `MAX_MESSAGE_LEN` (1 Mio).
 | `0x0a` | `Checkpoint` | les deux | `Checkpoint` | signataires ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | les deux | — | — | fenêtre de checkpoints |
 | `0x0c` | `GetStatus` | les deux | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | les deux | état du nœud (réseau, tip, hauteur, NAT, domaines, mempool, pairs, finalité) | — | — |
+| `0x0d` | `NodeStatus` | les deux | état du nœud (réseau, tip, hauteur, NAT, domaines, mempool, pairs, finalité, opérateurs frais) | — | — |
 | `0x0e` | `LookupName` | les deux | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | les deux | état on-chain du nom + TLD | — | — |
 | `0x10` | `GetOwnedNames` | les deux | `owner[32]` | — | `OwnedNames` |
