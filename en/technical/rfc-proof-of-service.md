@@ -129,6 +129,15 @@ else :
     committee = select_committee(seed, pool)       // safe degradation
 ```
 
+Implementation details (verified in `finality.rs`, specified in
+`/docs/en/technical/blockchain.md` § "Seats and the finality
+committee"): the `pool` is the pool **frozen at the last finalized
+checkpoint** (`FinalizedBase.pool` — never the live state), the
+`seed` derives from the previous checkpoint's content hash
+(`signing_hash`), each seat is resolved to its EFFECTIVE operator
+by the state at the tip (delegation = a recent on-chain fact) and
+takes part under its effective key; banned keys stay excluded.
+
 The **degradation** is explicit and safe: a bootstrapping network
 (no heartbeat), or a general outage of operators, falls back to the
 entire pool — finality is never lost by construction. This is the

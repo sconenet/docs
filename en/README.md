@@ -28,10 +28,12 @@ Two parts:
 | [blockchain.md](technical/blockchain.md) | Blockchain layer: `TxId`, Merkle tree, `BlockHash`, genesis, canonical state, block validation, consensus abstraction |
 | [keystore.md](technical/keystore.md) | `.sconekey` keyfile format (Argon2id + XChaCha20-Poly1305), `scone-keystore` API, `identity` commands |
 | [storage.md](technical/storage.md) | Local redb persistence: table schema, atomic deltas, memory policy, trust model, DoS bounds |
-| [relay.md](technical/relay.md) | Network relay (`scone-network`): libp2p protocols, mempool, sync, Kademlia DHT, local topology, Prometheus metrics, DNS snapshot, control RPC, full CLI |
+| [relay.md](technical/relay.md) | Network relay (`scone-network`): libp2p protocols, peer discovery (seeds, directory, mDNS, UPnP), reachability (AutoNAT, circuit-relay, DCUtR), mempool, sync, Kademlia DHT, local topology, Prometheus metrics, DNS snapshot, full CLI, `.env` configuration |
 | [dns.md](technical/dns.md) | UDP + TCP DNS server (M6/M7b): authoritative DNS snapshot, 16-way sharded hot-path cache (shared entries, allocation-free lookup, packed records, name compression), RFC 1035 codec, TCP RFC 7766 (512-byte UDP / 64 KiB TCP budget, TC bit), DHT negative cache, recursive fallback, bounds |
-| [cli.md](technical/cli.md) | Logging and verbosity of the `scone` binary: stdout/stderr, `-v` levels, `RUST_LOG` |
+| [cli.md](technical/cli.md) | `scone` binary: logging and verbosity (stdout/stderr, `-v` levels, `RUST_LOG`), environment configuration via `.env` (precedence flag > `.env` > default) |
 | [security-model.md](technical/security-model.md) | Security model: committee selection, seed anti-grinding (analysis: VRF not necessary), equivocation and slashing |
+| [audit-methodologie.md](technical/audit-methodologie.md) | Security audit methodology: divergences, source of truth, correction passes |
+| [rfc-proof-of-service.md](technical/rfc-proof-of-service.md) | Proof-of-service RFC: operator heartbeats, operation delegation, committee election among fresh seats |
 
 ## Cross-reference conventions
 

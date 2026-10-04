@@ -671,6 +671,93 @@ O(distinct owners + pending expirations + in-flight grace windows +
 undo journal) — all bounded independently of the number of domains,
 all restored bit-exact by the journal.
 
+## Seats and the finality committee (exact PoS mechanism)
+
+This section describes the EXACT eligibility and committee-election
+mechanism as implemented (`finality.rs`) — the operational
+complement (anchor loop, wire) lives in
+`/docs/en/technical/relay.md`, the security analysis in
+`/docs/en/technical/security-model.md`.
+
+### A seat = possession (no registration)
+
+A PoS **seat** is NOT a registration: it is the possession of a
+live domain or TLD. `eligible_validators(now)` computes the pool:
+
+- keys of the live owners via the bounded `owner_refcounts` index
+  (one DISTINCT owner per live domain/TLD — a hundred domains
+  under one key = ONE seat: the economic anti-Sybil is per
+  identity, linear);
+- a TLD counts (its claim cost a PoW — the owner of a live TLD is
+  a stakeholder), so does a live domain
+  (`valid_until > now` — guaranteed by the deterministic GC,
+  already drained before the call);
+- **minus banned keys** (M9: a slashed equivocator is out of the
+  pool for life);
+- an **open** TLD (`owner: None`) holds NO seat: its former owner
+  is released at opening (`owner_release` in the `SetTldOpen`
+  apply), and it dies at GC without ever voting again.
+
+Sorted output (deterministic order, independent of the index's
+iteration order).
+
+Structural consequence: **the seat's death = the domain/TLD's
+death**. Expiry + GC, `RevokeTld` (seat released),
+`TransferTld`/`TransferDomain` (the seat follows the domain to the
+new owner), `SetTldOpen` opening (seat released) — every ownership
+transition moves or releases the seat in the pool, symmetrically
+with the `owner_refcounts` journal (acquire/release).
+
+### Pool FROZEN at the last finalized checkpoint (`FinalizedBase.pool`)
+
+On accepting a checkpoint (`accept_checkpoint`), the finality base
+captures the pool of the state AT THE FINALIZED BLOCK:
+
+```text
+FinalizedBase { checkpoint, pool, block_ts, seed }
+```
+
+- `pool` = `eligible_validators(timestamp of the finalized block)`
+  — finality NEVER re-reads the live state afterwards: any
+  registration (claim, transfer, ban) after the checkpoint only
+  counts for later epochs;
+- `seed` = `next_seed(signing_hash(checkpoint))` — the NEXT
+  epoch's seed derives from the checkpoint's **content** hash
+  (keyed, signature set excluded — two views holding distinct
+  quorum subsets of the same checkpoint elect the same
+  committee).
+
+### Committee drawing (bootstrap, freshness, degradation)
+
+`committee(recovery)`:
+
+1. **Bootstrap** (no finalized checkpoint): the ENTIRE pool signs
+   — a committee drawn from a local view would diverge between
+   lagging nodes (the root cause of finality freezes); the whole
+   pool is deterministic per the chain. Strict selection resumes
+   at the first finality.
+2. **Finalized regime**: drawing from the **fresh** subset of the
+   frozen pool (RFC proof-of-service §5.2) — each seat (owner
+   key) is resolved to its EFFECTIVE operator by the state at the
+   tip (`SetTldOperator`/`SetDomainOperator` delegation = a
+   recent on-chain fact, or the owner key when self-operated);
+   the seat takes part UNDER ITS EFFECTIVE KEY (that is the one
+   that signs), provided it has a **fresh heartbeat** (sliding
+   window). Banned keys stay excluded.
+3. **Safe degradation**: fewer than `MIN_FINALITY_COMMITTEE_SIZE`
+   (4) fresh operators → drawing from the ENTIRE pool (cold
+   bootstrap, general operator outage — finality is never lost by
+   construction).
+
+`allowed_producers(block_ts)` (block production) follows the same
+scheme: entire pool at bootstrap; elected committee + recovery
+draws (draw k unlocked after k × `epoch_secs` of consensus time)
+in the finalized regime.
+
+The checkpoint quorum is `quorum_for(committee size)`
+(floor(2n/3)+1); a committee below `MIN_FINALITY_COMMITTEE_SIZE`
+never finalizes (BFT guard).
+
 ## Deferred to consensus
 
 Deliberately undefined in this crate:

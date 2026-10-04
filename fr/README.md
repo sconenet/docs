@@ -28,10 +28,12 @@ Deux volets :
 | [blockchain.md](technical/blockchain.md) | Couche blockchain : `TxId`, arbre de Merkle, `BlockHash`, genèse, état canonique, validation des blocs, abstraction du consensus |
 | [keystore.md](technical/keystore.md) | Format keyfile `.sconekey` (Argon2id + XChaCha20-Poly1305), API `scone-keystore`, commandes `identity` |
 | [storage.md](technical/storage.md) | Persistance locale redb : schéma des tables, deltas atomiques, politique mémoire, modèle de confiance, bornes DoS |
-| [relay.md](technical/relay.md) | Relay réseau (`scone-network`) : protocoles libp2p, mempool, sync, DHT Kademlia, topologie locale, métriques Prometheus, snapshot DNS, RPC de contrôle, CLI complet |
+| [relay.md](technical/relay.md) | Relay réseau (`scone-network`) : protocoles libp2p, découverte des pairs (graines, annuaire, mDNS, UPnP), joignabilité (AutoNAT, circuit-relay, DCUtR), mempool, sync, DHT Kademlia, topologie locale, métriques Prometheus, snapshot DNS, CLI complet, configuration `.env` |
 | [dns.md](technical/dns.md) | Serveur DNS UDP + TCP (M6/M7b) : snapshot DNS autoritaire, cache shardé 16 voies à chemin chaud (entrées partagées, lookup zéro-allocation, records packés, compression de noms), codec RFC 1035, TCP RFC 7766 (budget 512 o UDP / 64 KiB TCP, bit TC), cache négatif DHT, fallback récursif, bornes |
-| [cli.md](technical/cli.md) | Logging et verbosité du binaire `scone` : stdout/stderr, niveaux `-v`, `RUST_LOG` |
+| [cli.md](technical/cli.md) | Binaire `scone` : logging et verbosité (stdout/stderr, niveaux `-v`, `RUST_LOG`), configuration par environnement `.env` (priorité flag > `.env` > défaut) |
 | [security-model.md](technical/security-model.md) | Modèle de sécurité : sélection de comité, anti-grinding de la seed (analyse : VRF non nécessaire), équivocation et slashing |
+| [audit-methodologie.md](technical/audit-methodologie.md) | Méthodologie d'audit doc/code : divergences, source de vérité, passes de correction |
+| [rfc-proof-of-service.md](technical/rfc-proof-of-service.md) | RFC proof-of-service : heartbeat des opérateurs, délégation d'exploitation, élection du comité parmi les sièges frais |
 
 ## Conventions de renvoi
 

@@ -50,6 +50,35 @@ RUST_LOG=error scone -vv relay            # error gagne sur -vv
 RUST_LOG=scone_network=trace,info scone relay   # par-cible
 ```
 
+## Configuration par environnement (`.env`)
+
+Avant le parsing des arguments, `scone` charge un fichier `.env`
+depuis le répertoire courant (`dotenvy::dotenv()` dans `main.rs`).
+Fichier absent = silence (no-op), jamais une erreur. Les valeurs
+chargées deviennent la ligne de base des options relay qui
+déclarent une variable d'environnement (`env = "…"` dans `cli.rs`).
+
+Priorité (une option, trois sources) :
+
+```text
+flag CLI explicite  >  variable de .env  >  défaut intégré
+```
+
+- un flag passé sur la ligne de commande gagne TOUJOURS ;
+- sinon la variable (que ce soit `.env` chargé ou l'environnement
+  réel du processus — même variable, même effet) ;
+- sinon le défaut intégré de clap.
+
+Les variables répétables (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
+accumulent : une ligne par valeur dans `.env` (dotenvy append).
+
+Le tableau complet des variables `SCONE_*` (réseau, écoute P2P,
+bootstrap, genèse, mDNS, UPnP, surface DNS, métriques, anchor) et
+la sémantique de chacune vit dans
+[`relay.md`](relay.md#configuration-par-environnement-env) ; le
+modèle commenté est `.env.example` à la racine du dépôt (copier
+vers `.env`, jamais commiter — `.env` est gitignoré).
+
 ## Sémantique des niveaux (convention du code)
 
 - `error!` : échecs (aucun site aujourd'hui — les échecs réseau sont

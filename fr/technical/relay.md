@@ -77,6 +77,33 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    graine ni bootstrap, l'annuaire est recomposé : le relay retrouve
    ses pairs habituels sans configuration. C'est un cache : fichier
    absent/corrompu = annuaire vide, jamais une erreur.
+4. **mDNS LAN** (`--mdns`, opt-in) — découverte zéro-config sur le
+   lien local : les relais voisins du même segment réseau se
+   se trouvent sans AUCUNE graine (le chemin devnet sans config).
+   Comportement : bind du socket multicast ; un échec de bind (pas
+   de multicast sur l'interface, environnement bac à sable)
+   **désactive** mDNS avec un avertissement — jamais fatal (la
+   découverte est un confort, pas une bouée). Chaque voisin
+   `Discovered` alimente la table Kademlia (`kad.add_address`),
+   exactement comme un bootstrap explicite, moins la configuration ;
+   les entrées `Expired` sont suivies par libp2p (la connexion se
+   referme d'elle-même). Membres `mdns`/`upnp` du comportement :
+   `Toggle` (activé/désactivé à la construction,
+   `build_behaviour(key, enable_mdns, enable_upnp)`).
+5. **UPnP** (`--upnp`, opt-in) — mapping du port d'écoute QUIC par la
+   box/routeur : le nœud devient joignable de l'extérieur SANS relais
+   de transport. Sur `NewExternalAddr`, l'adresse externe est
+   enregistrée comme adresse externe réelle du swarm
+   (`add_external_address` — visible par identify/autonat, candidate
+   transport-relay). Sans box IGD (`GatewayNotFound`) ou avec une
+   passerelle non routable (`NonRoutableGateway`) : simple log info,
+   le mapping est sauté — ce sont des cas normaux sur un LAN
+   domestique. Un mapping expiré (renouvellement échoué) est un
+   avertissement.
+
+mDNS et UPnP sont **désactivés par défaut** (`enable_mdns` /
+`enable_upnp` = `false` dans `config.rs`) : un déploiement public ne
+multicast rien et ne parle à aucune box.
 
 ### Optimisation locale de topologie (`--topology`, opt-in)
 
@@ -294,7 +321,9 @@ par la clé devnet est rejeté (`InvalidProducer`).
 ### Boucle anchor (finalité, M5)
 
 Avec `--anchor-key` (keyfile `.sconekey`, passphrase via
-`--anchor-passphrase-env`, défaut `SCONE_ANCHOR_PASSPHRASE`) :
+`--anchor-passphrase-env`, défaut `SCONE_ANCHOR_PASS` — le défaut
+`SCONE_ANCHOR_PASSPHRASE` de la bibliothèque `scone-network` n'est
+jamais atteint via le binaire, clap l'écrase toujours) :
 
 - après chaque bloc accepté/produit, si ce nœud est membre du comité
   courant **et** que le comité atteint `MIN_FINALITY_COMMITTEE_SIZE`,
@@ -470,7 +499,8 @@ waiter DHT — voir `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--rpc ADDR (obsolète, ignoré)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
+            [--mdns] [--upnp] [--rpc ADDR (obsolète, ignoré)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-dns] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
@@ -495,6 +525,48 @@ de canal TCP JSON). Relay absent → message clair « p2p node
 unreachable — is a relay running? », exit non nul. Le flag
 `--rpc` est conservé mais **obsolète et ignoré** (le serveur RPC a
 été supprimé ; compatibilité de scripts uniquement).
+
+### Configuration par environnement (`.env`)
+
+Au démarrage, `scone` charge (via `dotenvy`, avant le parsing clap)
+un fichier `.env` depuis le répertoire courant : fichier absent =
+silence (no-op), jamais une erreur. Les valeurs chargées deviennent
+la **ligne de base environnementale** des options qui déclarent
+une variable (`env = "…"` dans `cli.rs`) ; **un flag CLI explicite
+gagne toujours** sur `.env`, et `.env` gagne sur les défauts
+intégrés :
+
+```text
+flag CLI explicite  >  variable de .env  >  défaut intégré
+```
+
+Le fichier `.env.example` à la racine du dépôt documente chaque
+variable (copier vers `.env` et ajuster ; `.env` est **gitignoré** —
+ne jamais commiter un `.env` réel). Variables :
+
+| Variable | Option miroir | Sémantique |
+|---|---|---|
+| `SCONE_NETWORK` | `--network` | `testnet` (défaut), `mainnet`, `devnet` |
+| `SCONE_DATA_DIR` | `--data-dir` | répertoire de données (défaut `~/.scone/<réseau>/`) |
+| `SCONE_LISTEN` | `--listen` | multiaddr d'écoute P2P (défaut : tous interfaces, port éphémère) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | graines bootstrap, **répétable** (une ligne par valeur — dotenvy accumule) ; remplace les graines embarquées |
+| `SCONE_GENESIS` | `--genesis` | fichier de genèse (nœuds fondateurs) |
+| `SCONE_MDNS` | `--mdns` | découverte LAN mDNS (`true` = armé) |
+| `SCONE_UPNP` | `--upnp` | mapping de port UPnP (`true` = armé) |
+| `SCONE_DNS_ADDR` | `--dns` | adresse d'écoute du serveur DNS UDP |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallbacks récursifs, **répétable** |
+| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | plafond d'entrées du cache DNS |
+| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | plafond mémoire du cache DNS (ex. `64MB`) |
+| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | plafond de requêtes DNS simultanées |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | endpoint métriques (`ADDR` ou `off`) |
+| `SCONE_METRICS_TOKEN` | `--metrics-token` | bearer token de l'endpoint métriques |
+| `SCONE_ANCHOR_KEY` | `--anchor-key` | keyfile anchor (checkpoint + production) |
+
+`SCONE_ANCHOR_PASS` n'est PAS l'option d'une variable : c'est le nom
+PAR DÉFAUT de la **variable contenant la passphrase anchor**
+(`--anchor-passphrase-env`, défaut `SCONE_ANCHOR_PASS` au niveau
+CLI) — le relay lit la passphrase dans la variable que ce flag
+nomme.
 
 **Anchor auto (défaut ON)** : sans `--anchor-key`, un keyfile
 anchor est généré/persisté automatiquement dans le data-dir

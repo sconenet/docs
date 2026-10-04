@@ -126,8 +126,12 @@ transactions et blocs (validation locale systématique), mempool borné,
 sync de blocs bornée (128 blocs/requête), DHT Kademlia pour les
 `SignedDnsRecord`, serveur DNS UDP (GeoDNS optionnel, fallback
 récursif), boucle checkpoint/heartbeat des anchors (le CLI parle
-QUIC p2p direct au relay, plus de RPC local). Référence :
-`/docs/fr/technical/relay.md`.
+QUIC p2p direct au relay, plus de RPC local). Joignabilité et
+découverte : AutoNAT v2 (verdict reachable/NATé), circuit-relay v2
++ DCUtR pour les nœuds NATés, mDNS (découverte LAN zéro-config) et
+UPnP (mapping du port QUIC par le routeur) tous deux opt-in.
+Configuration par fichier `.env` (voir `.env.example`).
+Référence : `/docs/fr/technical/relay.md`.
 
 **scone-keystore** — stockage chiffré des clés de signature Ed25519
 (fichiers `.sconekey` : Argon2id + XChaCha20-Poly1305). Ce crate prend

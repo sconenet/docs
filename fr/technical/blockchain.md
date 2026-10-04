@@ -680,6 +680,95 @@ O(owners distincts + expirations en attente + fenêtres de grâce en
 vol + journal d'undo) — tout borné indépendamment du nombre de
 domaines, tout restauré bit-exact par le journal.
 
+## Sièges et comité de finalité (mécanisme PoS exact)
+
+Cette section décrit le mécanisme EXACT de l'éligibilité et de
+l'élection du comité tel qu'implémenté (`finality.rs`) — le
+complément opérationnel (boucle anchor, wire) vit dans
+`/docs/fr/technical/relay.md`, l'analyse de sécurité dans
+`/docs/fr/technical/security-model.md`.
+
+### Siège = possession (aucune inscription)
+
+Un **siège** PoS n'est PAS une inscription : c'est la possession
+d'un domaine ou TLD vivant. `eligible_validators(now)` calcule le
+pool :
+
+- clés des owners vivants via l'index borné `owner_refcounts`
+  (un owner DISTINCT par domaine/TLD vivant — cent domaines pour
+  une même clé = UN siège : l'anti-Sybil économique est par
+  identité, linéaire) ;
+- un TLD compte (son claim a coûté un PoW — l'owner d'un TLD
+  vivant est un stakeholder), un domaine vivant
+  (`valid_until > now` — garanti par le GC déterministe, déjà
+  drainé avant l'appel) ;
+- **moins les clés bannies** (M9 : un équivocateur slashé sort du
+  pool à vie) ;
+- un TLD **ouvert** (`owner: None`) ne porte AUCUN siège : son
+  ancien owner est libéré à l'ouverture (`owner_release` dans
+  l'apply de `SetTldOpen`), et il meurt au GC sans jamais voter.
+
+Sortie **triée** (ordre déterministe, indépendant de l'ordre
+d'itération de l'index).
+
+Conséquence structurelle : **la mort du siège = la mort du
+domaine/TLD**. Expiration + GC, `RevokeTld` (siège libéré),
+`TransferTld`/`TransferDomain` (le siège suit le domaine vers le
+nouveau owner), ouverture `SetTldOpen` (siège libéré) — chaque
+transition de l'état d'ownership déplace ou libère le siège dans
+le pool, symétriquement au journal `owner_refcounts`
+(acquire/release).
+
+### Pool GELÉ au dernier checkpoint finalisé (`FinalizedBase.pool`)
+
+À l'acceptation d'un checkpoint (`accept_checkpoint`), la base de
+finalité capture le pool de l'état AU BLOC FINALISÉ :
+
+```text
+FinalizedBase { checkpoint, pool, block_ts, seed }
+```
+
+- `pool` = `eligible_validators(timestamp du bloc finalisé)` — la
+  finalité ne relit JAMAIS l'état vivant ensuite : toute
+  inscription (claim, transfert, bannissement) après le checkpoint
+  ne compte que pour les epochs suivantes ;
+- `seed` = `next_seed(signing_hash(checkpoint))` — la seed de
+  l'epoch SUIVANTE dérive du hash de **contenu** du checkpoint
+  (keyed, signature-set exclu — deux vues détenant des
+  sous-ensembles de quorum distincts du même checkpoint élisent le
+  même comité).
+
+### Tirage du comité (bootstrap, frais, dégradation)
+
+`committee(recovery)` :
+
+1. **Bootstrap** (aucun checkpoint finalisé) : TOUT le pool signe —
+   un comité tiré d'une vue locale divergerait entre nœuds en
+   retard (racine du gel de finalité) ; le pool entier est
+   déterministe par la chaîne. La sélection stricte reprend à la
+   première finalité.
+2. **Régime finalisé** : tirage dans le sous-ensemble **frais** du
+   pool gelé (RFC proof-of-service §5.2) — chaque siège (clé
+   owner) est résolu en opérateur EFFECTIF par l'état au tip
+   (délégation `SetTldOperator`/`SetDomainOperator` = fait
+   on-chain récent, ou la clé owner si auto-opéré) ; le siège
+   participe SOUS SA CLÉ EFFECTIVE (c'est elle qui signe), à
+   condition d'un **heartbeat frais** (fenêtre glissante). Les
+   clés bannies restent exclues.
+3. **Dégradation sûre** : moins de `MIN_FINALITY_COMMITTEE_SIZE`
+   (4) opérateurs frais → tirage dans le pool ENTIER (bootstrap
+   froid, panne générale des opérateurs — la finalité n'est jamais
+   perdue par construction).
+
+`allowed_producers(block_ts)` (production de blocs) suit le même
+schéma : pool entier au bootstrap ; comité élu + tirages recovery
+(chaque tirage k déverrouillé après k × `epoch_secs` de temps
+consensus) en régime finalisé.
+
+Le quorum de checkpoint est `quorum_for(taille du comité)`
+(floor(2n/3)+1) ; un comité sous `MIN_FINALITY_COMMITTEE_SIZE` ne
+finalise jamais (garde BFT).
+
 ## Différé au consensus
 
 Volontairement non définis dans cette crate :

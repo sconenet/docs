@@ -50,6 +50,35 @@ RUST_LOG=error scone -vv relay            # error wins over -vv
 RUST_LOG=scone_network=trace,info scone relay   # per-target
 ```
 
+## Environment configuration (`.env`)
+
+Before parsing arguments, `scone` loads a `.env` file from the
+current directory (`dotenvy::dotenv()` in `main.rs`). Missing
+file = silent no-op, never an error. The loaded values become the
+baseline of the relay options that declare an environment
+variable (`env = "…"` in `cli.rs`).
+
+Precedence (one option, three sources):
+
+```text
+explicit CLI flag  >  .env variable  >  built-in default
+```
+
+- a flag passed on the command line ALWAYS wins;
+- otherwise the variable (whether loaded from `.env` or set in the
+  real process environment — same variable, same effect);
+- otherwise clap's built-in default.
+
+Repeatable variables (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
+accumulate: one line per value in `.env` (dotenvy appends).
+
+The complete table of `SCONE_*` variables (network, P2P listen,
+bootstrap, genesis, mDNS, UPnP, DNS surface, metrics, anchor) and
+each one's semantics lives in
+[`relay.md`](relay.md#environment-configuration-env); the
+commented template is `.env.example` at the repository root (copy
+to `.env`, never commit it — `.env` is gitignored).
+
 ## Level semantics (code convention)
 
 - `error!`: failures (no call sites today — network failures are

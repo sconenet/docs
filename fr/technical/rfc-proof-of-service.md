@@ -132,6 +132,15 @@ sinon :
     committee = select_committee(seed, pool)       // dégradation sûre
 ```
 
+Détails d'implémentation (vérifiés dans `finality.rs`, spécifiés
+dans `/docs/fr/technical/blockchain.md` § « Sièges et comité de
+finalité ») : le `pool` est le pool **gelé au dernier checkpoint
+finalisé** (`FinalizedBase.pool` — jamais l'état vivant), la
+`seed` dérive du hash de contenu du checkpoint précédent
+(`signing_hash`), chaque siège est résolu en opérateur EFFECTIF
+par l'état au tip (délégation = fait on-chain récent) et participe
+sous sa clé effective, les clés bannies restent exclues.
+
 La **dégradation** est explicite et sûre : un réseau au démarrage
 (aucun heartbeat), ou une panne générale des opérateurs, retombe sur
 le pool entier — la finalité n'est jamais perdue par construction.
