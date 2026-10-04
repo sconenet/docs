@@ -129,3 +129,63 @@ DNS existant. À la résolution, ces noms sont forwardés vers les
 upstreams configurés (`--dns-upstream`) ou REFUSED sans upstream.
 Les TLD ajoutés par l'ICANN plus tard restent claimables (liste
 figée : cohérence > fraîcheur).
+
+
+## Économie de cycle de vie — qui paie quoi, quand
+
+Le modèle d'autorisation suit la nature de la ressource : un travail
+(PoW) paie ce qui entre dans le commun, une signature (PoS) gouverne
+ce qui appartient à quelqu'un. Résumé normatif :
+
+### TLD privé
+
+- **Naissance — PoW** : claim par preuve de travail, difficulté par
+  longueur (mainnet : 1 car. ≈ 34 j de calcul ; plancher ≈ 4,3 j à
+  10+ car.). Le claimant devient owner et détient un **siège PoS**
+  (pool d'éligibilité des validateurs — heartbeat requis pour rester
+  « frais », délégation d'opérateur possible).
+- **Vie — PoS** : la signature de l'owner autorise tout ce qui se
+  passe dans son namespace : `assign` (attribuer un domaine),
+  `set-tld-open` (irréversible — **libère le siège**), `transfer`,
+  `revoke`, et le renouvellement des domaines qui y vivent.
+- **Mort — GC** : le TLD meurt quand son dernier domaine expire
+  (échéance dérivée, maintenue O(1)). Le siège disparaît avec lui.
+
+### TLD ouvert (né ouvert)
+
+- **Naissance — PoW réduite** (un tiers moins cher que privé :
+  ressource commune, personne ne la gouverne). **Aucun siège PoS**.
+- **Vie** : personne ne signe rien — les domaines s'y enregistrent
+  en self-service. Son horloge de mort suit l'échéance de son
+  domaine le plus récent (un renouvellement la reporte).
+- **Mort — GC** quand plus aucun domaine ne vit dessous.
+
+### Domaine sous TLD ouvert
+
+- **Naissance — PoW** (courbe réduite vs TLD : mainnet 1 car. ≈ 8,5 j,
+  plancher ≈ demi-journée).
+- **Renouvellement — PoW identique à la naissance** : chaque terme de
+  vie est payé en travail, un domaine ne se « collectionne » pas
+  gratuitement (≤ 3 ans d'avance).
+- **Décès** : expiration → grâce 30 j (renouvelable) → GC → le nom
+  redevient claimable par **n'importe qui** avec une nouvelle PoW.
+
+### Domaine sous TLD privé
+
+- **Naissance — PoS du owner du TLD** : seul l'owner (ou son
+  opérateur délégué) attribue (`assign`) — sa signature fait foi,
+  pas de PoW.
+- **Renouvellement — PoS du owner du TLD** : signé par le owner du
+  TLD, champ `proof` vide.
+- **Décès** : grâce puis GC ; le re-claim repasse par l'`assign` du
+  owner.
+
+### Invariants transverses
+
+- Toutes les PoW sont salées par **époque**, avec une fenêtre de
+  validité **arrière** proportionnelle à la difficulté (un minage
+  long de plusieurs semaines aboutit même si l'époque a tourné).
+- L'équivocation des signataires PoS est **slashée** (bannissement
+  à vie — M9).
+- Chaque opération re-vérifie tout à l'application : rien n'est cru
+  sur parole (hashs, preuves et signatures recomputés).

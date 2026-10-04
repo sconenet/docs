@@ -131,3 +131,62 @@ belongs to the existing DNS. At resolution time, these names are
 forwarded to the configured upstreams (`--dns-upstream`) or
 REFUSED without an upstream. TLDs added by ICANN later remain
 claimable (pinned list: consistency > freshness).
+
+
+## Lifecycle economics — who pays what, when
+
+The authorization model follows the nature of the resource: work
+(PoW) pays for what enters the commons, a signature (PoS) governs
+what belongs to someone. Normative summary:
+
+### Private TLD
+
+- **Birth — PoW**: claimed by proof of work, difficulty by length
+  (mainnet: 1 char ≈ 34 d of computation; floor ≈ 4.3 d at 10+
+  chars). The claimant becomes the owner and holds a **PoS seat**
+  (validator eligibility pool — heartbeats required to stay fresh,
+  operator delegation available).
+- **Life — PoS**: the owner's signature authorizes everything in
+  the namespace: `assign` (grant a domain), `set-tld-open`
+  (irreversible — **releases the seat**), `transfer`, `revoke`, and
+  the renewal of the domains living under it.
+- **Death — GC**: the TLD dies when its last domain expires
+  (derived deadline, maintained O(1)). The seat dies with it.
+
+### Open TLD (born open)
+
+- **Birth — reduced PoW** (a third cheaper than private: a common
+  resource nobody governs). **No PoS seat**.
+- **Life**: nobody signs anything — domains register
+  self-service. Its death clock follows its most recent domain's
+  expiry (a renewal postpones it).
+- **Death — GC** when no domain lives under it anymore.
+
+### Domain under an open TLD
+
+- **Birth — PoW** (reduced curve vs TLD: mainnet 1 char ≈ 8.5 d,
+  floor ≈ half a day).
+- **Renewal — PoW identical to the birth**: every term of life is
+  paid in work, a domain cannot be "collected" for free (≤ 3 years
+  in advance).
+- **Death**: expiry → 30 d grace (renewable) → GC → the name
+  becomes claimable by **anyone** with a fresh PoW.
+
+### Domain under a private TLD
+
+- **Birth — the TLD owner's PoS**: only the owner (or its delegated
+  operator) grants (`assign`) — the signature is the authority, no
+  PoW.
+- **Renewal — the TLD owner's PoS**: signed by the TLD owner, empty
+  `proof` field.
+- **Death**: grace then GC; re-claiming goes through the owner's
+  `assign` again.
+
+### Cross-cutting invariants
+
+- Every PoW is salted by **epoch**, with a difficulty-proportional
+  **backward** validity window (a multi-week mine still lands even
+  if the epoch turned).
+- PoS signer equivocation is **slashed** (lifetime ban — M9).
+- Every operation re-verifies everything at apply time: nothing is
+  taken on faith (hashes, proofs and signatures recomputed).
