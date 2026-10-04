@@ -121,10 +121,10 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 `RegisterDomain` carries the **canonical name in cleartext**, followed
 by its `DomainId` — the consistency `domain_id == DomainId(name)` is
 re-checked at decoding (recomputed, never trusted). `proof` carries
-the registration PoW (20 bytes: nonce + epoch + difficulty — V2 epoch
+the registration PoW (20 bytes: nonce + epoch + difficulty — epoch
 salt `epoch = height/144` of the applying block, verified STRICTLY at
 application against the network constant and the block's epoch; typed
-rejection `ProofEpochMismatch` on mismatch — M8b/V2, see
+rejection `ProofEpochMismatch` on mismatch — M8b, see
 `transactions.md`). `public_key` is the signer's Ed25519 key (exactly
 32 bytes); `owner` must be the BLAKE3 derivation of that key
 (recomputed, never trusted); `signature` is exactly 64 bytes.
@@ -268,7 +268,7 @@ version.v height.v prev_hash[32] tx_root[32] timestamp.v consensus(bytes ≤ 65,
 - `tx_root`: commitment over the transaction list (Merkle tree defined
   by `scone-blockchain`, see `/docs/en/technical/blockchain.md`);
 - `timestamp`: ordering information (Unix, seconds);
-- `consensus`: producer payload (`SCONE-BLOCK-V2 ‖ pk[32] ‖
+- `consensus`: producer payload (`SCONE-BLOCK-V1 ‖ pk[32] ‖
   sig[64]`, see `blockchain.md`) — a network's genesis carries the raw
   `network_id`, and an allocation genesis (mainnet kickstarter) may
   carry an `ALLOC-V1` manifest (≤ 60 KiB); bounded by
@@ -433,7 +433,7 @@ Decoding never panics on network data.
 ## Consensus rules
 
 Shipped (described in `/docs/en/technical/blockchain.md`): signed
-block producer (`SCONE-BLOCK-V2` payload, checkpoint-elected
+block producer (`SCONE-BLOCK-V1` payload, checkpoint-elected
 committee), finality by aggregated checkpoints (`SCONE-CKPT-V1`, fork
 choice at the finality floor), registration PoW by name length.
 Remaining topics: fine-grained anti-spam fees, owner key rotation.

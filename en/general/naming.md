@@ -63,7 +63,7 @@ DomainId = BLAKE3-256("SCONE-DOMAIN-V1" || canonical_name)
   (blockchain keys, DHT keys) — only for input and display;
 - the `SCONE-DOMAIN-V1` prefix isolates derivation domains: changing
   the rule (alphabet, normalization) amounts to creating a new
-  versioned namespace (`SCONE-DOMAIN-V2`), without rewriting the
+  versioned namespace (a new derivation prefix), without rewriting the
   existing one.
 
 ### Textual representation

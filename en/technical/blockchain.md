@@ -263,10 +263,11 @@ never applied, never pooled by a mainnet node, and vice versa).
   private birth → `tld_difficulty` (network apex), open birth
   (`open = 0x01`) → `open_tld_difficulty` (apex − 2) — the digest is
   recomputed from scratch
-  (`SCONE-POW-V2 || network || challenge || epoch || nonce`), the
+  (salt `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`,
+  Argon2id core), the
   self-declared difficulty must equal the expected difficulty, and
   the **epoch declared** by the proof must equal
-  `height/POW_WINDOW` of the applying block (V2 epoch salt against
+  `height/POW_WINDOW` of the applying block (epoch salt against
   pre-mining — typed rejection `ProofEpochMismatch`, see
   `transactions.md`);
 - on application: `open = 0x01` → `{ Open }` (no one — self-service,
@@ -331,7 +332,7 @@ block (undo-log).
 - signer = current owner (`NotTldOwner`);
 - **opening = mandatory PoW**: `pow::verify` on the challenge
   `SCONE-TLD-OPEN-V1 || tld_id` at the network's flat
-  `open_tld_pow_difficulty` (6 bits testnet / 22 bits mainnet), V2
+  `open_tld_pow_difficulty` (6 bits testnet / 22 bits mainnet),
   epoch salt included (the proof travels in the tx's signed
   `open_proof` field);
 - on application: `TldState::Open` — **the owner is erased**
@@ -461,7 +462,7 @@ value:
    subject to state rules (double claim, sequence replay).
 6bis. **signed producer (M5, .bak port)**: the `consensus` payload
    must decode as a producer payload
-   (`SCONE-BLOCK-V2 ‖ pk[32] ‖ sig[64]`, bounded); the signature
+   (`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`, bounded); the signature
    covers the *producer signature hash* = the header's `BlockHash`
    **with the `consensus` field emptied** (the payload lives in that
    field; signing the full hash would be circular); the producer must
@@ -596,7 +597,7 @@ pub trait StateBackend: Default + Send {
 - `Pkey` = the 32 raw bytes of the `DomainId`/`TldId` — ONE ordered
   key space (disjoint derivation prefixes), values = the
   `SCONE-ENTRY-DOM-V1` (88 fixed bytes) /
-  `SCONE-ENTRY-TLD-V2` (variable: 33 bytes private / 1 byte open,
+  `SCONE-ENTRY-TLD-V1` (variable: 33 bytes private / 1 byte open,
   owner-option enum — flag + conditional owner, no more `until`
   field) encodings;
 - `MemoryBackend` (BTreeMap) = reference implementation (dev,
@@ -629,7 +630,7 @@ pub trait StateBackend: Default + Send {
   **canonical** state_root: it is what `checkpoint_data` commits and
   what `accept_checkpoint` verifies at the tip. The computation
   NEVER traverses the set of domains;
-- the old direct fold `SCONE-STATE-V2` survives as
+- the old direct fold `SCONE-STATE-V1` survives as
   `state_root_v2()`: O(N), archive/verification path (full re-fold
   from storage to cross-check a historical root) — not a consensus
   artifact. Both commit the same leaves: equal logical states ⇒ equal
@@ -663,7 +664,7 @@ pub trait StateBackend: Default + Send {
   (deterministic);
 - RAM bound: O(distinct owners), independent of the number of
   domains;
-- `owner_pool_root` (archive V2 fold) folds these sorted owners — no
+- `owner_pool_root` (archive fold) folds these sorted owners — no
   domain scan either.
 
 Steady-state RAM budget (disk/network backend):

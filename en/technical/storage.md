@@ -111,7 +111,7 @@ genesis_hash)`; the first appended block has height 1. The genesis
 hash is always re-derived
 (`scone_blockchain::genesis_hash()`), never read.
 
-## `DomainStateBytes` encoding format (v2, M8b)
+## `DomainStateBytes` encoding format (M8b)
 
 57 or 89 bytes depending on the leading version tag, fixed-width
 big-endian integers (canonical, byte-by-byte comparable):
@@ -142,7 +142,7 @@ via replay: `load_chain_replay`.)
 wrong length, or excess bytes → `StorageError::Corrupted`, never a
 panic.
 
-## `TldStateBytes` encoding format (v3, owner-option)
+## `TldStateBytes` encoding format (owner-option)
 
 Variable length depending on the enum variant — 34 bytes for a
 **private** TLD, 2 for an **open** TLD (neither sequence nor
@@ -165,7 +165,7 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
   a restarted node kills the same TLDs as a continuous node.
 
 The M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag `0x02`, boolean
-`open`), and V3 (tag `0x03`, embedded `until`) encodings are
+`open`), and the legacy tag `0x03` (embedded `until`) encodings are
 **illegitimate**: strict decoding → `Corrupted` (pre-mainnet,
 regeneration via replay is the migration path).
 
@@ -490,7 +490,7 @@ transactions (deterministic, same content as the full replay for
 the relevant window). The TXID anti-replay index follows the same
 contract (M8, see previous section): rebuilt at boot, never
 frozen. Bit-exact equality with `load_chain_replay` is verified by
-test on the canonical state (state_root V2 + SMT).
+test on the canonical state (state_root + SMT).
 
 ## VERIFIED state snapshot — chunks + manifest + crypto verification (P0.3)
 
@@ -520,7 +520,7 @@ adherence by RECOMPUTATION:
    `checkpoint.data.state_root`** — THE cryptographic check: the
    entire state (domains + TLDs) is re-folded into a fresh SMT
    (`snapshot_verify::recompute_state_root`, leaves
-   `SCONE-LEAF-DOM-V2`/`SCONE-LEAF-TLD-V4` exactly like the live
+   `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1` exactly like the live
    path) and the root must equal the one the committee signed. A
    falsified, truncated, or incomplete snapshot is rejected
    BEFORE ANY WRITE;
@@ -755,7 +755,7 @@ Every test uses its own redb tmpfile (`tempfile`). Coverage:
 - corrupted database: truncated / garbage file → typed error, no
   panic (`catch_unwind`);
 - M6b: snapshot written at the interval, strictly below the tip;
-  boot from snapshot = full bit-exact replay (state_root V2 +
+  boot from snapshot = full bit-exact replay (state_root +
   SMT, complete logical state, tip); altered snapshot (corrupted
   tip_hash, undecodable state, height > tip, wrong-length meta)
   → silent fallback to full loading, same final chain; replayed

@@ -108,7 +108,7 @@ genesis_hash)` ; le premier bloc appendu a la hauteur 1. Le hash de
 genèse est toujours re-dérivé (`scone_blockchain::genesis_hash()`),
 jamais lu.
 
-## Format d'encodage `DomainStateBytes` (v2, M8b)
+## Format d'encodage `DomainStateBytes` (M8b)
 
 57 ou 89 octets selon le tag de version en tête, entiers big-endian à
 largeur fixe (canoniques, comparables octet par octet) :
@@ -139,7 +139,7 @@ Décodage **strict** (`DomainStateBytes::decode`) : tag inconnu,
 longueur erronée ou octets en excès → `StorageError::Corrupted`,
 jamais de panic.
 
-## Format d'encodage `TldStateBytes` (v3, owner-option)
+## Format d'encodage `TldStateBytes` (owner-option)
 
 Longueur variable selon la variante de l'énum — 34 octets pour un
 TLD **privé**, 2 pour un TLD **ouvert** (ni séquence ni record
@@ -163,7 +163,7 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
   un nœud redémarré tue les mêmes TLD qu'un nœud continu.
 
 Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag
-`0x02`, booléen `open`) et V3 (tag `0x03`, `until` embarqué) sont
+`0x02`, booléen `open`) et l'ancien tag `0x03` (`until` embarqué) sont
 **illégitimes** : décodage strict → `Corrupted` (pré-mainnet, la
 régénération par rejeu est le chemin de migration).
 
@@ -490,7 +490,7 @@ transactions (déterministe, même contenu que le rejeu complet pour
 la fenêtre concernée). L'index anti-replay TXID suit le même contrat
 (M8, voir section précédente) : reconstruit au boot, jamais gelé.
 L'égalité bit à bit avec `load_chain_replay` est vérifiée par test
-sur l'état canonique (state_root V2 + SMT).
+sur l'état canonique (state_root + SMT).
 
 ## Snapshot d'état VÉRIFIÉ — chunks + manifest + vérification crypto (P0.3)
 
@@ -520,7 +520,7 @@ snapshot ↔ checkpoint par RECALCUL :
    `checkpoint.data.state_root`** — LA vérification
    cryptographique : l'état entier (domaines + TLDs) est re-plié
    dans un SMT neuf (`snapshot_verify::recompute_state_root`,
-   feuilles `SCONE-LEAF-DOM-V2`/`SCONE-LEAF-TLD-V4` exactement
+   feuilles `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1` exactement
    comme le chemin vivant) et la racine doit égaler celle que le
    comité a signée. Un snapshot falsifié, tronqué ou incomplet est
    rejeté AVANT TOUTE ÉCRITURE ;
@@ -754,7 +754,7 @@ Chaque test utilise son tmpfile redb (`tempfile`). Couverture :
 - base corrompue : fichier tronqué / garbage → erreur typée, aucune
   panic (`catch_unwind`) ;
 - M6b : snapshot écrit à l'intervalle, strictement sous la pointe ;
-  boot depuis snapshot = rejeu complet bit-exact (state_root V2 +
+  boot depuis snapshot = rejeu complet bit-exact (state_root +
   SMT, état logique complet, tip) ; snapshot altéré (tip_hash
   corrompu, état indécodable, hauteur > pointe, méta de mauvaise
   longueur) → repli silencieux sur le chargement complet, même

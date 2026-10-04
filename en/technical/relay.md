@@ -311,7 +311,7 @@ DNS surface (full specification in `dns.md`):
 Every `produce_interval` seconds (2 s by default): if the mempool
 is non-empty, a block is assembled by `BlockBuilder`
 (`timestamp = now`) **signed by an authorized producer** (payload
-`SCONE-BLOCK-V2` in `header.consensus`, see
+`SCONE-BLOCK-V1` in `header.consensus`, see
 `/docs/en/technical/blockchain.md`) and follows exactly the
 acceptance path of a received block. A relay with no txs produces
 nothing.

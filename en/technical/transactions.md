@@ -340,15 +340,22 @@ Properties:
 The `proof` field of `RegisterDomain` and `RegisterTld` carries the
 registration proof of work (`scone-core::pow` module).
 
-### Digest (V2 — epoch salt, anti pre-mining)
+### Digest (epoch salt, anti pre-mining)
 
 ```text
 epoch  = block_height / POW_WINDOW        (POW_WINDOW = 144 blocks)
-digest = BLAKE3-256("SCONE-POW-V2" || network || challenge || epoch_le64 || nonce_le64)
+salt   = BLAKE3-256("SCONE-POW-V1-ARGON2" || network || challenge || epoch_le64)
+digest = Argon2id(m, t, p = 1; password = nonce_le64, salt = salt[0..16])
 ```
 
 `network` is the canonical `network_id` (M8b): a proof mined for one
 network is not a proof on another.
+
+`SCONE-POW-V1-ARGON2` also pins the per-network Argon2id parameters
+(`pow_params`: mainnet m = 64 MiB, t = 2, p = 1; testnet/devnet
+m = 8 KiB, t = 1, p = 1): the Argon2id core (RFC 9106) makes the
+cost per hash memory-dominated (GPU/ASIC resistance), and a proof
+mined under one parameter set never verifies under another.
 
 `challenge` is the derivation input of the claimed object —
 `"SCONE-TLD-V1" || tld` for a TLD, `"SCONE-DOMAIN-V1" || name` for a
@@ -362,10 +369,10 @@ zero bits.
 
 #### Epoch salt — anti pre-mining
 
-The V1 digest bound neither time nor height: anyone could pre-mine
+An unsalted digest binds neither time nor height: anyone could pre-mine
 proofs today for thousands of names, then register them in a burst at
 mainnet launch (squatting) — the proof was self-contained and valid at
-whatever block came first. The V2 digest salts the proof with the
+whatever block came first. The digest is salted with the
 **epoch of the block that APPLIES the transaction**:
 
 - `epoch = block_height / POW_WINDOW`, `POW_WINDOW = 144` blocks
@@ -376,11 +383,11 @@ whatever block came first. The V2 digest salts the proof with the
   window** — BACKWARD tolerance only (late submission is absorbed,
   mining "for the future" is impossible), window sized by
   `epoch_validity_window(difficulty)` = `1 << max(0, difficulty −
-  16)` epochs (V3 widening: high mainnet difficulties mine in
+  16)` epochs (widened window: high mainnet difficulties mine in
   days-to-weeks, longer than one epoch; stockpiling gains nothing
   because the window ≈ the mining cost — every proof of a burst
   costs its full `2^difficulty` hashes INSIDE the window). At
-  difficulty ≤ 16 bits (testnet, long names) the V2
+  difficulty ≤ 16 bits (testnet, long names) the
   strict-equality rule is unchanged;
 - mempool admission (best effort): the future block height is
   unknown — the relay verifies against the epoch of
@@ -390,7 +397,7 @@ whatever block came first. The V2 digest salts the proof with the
   is a pure function of (difficulty, block epoch) — a historical
   block re-verifies identically on any node.
 
-Breaking change pre-mainnet: the V1 format (12 bytes) is rejected
+Breaking change pre-mainnet: the old compact format (12 bytes) is rejected
 with no backward compatibility.
 
 ### Wire payload (20 fixed bytes)
@@ -586,4 +593,4 @@ the keystore identity, never taken from the input.
 |---|---|---|
 | 1 | embedded `public_key` + `signature`, payload `SCONE-TX-SIG-V1`, version byte `0x01`, `RegisterDomain` carries the name, `RegisterTld` (0x93), M8a family: `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — normative wire formats; M8b: `network` field signed at the head of every payload, `RegisterTld` carries the name, full state rules, per-network PoW difficulties | superseded |
 | 1 (2026-09, wire without network) | **removal of the `network` field from the wire of all transactions**: the network_id lives only in the signing payload (`signing_payload(tx, network)` injects it at the head); network separation relies on the signature (`InvalidSignature` on a foreign payload, the `WrongNetwork` error disappears); `TX_FORMAT_VERSION` stays `0x01` (relaunchable testnet, no coexistence); **all TxIds change** (the TxId is the hash of the signed wire encoding, which loses 14–15 bytes); PoW digest, genesis and per-network data-dirs unchanged | superseded |
-| 1 (2026-10, PoW V2 epoch salt) | **anti pre-mining PoW digest V2**: `BLAKE3("SCONE-POW-V2" ‖ network ‖ challenge ‖ epoch_le ‖ nonce_le)` with `epoch = block_height / 144` of the block that APPLIES the tx; proof wire payload 12 → **20 bytes** (`nonce_le ‖ epoch_le ‖ difficulty_le`), the declared epoch is verified STRICTLY against the applying block's epoch (typed rejection `ProofEpochMismatch`, no tolerance), best-effort `(height+1)/144` at mempool admission, `--epoch` CLI flag on offline paths; breaking change pre-mainnet: the 12-byte V1 payload is rejected, **all TxIds change** (the `proof` field grows by 8 bytes) | current |
+| 1 (2026-10, PoW epoch salt) | **anti pre-mining PoW digest**: salt `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + Argon2id core over `nonce_le`, with `epoch = block_height / 144` of the block that APPLIES the tx; proof wire payload 12 → **20 bytes** (`nonce_le ‖ epoch_le ‖ difficulty_le`), the declared epoch is verified against the applying block's epoch validity window (typed rejection `ProofEpochMismatch`), best-effort `(height+1)/144` at mempool admission, `--epoch` CLI flag on offline paths; breaking change pre-mainnet: the old 12-byte payload is rejected, **all TxIds change** (the `proof` field grows by 8 bytes) | current |

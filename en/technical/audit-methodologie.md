@@ -48,7 +48,7 @@ Ordered by asset criticality, 1 component = 1 checklist:
   ambiguous representation → 2 keys, 1 owner).
 - Ed25519: strict DESERIALIZATION (non-canonical key rejected?),
   verification with context separation (each use has its domain
-  tag: SCONE-TX-SIG-V1, SCONE-BLOCK-V2, DHT record — no
+  tag: SCONE-TX-SIG-V1, SCONE-BLOCK-V1, DHT record — no
   cross-protocol replay possible).
 - Keystore: passphrase → key (KDF? iterations?), zeroization,
   file permissions, padding oracle on the ciphertext.

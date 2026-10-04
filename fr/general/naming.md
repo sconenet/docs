@@ -63,7 +63,7 @@ DomainId = BLAKE3-256("SCONE-DOMAIN-V1" || nom_canonique)
   blockchain, clés de DHT) — uniquement pour la saisie et l'affichage ;
 - le préfixe `SCONE-DOMAIN-V1` isole les domaines de dérivation : changer
   la règle (alphabet, normalisation) revient à créer un nouvel espace de
-  noms versionné (`SCONE-DOMAIN-V2`), sans réécrire l'existant.
+  noms versionné (un nouveau préfixe), sans réécrire l'existant.
 
 ### Représentation textuelle
 

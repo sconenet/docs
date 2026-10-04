@@ -124,10 +124,10 @@ Le `RegisterDomain` porte le **nom canonique en clair**, suivi de
 son `DomainId` — la cohérence `domain_id == DomainId(name)` est
 re-vérifiée au décodage (recomputée, jamais crue). `proof` porte le
 PoW de registration (20 octets : nonce + époque + difficulté — sel
-d'époque V2 `epoch = height/144` du bloc appliquant, vérifié
+d'époque `epoch = height/144` du bloc appliquant, vérifié
 STRICTEMENT à l'application contre la constante du réseau et
 l'époque du bloc ; rejet typé `ProofEpochMismatch` sur écart —
-M8b/V2, voir `transactions.md`). `public_key` est
+M8b, voir `transactions.md`). `public_key` est
 la clé Ed25519 du signataire (32 octets exactement) ; `owner` doit
 être la dérivation BLAKE3 de cette clé (recomputé, jamais cru) ;
 `signature` fait exactement 64 octets.
@@ -271,7 +271,7 @@ version.v height.v prev_hash[32] tx_root[32] timestamp.v consensus(bytes ≤ 65 
 - `tx_root` : engagement sur la liste des transactions (arbre de
   Merkle défini par `scone-blockchain`, voir `/docs/fr/technical/blockchain.md`) ;
 - `timestamp` : information d'ordre (Unix, secondes) ;
-- `consensus` : payload du producteur (`SCONE-BLOCK-V2 ‖ pk[32] ‖
+- `consensus` : payload du producteur (`SCONE-BLOCK-V1 ‖ pk[32] ‖
   sig[64]`, voir `blockchain.md`) — la genèse d'un réseau porte le
   `network_id` brut, et une genèse d'allocation (kickstarter mainnet)
   peut porter un manifeste `ALLOC-V1` (≤ 60 KiB) ; borné par
@@ -438,7 +438,7 @@ Le décodage ne panique jamais sur des données réseau.
 ## Règles de consensus
 
 Livré (décrits dans `/docs/fr/technical/blockchain.md`) : producteur
-de bloc signé (payload `SCONE-BLOCK-V2`, comité élu par checkpoint),
+de bloc signé (payload `SCONE-BLOCK-V1`, comité élu par checkpoint),
 finalité par checkpoints agrégés (`SCONE-CKPT-V1`, fork choice au
 plancher de finalité), PoW de registration par longueur de nom.
 Sujets restants : frais anti-spam fins, rotation de clé propriétaire.
