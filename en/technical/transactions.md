@@ -208,17 +208,34 @@ domain's first owner (opaque, like `new_owner`).
 ### RENEW_DOMAIN (0x3C)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_key[32] signature[64]
 ```
 
 | Field | Type | Constraints |
 |---|---|---|
 | `name` | `str` ≤ 253 | canonical name **carried in cleartext** (owner-option: the renewal postpones the death of the underlying open TLD, the chain must know the name); `domain_id` must equal `DomainId(name)` (recomputed) |
 | `valid_until` | varint | new registration expiry (Unix, seconds) |
+| `proof` | bounded | **renewal authorization** (see below) |
 
 Signed by the domain's current owner; whether `valid_until` actually
 extends the expiry (and by at most one renewal term) is a state rule
 (M8b).
+
+#### Renewal authorization — PoW or PoS depending on the TLD
+
+The cost of a renewal depends on the nature of the underlying TLD
+(evaluated at apply time, on the block state):
+
+- **Open TLD**: the renewal costs the **same PoW as the creation** —
+  same challenge (`SCONE-DOMAIN-V1 ‖ canonical name`), same
+  per-label-length and per-network difficulty, same epoch validity
+  window. A domain is never "collected" for free: every term of
+  life is paid in work.
+- **Private TLD**: the namespace is the TLD owner's stake (PoS).
+  The transaction must be **signed by the TLD owner** (or its
+  delegated operator) — the signature IS the authorization, the
+  `proof` field must be empty (20 zero bytes). The TLD owner
+  renews the domains of its namespace under its own rules.
 
 ## UPDATE_DOMAIN (0x52)
 
@@ -300,7 +317,7 @@ SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
                             assignee[32] public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
-                            valid_until.v public_key[32]
+                            valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] public_key[32]
 ```
@@ -355,14 +372,22 @@ whatever block came first. The V2 digest salts the proof with the
   (~2.6 h at 65 s/block): a grace window for the honest user (mine,
   then submit within the window), mandatory re-mining beyond it;
 - the proof DECLARES its epoch on the wire; at application, the
-  declared epoch must BE that of the applying block — strict
-  equality, **NO tolerance window** (a window would re-open
-  pre-mining: the submitter chooses when to submit);
+  declared epoch must fall in the applying block's **validity
+  window** — BACKWARD tolerance only (late submission is absorbed,
+  mining "for the future" is impossible), window sized by
+  `epoch_validity_window(difficulty)` = `1 << max(0, difficulty −
+  16)` epochs (V3 widening: high mainnet difficulties mine in
+  days-to-weeks, longer than one epoch; stockpiling gains nothing
+  because the window ≈ the mining cost — every proof of a burst
+  costs its full `2^difficulty` hashes INSIDE the window). At
+  difficulty ≤ 16 bits (testnet, long names) the V2
+  strict-equality rule is unchanged;
 - mempool admission (best effort): the future block height is
   unknown — the relay verifies against the epoch of
   `current height + 1`; strict application-time verification remains
   the authority;
-- deterministic replay: the proof CARRIES its epoch, a historical
+- deterministic replay: the proof CARRIES its epoch and the window
+  is a pure function of (difficulty, block epoch) — a historical
   block re-verifies identically on any node.
 
 Breaking change pre-mainnet: the V1 format (12 bytes) is rejected
@@ -457,7 +482,9 @@ A transaction is valid if and only if:
    TransferTld / RevokeTld / SetTldOpen / AssignDomain → existing
    **and private** TLD, signer = the TLD's owner;
    TransferDomain → existing domain, owner;
-   RenewDomain → existing domain, owner, strict extension ≤ 3 years.
+   RenewDomain → existing domain, owner, strict extension ≤ 3 years,
+   PoW authorization (open TLD: same PoW as the creation) or PoS
+   (private TLD: TLD owner's signature, empty `proof`).
 
 Verification uses `verify_strict` (rejection of malleable signatures
 and weak/non-canonical keys), as required for untrusted data.

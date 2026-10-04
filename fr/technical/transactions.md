@@ -213,17 +213,34 @@ du domaine (opaque, comme `new_owner`).
 ### RENEW_DOMAIN (0x3C)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] valid_until.v public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(borné) public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
 |---|---|---|
 | `name` | `str` ≤ 253 | nom canonique **porté en clair** (owner-option : le renouvellement reporte la mort du TLD ouvert sous-jacent, la chaîne doit connaître le nom) ; `domain_id` doit valoir `DomainId(name)` (recomputé) |
 | `valid_until` | varint | nouvelle échéance d'enregistrement (Unix, secondes) |
+| `proof` | borné | **autorisation de renouvellement** (voir ci-dessous) |
 
 Signé par l'owner courant du domaine ; le fait que `valid_until`
 prolonge réellement l'échéance (et d'au plus un terme de
 renouvellement) est une règle d'état (M8b).
+
+#### Autorisation de renouvellement — PoW ou PoS selon le TLD
+
+Le coût d'un renouvellement dépend de la nature du TLD sous-jacent
+(évaluée à l'application, sur l'état du bloc) :
+
+- **TLD ouvert** : le renouvellement coûte la **même PoW que la
+  création** — même challenge (`SCONE-DOMAIN-V1 ‖ nom canonique`),
+  même difficulté par longueur de label et par réseau, même fenêtre
+  de validité d'époque. Un domaine n'est jamais « collectionné »
+  gratuitement : chaque terme de vie est payé en travail.
+- **TLD privé** : le namespace est le stake du owner du TLD (PoS).
+  La transaction doit être **signée par le owner du TLD** (ou son
+  opérateur délégué) — la signature EST l'autorisation, le champ
+  `proof` doit être vide (20 octets nuls). Le owner du TLD renouvelle
+  les domaines de son espace selon ses propres règles.
 
 ## UPDATE_DOMAIN (0x52)
 
@@ -306,7 +323,7 @@ SET_TLD_OPEN_sans_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
 ASSIGN_DOMAIN_sans_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
                             assignee[32] public_key[32]
 RENEW_DOMAIN_sans_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
-                            valid_until.v public_key[32]
+                            valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_sans_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] public_key[32]
 ```
@@ -364,19 +381,34 @@ sale la preuve avec l'**époque du bloc qui APPLIQUE la transaction**
   obligatoire au-delà / a grace window for the honest user, mandatory
   re-mining beyond it ;
 - la preuve DÉCLARE son époque sur le wire ; à l'application,
-  l'époque déclarée doit ÊTRE celle du bloc appliquant — égalité
-  stricte, **aucune fenêtre de tolérance** (une fenêtre rendrait le
-  pré-minage à nouveau possible : c'est le mineur qui choisit quand
-  soumettre) / strict equality, NO tolerance window (a window would
-  re-open pre-mining: the submitter chooses when to submit) ;
+  l'époque déclarée doit tomber dans la **fenêtre de validité** du
+  bloc appliquant — tolérance **arrière uniquement** (on peut
+  soumettre en retard, jamais miner « pour le futur »), fenêtre
+  dimensionnée par `epoch_validity_window(difficulty)` = `1 <<
+  max(0, difficulty − 16)` époques (élargissement V3 : les hautes
+  difficultés mainnet se minent en jours—semaines, plus longtemps
+  qu'une époque ; le stock de preuves n'y gagne rien car la fenêtre
+  ≈ le coût de minage — chaque preuve d'une rafale coûte
+  intégralement ses `2^difficulty` haches DANS la fenêtre) / the
+  declared epoch must fall in the applying block's **validity
+  window** — BACKWARD tolerance only (late submission is absorbed,
+  mining "for the future" is impossible), window sized by
+  `epoch_validity_window(difficulty)` = `1 << max(0, difficulty −
+  16)` epochs (V3 widening: high mainnet difficulties mine in
+  days-to-weeks, longer than one epoch; stockpiling gains nothing
+  because the window ≈ the mining cost). À difficulté ≤ 16 bits
+  (testnet, noms longs) la règle V2 d'égalité stricte est
+  inchangée / at difficulty ≤ 16 bits (testnet, long names) the V2
+  strict-equality rule is unchanged ;
 - admission mempool (best effort) : la hauteur future du bloc est
   inconnue — le relais vérifie contre l'époque de `hauteur courante +
   1`, la vérification stricte à l'application reste l'autorité /
   mempool admission (best effort): the relay verifies against
   `epoch(current_height + 1)`; strict application-time verification
   remains the authority ;
-- rejeu déterministe : la preuve PORTE son époque, un bloc historique
-  re-vérifie à l'identique sur tout nœud.
+- rejeu déterministe : la preuve PORTE son époque, la fenêtre est
+  une fonction pure de (difficulté, époque du bloc) — un bloc
+  historique re-vérifie à l'identique sur tout nœud.
 
 Changement cassant pré-mainnet : le format V1 (12 octets) est rejeté
 sans rétrocompatibilité.
@@ -471,7 +503,9 @@ Une transaction est valide si et seulement si :
    TransferTld / RevokeTld / SetTldOpen / AssignDomain → TLD
    existant **et privé**, signataire = owner du TLD ;
    TransferDomain → domaine existant, owner ;
-   RenewDomain → domaine existant, owner, extension stricte ≤ 3 ans.
+   RenewDomain → domaine existant, owner, extension stricte ≤ 3 ans,
+   autorisation PoW (TLD ouvert : même PoW que la création) ou PoS
+   (TLD privé : signature du owner du TLD, `proof` vide).
 
 La vérification utilise `verify_strict` (rejet des signatures
 malléables et des clés faibles/non canoniques), comme exigé pour des
