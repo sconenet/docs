@@ -71,11 +71,17 @@ Three complementary mechanisms, in this priority order:
    alone. (Empty on testnet as long as the public testnet is not
    deployed.)
 3. **Learned directory** (`<data-dir>/peers.json`) — every address
-   learned via `identify` is retained (last seen, cap of 200
-   entries) and saved ~1×/min at the production tick. On boot with
-   no seed and no bootstrap, the directory is recomposed: the relay
-   finds its usual peers without configuration. It is a cache:
-   missing/corrupted file = empty directory, never an error.
+   learned via `identify` is retained (last seen; cap of **2000
+   entries** — addresses, not connections, ~400 KiB RAM at the
+   maximum — and a **90-day age cutoff**: an entry last seen more
+   than 90 days ago is dropped at write time and ignored at load
+   time, keeping the 2000 slots filled with plausible peers instead
+   of pre-churn fossils whose only contribution would be a
+   boot-time dial timeout) and saved ~1×/min at the production
+   tick. On boot with no seed and no bootstrap, the directory is
+   recomposed: the relay finds its usual peers without
+   configuration. It is a cache: missing/corrupted file = empty
+   directory, never an error.
 4. **LAN mDNS** (`--mdns`, opt-in) — zero-config discovery on the
    local link: neighbouring relays on the same network segment
    find each other with NO seed at all (the zero-config devnet
@@ -451,11 +457,14 @@ consensus input):
 | Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
 | DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
+| Peer network | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
-**5 gauges** (`scone_height`, `scone_mempool`, `scone_peers`,
-`scone_domains`, `scone_finalized_epoch`) refreshed every 15 s
-through the `RelayCommand` channel (the same path as the CLI
-`status` — single source of truth).
+**6 gauges** (`scone_height`, `scone_mempool`, `scone_peers`,
+`scone_domains`, `scone_finalized_epoch`, `scone_addr_book_entries`)
+— the first five refreshed every 15 s via the `RelayCommand` channel
+(same path as the CLI `status` — single source of truth);
+`scone_addr_book_entries` is maintained directly by the registry
+(updated at every address-book insertsource of truth).
 
 E2E test: `metrics_endpoint_public_and_private` (200 +
 exposition, 401 without/with a wrong token, 200 with Bearer).

@@ -72,10 +72,16 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    réseau seul. (Vide en testnet tant que la testnet publique n'est
    pas déployée.)
 3. **Annuaire appris** (`<data-dir>/peers.json`) — chaque adresse
-   apprise via `identify` est retenue (dernière vue, plafond 200
-   entrées) et sauvegardée ~1×/min au tick de production. Au boot sans
-   graine ni bootstrap, l'annuaire est recomposé : le relay retrouve
-   ses pairs habituels sans configuration. C'est un cache : fichier
+   apprise via `identify` est retenue (dernière vue ; plafond
+   **2000 entrées** — des adresses, pas des connexions, ~400 Kio
+   RAM au maximum — et **cutoff d'âge de 90 jours** : une entrée
+   vue il y a plus de 90 jours est éliminée à l'écriture et
+   ignorée au chargement, pour que les 2000 places restent occupées
+   par des pairs plausibles plutôt que des fossiles pré-churn dont
+   la seule contribution serait un timeout de dial au boot) et
+   sauvegardée ~1×/min au tick de production. Au boot sans graine
+   ni bootstrap, l'annuaire est recomposé : le relay retrouve ses
+   pairs habituels sans configuration. C'est un cache : fichier
    absent/corrompu = annuaire vide, jamais une erreur.
 4. **mDNS LAN** (`--mdns`, opt-in) — découverte zéro-config sur le
    lien local : les relais voisins du même segment réseau se
@@ -453,11 +459,14 @@ consensus) :
 | Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
 | DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
+| Réseau pairs | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
-**5 gauges** (`scone_height`, `scone_mempool`, `scone_peers`,
-`scone_domains`, `scone_finalized_epoch`) rafraîchies toutes les
-15 s via le canal `RelayCommand` (même chemin que le `status` CLI —
-source de vérité unique).
+**6 gauges** (`scone_height`, `scone_mempool`, `scone_peers`,
+`scone_domains`, `scone_finalized_epoch`, `scone_addr_book_entries`)
+— les cinq premières rafraîchies toutes les 15 s via le canal
+`RelayCommand` (même chemin que le `status` CLI — source de vérité
+unique) ; `scone_addr_book_entries` est maintenue directement par
+le registre (mise à jour à chaque insertion dans l'annuaire).
 
 Test e2e : `metrics_endpoint_public_and_private` (200 + exposition,
 401 sans/avec mauvais token, 200 avec Bearer).
