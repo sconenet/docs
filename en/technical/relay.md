@@ -112,18 +112,26 @@ multicasts nothing and talks to no router.
 ### Local topology optimization (always on)
 
 The relay actively optimizes its neighborhood using the pure
-`scone-topology` engine (see the crate's docs). **Always enabled**
-(sane defaults: min 8 / target 16 / max 32 connections, evaluation
-every 60 s); the limits are tunable:
+`scone-topology` engine (see the crate's docs). **Always enabled**;
+the only exposed tuning is a **profile** (`--topology-profile`,
+env `SCONE_TOPOLOGY_PROFILE`, default `default`):
+
+| Profile | min / target / max | eval. | for whom |
+|---|---|---|---|
+| `tiny` | 2 / 4 / 6 | 120 s | Raspberry Pi, home box, 1-vCPU VPS |
+| `small` | 4 / 8 / 12 | 90 s | small server, home NAS |
+| `default` | 8 / 16 / 32 | 60 s | standard server (default) |
+| `high` | 16 / 32 / 64 | 45 s | sovereign node, backbone |
+| `very-high` | 32 / 64 / 128 | 30 s | founder hubs |
 
 ```
-scone relay \
-  [--topology-min-connections 8] \
-  [--topology-target-connections 16] \
-  [--topology-max-connections 32] \
-  [--topology-optimization-interval-secs 60] \
-  [--topology-min-score-improvement 0.15]
+scone relay --topology-profile tiny
 ```
+
+The protective parameters (hysteresis 0.15, cooldown 600 s, grace
+120 s, measurement 15 s) are identical everywhere: they guard
+stability and have no reason to scale with the node size. An
+unknown name is a typed startup error.
 
 An inconsistent config (`min > target > max`, threshold outside
 `[0,1]` — `NaN` included —, zero interval) is a **typed startup

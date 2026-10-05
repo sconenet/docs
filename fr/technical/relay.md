@@ -114,18 +114,26 @@ multicast rien et ne parle à aucune box.
 ### Optimisation locale de topologie (toujours active)
 
 Le relay optimise activement son voisinage à l'aide du moteur pur
-`scone-topology` (voir la doc de la crate). **Toujours activée**
-(défauts sains : min 8 / cible 16 / max 32 connexions, évaluation
-toutes les 60 s) ; les limites sont modulables :
+`scone-topology` (voir la doc de la crate). **Toujours activée** ;
+le seul réglage exposé est un **profil** (`--topology-profile`,
+env `SCONE_TOPOLOGY_PROFILE`, défaut `default`) :
+
+| Profil | min / cible / max | éval. | pour qui |
+|---|---|---|---|
+| `tiny` | 2 / 4 / 6 | 120 s | Raspberry Pi, box, VPS 1 vCPU |
+| `small` | 4 / 8 / 12 | 90 s | petit serveur, NAS domestique |
+| `default` | 8 / 16 / 32 | 60 s | serveur standard (défaut) |
+| `high` | 16 / 32 / 64 | 45 s | nœud souverain, backbone |
+| `very-high` | 32 / 64 / 128 | 30 s | hubs fondateurs |
 
 ```
-scone relay \
-  [--topology-min-connections 8] \
-  [--topology-target-connections 16] \
-  [--topology-max-connections 32] \
-  [--topology-optimization-interval-secs 60] \
-  [--topology-min-score-improvement 0.15]
+scone relay --topology-profile tiny
 ```
+
+Les paramètres protecteurs (hystérésis 0,15, cooldown 600 s,
+grâce 120 s, mesure 15 s) sont identiques partout : ils gardent la
+stabilité et n'ont pas à varier avec la taille du nœud. Un nom
+inconnu est une erreur typée au démarrage.
 
 Une config incohérente (`min > target > max`, seuil hors `[0,1]`
 — `NaN` compris —, intervalle nul) est une **erreur de démarrage
