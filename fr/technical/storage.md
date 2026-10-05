@@ -146,7 +146,7 @@ TLD **privé**, 2 pour un TLD **ouvert** (ni séquence ni record
 hash) :
 
 ```text
-TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
+TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
 ```
 
 - `flag` (owner-option, énum `TldState`) : `0x00` =
@@ -155,12 +155,14 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
   suivent). Strictement canonique — tout autre octet →
   `Corrupted`. L'invariant « ouvert ⟺ pas d'owner » est
   STRUCTUREL : les deux états ne peuvent pas être confondus.
-- **Plus de champ `until`** : l'échéance de mort d'un TLD ouvert
-  n'est pas un attribut du TLD mais un fait dérivé de ses domaines
-  (max des `valid_until + grâce`, plancher posé à l'ouverture). Elle
-  vit dans la table dédiée `tld_floors_v1` (+ sa copie figée
-  `snapshot_v1_floors`), reconstruite au rejeu et restaurée au boot —
-  un nœud redémarré tue les mêmes TLD qu'un nœud continu.
+- **`until` (8 octets, BE64)** : l'horloge propre du TLD — fin de
+  terme privé (claim/renouvellement + 3 ans) ou échéance de mort
+  ouverte (plancher d'1 an à la naissance, repoussée par chaque
+  domaine vivant). C'est de nouveau un attribut de l'entrée
+  (changement cycle de vie TLD). La table dérivée `tld_floors_v1`
+  (+ sa copie figée `snapshot_v1_floors`) continue de suivre les
+  planchers, reconstruite au rejeu et restaurée au boot — un nœud
+  redémarré tue les mêmes TLD qu'un nœud continu.
 
 Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag
 `0x02`, booléen `open`) et l'ancien tag `0x03` (`until` embarqué) sont

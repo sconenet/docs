@@ -149,7 +149,7 @@ Variable length depending on the enum variant — 34 bytes for a
 record hash):
 
 ```text
-TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
+TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
 ```
 
 - `flag` (owner-option, `TldState` enum): `0x00` =
@@ -157,12 +157,14 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
   `0x01` = `TldState::Private` (32 owner bytes follow). Strictly
   canonical — any other byte → `Corrupted`. The invariant "open ⟺
   no owner" is STRUCTURAL: the two states cannot be confused.
-- **No more `until` field**: the death deadline of an open TLD is
-  not an attribute of the TLD but a fact derived from its domains
-  (max of `valid_until + grace`, with a floor set at opening). It
-  lives in the dedicated `tld_floors_v1` table (+ its frozen copy
-  `snapshot_v1_floors`), rebuilt on replay and restored at boot —
-  a restarted node kills the same TLDs as a continuous node.
+- **`until` (8 bytes, BE64)**: the TLD's own clock — the private
+  term end (claim/renewal + 3 years) or the open death schedule
+  (1-year floor at birth, pushed by every living domain). It is
+  an attribute of the entry again (TLD lifecycle change). The
+  derived `tld_floors_v1` table (+ its frozen copy
+  `snapshot_v1_floors`) still tracks the floors, rebuilt on
+  replay and restored at boot — a restarted node kills the same
+  TLDs as a continuous node.
 
 The M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag `0x02`, boolean
 `open`), and the legacy tag `0x03` (embedded `until`) encodings are

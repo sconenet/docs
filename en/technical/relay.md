@@ -264,7 +264,7 @@ bounded: never more than one block in flight per peer.
    exact sequence `current + 1`, owner; `RegisterTld` → free TLD;
    `TransferTld`/`RevokeTld`/`SetTldOpen` → known TLD + owner
    signer; `AssignDomain` → TLD owner + free name;
-   `RenewDomain` → known domain + owner, renewal PoW precheck
+   `RenewTld` → known private TLD + owner, fixed term re-derived, grace-window precheck; `RenewDomain` → known domain + owner, renewal PoW precheck
    (bound to the current expiry) at the next height;
 4. mempool insertion (fixed capacity, dedup by `TxId` —
    re-submitting a tx already in the pool is a no-op);

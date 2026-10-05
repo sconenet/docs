@@ -267,7 +267,7 @@ borné : jamais plus d'un bloc en vol par pair.
    exacte `current + 1`, propriétaire ; `RegisterTld` → TLD libre ;
    `TransferTld`/`RevokeTld`/`SetTldOpen` → TLD connu + signataire
    owner ; `AssignDomain` → owner du TLD + nom libre ;
-   `RenewDomain` → domaine connu + propriétaire, précheck du PoW
+   `RenewTld` → TLD privé connu + owner, terme fixe re-dérivé, précheck de la fenêtre de grâce ; `RenewDomain` → domaine connu + propriétaire, précheck du PoW
    renouvellement (lié à l'échéance courante) à la hauteur suivante ;
 4. insertion au mempool (capacité fixe, dédup par `TxId` —
    re-soumettre une tx déjà en pool est un no-op) ;
