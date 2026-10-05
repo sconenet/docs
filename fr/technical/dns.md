@@ -300,20 +300,57 @@ DHT (le relay reste l'unique autorité de vérification).
   répondre n'importe quoi (réponse non validée — c'est le modèle
   récursif standard ; les noms Scone ne passent JAMAIS par là).
 
-## GeoDNS (routage géographique, opt-in)
+## GeoDNS (routage géographique)
 
 > Spécification normative. Toute divergence doc/code = bug.
+
+### Table GeoIP embarquée (automatique)
+
+Chaque binaire embarque une **table de correspondance IP → pays**
+compilée dans le relay : **aucune configuration n'est nécessaire**,
+le routage géographique est actif partout, automatiquement.
+
+- **Source des données** : les fichiers de **délégations des RIR**
+  (RIPE NCC, ARIN, APNIC, LACNIC, AFRINIC), librement
+  téléchargeables et redistribuables :
+  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
+  (pays d'enregistrement de chaque bloc IPv4/IPv6 délégué).
+  La date de génération figure dans l'en-tête de la table
+  (`assets/embedded-geo.table`).
+- **Régénération** : `scripts/gen-geo-table.py` (télécharge les 5
+  fichiers, convertit, normalise les préfixes — ~176 000 règles).
+- **Granularité** : pays (ISO 3166-1 numérique) + continent (UN
+  M49) dérivé. Pas d'ASN ni de région (absents des délégations).
+- **Performance** : lookup par **recherche binaire** sur plages
+  triées (index construit une fois au premier usage, par famille
+  v4/v6) — mesuré ~95 ns/lookup à chaud, ~50 µs en accès aléatoire
+  sur la table complète (bench : `cargo test -p scone-network
+  --release --test geo_bench -- --ignored`).
+- **Auto-localisation du relay** : le routage se fait selon l'IP
+  **source de chaque requête** — un relay sur un réseau local
+  route ses clients locaux vers la bonne zone automatiquement.
+- **Priorité** : une table opérateur explicite
+  (`--geo-ip-table`/geo-config) **prime** sur l'embarquée.
 
 ### Vue d'ensemble
 
 Un domaine peut publier des règles de **routage géographique** dans
 son record set signé : des records `GEOROUTE` (type privé Scone
-`32 768`, hors plage IANA). Un resolver dont le GeoDNS est armé
-(`--geo-dns`) répond aux questions A/AAAA de ces domaines avec
-**l'adresse du endpoint choisi par la règle**, au lieu d'un record
-A/AAAA statique. Tout le reste (domaines sans GEOROUTE, autres
-qtypes, resolvers sans `--geo-dns`) suit le chemin DNS classique,
-**octet pour octet** — GeoDNS est 100 % opt-in.
+`32 768`, hors plage IANA). Le resolver répond aux questions
+A/AAAA de ces domaines avec **l'adresse du endpoint choisi par la
+règle** (scope le plus proche de la position du CLIENT, dérivée de
+son IP source via la table), au lieu d'un record A/AAAA statique.
+Tout le reste (domaines sans GEOROUTE, autres qtypes) suit le
+chemin DNS classique, **octet pour octet**.
+
+### Métriques GeoDNS
+
+L'endpoint Prometheus expose la répartition des réponses geo :
+
+- `scone_dns_geo_answers_total` — total des réponses GEOROUTE servies ;
+- `scone_dns_geo_by_continent_total{continent="<M49>"}` — par continent ;
+- `scone_dns_geo_by_country_total{country="<ISO>"}` — par pays
+  (borné par les standards eux-mêmes : ≤ 9 continents, ≤ 250 pays).
 
 ### Record GEOROUTE (wire)
 

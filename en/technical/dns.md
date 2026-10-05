@@ -300,20 +300,57 @@ nor DHT (the relay remains the sole verification authority).
   answer anything (unvalidated response — this is the standard
   recursive model; Scone names NEVER go through it).
 
-## GeoDNS (geographic routing, opt-in)
+## GeoDNS (geographic routing)
 
 > Normative specification. Any doc/code divergence = bug.
+
+### Embedded GeoIP table (automatic)
+
+Every binary embeds an **IP → country mapping table** compiled
+into the relay: **no configuration needed**, geographic routing is
+active everywhere, automatically.
+
+- **Data source**: the **RIR delegation files** (RIPE NCC, ARIN,
+  APNIC, LACNIC, AFRINIC), freely downloadable and redistributable:
+  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
+  (registration country of each delegated IPv4/IPv6 block). The
+  generation date is in the table header
+  (`assets/embedded-geo.table`).
+- **Regeneration**: `scripts/gen-geo-table.py` (downloads the 5
+  files, converts, normalizes prefixes — ~176,000 rules).
+- **Granularity**: country (numeric ISO 3166-1) + continent (UN
+  M49) derived. No ASN nor region (absent from delegations).
+- **Performance**: **binary search** lookup over sorted ranges
+  (index built once at first use, per v4/v6 family) — measured
+  ~95 ns/lookup hot, ~50 µs random-access on the full table
+  (bench: `cargo test -p scone-network --release --test geo_bench
+  -- --ignored`).
+- **Relay self-location**: routing follows the **source IP of each
+  query** — a LAN relay routes its local clients to the right zone
+  automatically.
+- **Precedence**: an explicit operator table
+  (`--geo-ip-table`/geo-config) **overrides** the embedded one.
 
 ### Overview
 
 A domain can publish **geographic routing** rules in its signed
 record set: `GEOROUTE` records (Scone private type `32,768`,
-outside the IANA range). A resolver with GeoDNS armed
-(`--geo-dns`) answers A/AAAA questions for these domains with
-**the address of the endpoint chosen by the rule**, instead of a
-static A/AAAA record. Everything else (domains without GEOROUTE,
-other qtypes, resolvers without `--geo-dns`) follows the classic
-DNS path, **byte for byte** — GeoDNS is 100% opt-in.
+outside the IANA range). The resolver answers A/AAAA questions for
+these domains with **the address of the endpoint chosen by the
+rule** (scope closest to the CLIENT's position, derived from its
+source IP via the table), instead of a static A/AAAA record.
+Everything else (domains without GEOROUTE, other qtypes) follows
+the classic DNS path, **byte for byte**.
+
+### GeoDNS metrics
+
+The Prometheus endpoint exposes the geo answer split:
+
+- `scone_dns_geo_answers_total` — total GEOROUTE answers served;
+- `scone_dns_geo_by_continent_total{continent="<M49>"}` — by continent;
+- `scone_dns_geo_by_country_total{country="<ISO>"}` — by country
+  (bounded by the standards themselves: ≤ 9 continents, ≤ 250
+  countries).
 
 ### GEOROUTE record (wire)
 
