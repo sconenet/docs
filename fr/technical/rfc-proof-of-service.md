@@ -16,9 +16,10 @@ rien. Cette RFC lie le droit de signer les checkpoints à une preuve
 d'exploitation d'un relais en ligne, sans jamais conditionner la
 possession :
 
-- **Liberté préservée** : un TLD privé reste immortel et assignable
-  sans condition d'activité. Seule la *signature de checkpoint* se
-  gagne par la présence.
+- **Liberté préservée** : un TLD privé reste assignable sans
+  condition d'activité aussi longtemps que son terme est renouvelé
+  (`RenewTld`, terme de 3 ans). Seule la *signature de checkpoint*
+  se gagne par la présence.
 - **Incitation à opérer** : exploiter un TLD privé (ou tout siège)
   = siéger au comité. L'exploitant participe au maintien du réseau
   et le protocole le reconnaît.

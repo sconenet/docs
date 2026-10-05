@@ -121,13 +121,13 @@ KV state backend, the block log, verified snapshots (hashed manifest
 **scone-network** — the node's p2p relay: libp2p/QUIC swarm,
 transaction and block relay (systematic local validation), bounded
 mempool, bounded block sync (128 blocks/request), Kademlia DHT for
-`SignedDnsRecord`, UDP DNS server (optional GeoDNS, recursive
-fallback), the anchors' checkpoint/heartbeat loop (the CLI speaks
-direct p2p QUIC to the relay, no local RPC anymore).
-Reachability and discovery: AutoNAT v2 (reachable/NATed verdict),
-circuit-relay v2 + DCUtR for NATed nodes, mDNS (zero-config LAN
-discovery) and UPnP (QUIC port mapping by the router), both
-opt-in. Configuration via a `.env` file (see `.env.example`).
+`SignedDnsRecord`, UDP+TCP DNS server (GeoDNS always on —
+embedded GeoIP table, recursive fallback), the anchors'
+checkpoint/heartbeat loop (the CLI speaks direct p2p QUIC to the
+relay, no local RPC anymore). Reachability and discovery: AutoNAT
+v2 (reachable/NATed verdict), circuit-relay v2 + DCUtR for NATed
+nodes, mDNS (zero-config LAN discovery, ON by default on devnet)
+and UPnP (QUIC port mapping by the router, opt-in). Configuration via a `.env` file (see `.env.example`).
 Reference: `/docs/en/technical/relay.md`.
 
 **scone-keystore** — encrypted storage of Ed25519 signing keys

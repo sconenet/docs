@@ -123,13 +123,14 @@ hachés) et le chemin de restauration/replay après redémarrage. Référence :
 
 **scone-network** — relay p2p du nœud : swarm libp2p/QUIC, relais de
 transactions et blocs (validation locale systématique), mempool borné,
-sync de blocs bornée (128 blocs/requête), DHT Kademlia pour les
-`SignedDnsRecord`, serveur DNS UDP (GeoDNS optionnel, fallback
+sync de blocs bornée (128 blocs/requête), DHT Kademlia pour les `SignedDnsRecord`, serveur DNS UDP+TCP
+(GeoDNS toujours actif — table GeoIP embarquée, fallback
 récursif), boucle checkpoint/heartbeat des anchors (le CLI parle
 QUIC p2p direct au relay, plus de RPC local). Joignabilité et
 découverte : AutoNAT v2 (verdict reachable/NATé), circuit-relay v2
-+ DCUtR pour les nœuds NATés, mDNS (découverte LAN zéro-config) et
-UPnP (mapping du port QUIC par le routeur) tous deux opt-in.
++ DCUtR pour les nœuds NATés, mDNS (découverte LAN zéro-config,
+armée par défaut sur devnet) et
+UPnP (mapping du port QUIC par le routeur, opt-in).
 Configuration par fichier `.env` (voir `.env.example`).
 Référence : `/docs/fr/technical/relay.md`.
 

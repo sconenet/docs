@@ -153,17 +153,36 @@ what belongs to someone. Normative summary:
   the namespace: `assign` (grant a domain), `set-tld-open`
   (irreversible — **releases the seat**), `transfer`, `revoke`, and
   the renewal of the domains living under it.
-- **Death — GC**: the TLD dies when its last domain expires
-  (derived deadline, maintained O(1)). The seat dies with it.
+- **Term — 3 years**: the claim opens a FIXED 3-year term
+  (`TLD_TERM_SECS`). **Renewal — PoW equal to the creation**
+  (`RenewTld`, same per-length difficulty curve; challenge bound
+  to the current expiry — anti-reuse): every term of life is paid
+  in work.
+- **Expiry — 60-day grace, management frozen**: past the deadline,
+  a 60-day grace (`TLD_GRACE_SECS`) keeps renewal possible, but
+  every management operation other than renewal is frozen —
+  notably `assign`: an expired owner loses management rights
+  until they renew. Domains already assigned underneath live
+  their own life (their own `valid_until`) — the TLD freezes,
+  not its children.
+- **Death — GC**: term + grace elapsed without renewal → the TLD
+  disappears (PoS seat released, re-claimable by anyone with a
+  fresh PoW). A `TransferTld` carries the remaining term (no
+  reset).
 
 ### Open TLD (born open)
 
 - **Birth — reduced PoW** (a third cheaper than private: a common
   resource nobody governs). **No PoS seat**.
+- **Floor — 1 year** (`OPEN_TLD_FLOOR_SECS`): at birth (or at
+  opening via `SetTldOpen`), a 1-year floor prevents the instant
+  create-destroy of a TLD with no domain.
 - **Life**: nobody signs anything — domains register
-  self-service. Its death clock follows its most recent domain's
-  expiry (a renewal postpones it).
-- **Death — GC** when no domain lives under it anymore.
+  self-service. Every living domain underneath pushes the death
+  clock back (it follows the most recent domain's expiry, bounded
+  by the floor).
+- **Death — GC** when no domain lives underneath anymore and the
+  floor/expiry has passed; the name becomes claimable again.
 
 ### Domain under an open TLD
 

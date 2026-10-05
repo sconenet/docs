@@ -493,10 +493,13 @@ cached.
   against the chain (owner, sequence, record_hash) before any
   use. **No network trust without validation** — an unverified
   DHT GEOROUTE never answers.
-- The client's position comes from the resolver's **local
-  configuration** (`--geo-ip-table` or
-  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
-  never from a network GeoIP API (no query leak, no dependency).
+- The client's position comes from the **embedded GeoIP table**
+  (RIR delegations, see above) derived from its source IP — or
+  from the resolver's explicit local configuration
+  (`--geo-ip-table` or
+  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
+  which takes precedence), never from a network GeoIP API (no
+  query leak, no dependency).
 - The draw is deterministic and local: no secret, no
   unpredictability required (the security is that of the record
   signature, not of the draw).

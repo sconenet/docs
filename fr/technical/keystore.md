@@ -3,7 +3,7 @@
 > Document normatif. Toute divergence entre ce document et
 > `crates/scone-keystore/src/lib.rs` est un bug (identifier la source
 > de vérité, corriger). Référence d'implémentation : crate
-> `scone-keystore` (v1).
+> `scone-keystore` (v2).
 
 ## Objectif
 
@@ -32,21 +32,36 @@ le CLI tel quel — test d'interopérabilité dans la suite). Le chemin
 natif (`create`/`create_with_phrase`) délègue au même scellage :
 un seul encodage du format, trois destinations.
 
-## Format binaire (v1) — 100 octets exactement
+## Format binaire (v2) — en-tête 52 octets + métadonnées publiques + ciphertext
 
 ```text
 Offset  Taille      Champ
-0       9           magic : "SCONEKEY1" (ASCII)
-9       1           version : u8 = 1
+0       9           magic : « SCONEKEY1 » (ASCII — inchangé depuis la v1)
+9       1           version : u8 = 2
 10      1           m_cost_mib : u8 (m_cost en MiB ; m_cost_kib = valeur × 1024)
 11      1           t_cost : u8 (itérations Argon2id)
 12      16          salt Argon2id (aléatoire par fichier)
 28      24          nonce XChaCha20-Poly1305 (aléatoire par fichier)
-52      48          ciphertext (32 octets seed chiffré) || tag Poly1305 (16 octets)
+52      32          public_key : clé publique Ed25519 (32 octets, EN CLAIR)
+84      8           created_at : u64 big-endian (Unix, secondes)
+92      1           label_len : u8 (0..=255)
+93      label_len   label : UTF-8 (lisible sans passphrase, peut être vide)
+—       48          ciphertext (32 octets seed chiffré) || tag Poly1305 (16 octets)
 ```
 
-Tous les entiers sont des octets bruts, non signés, sans endianness
-(champs d'un octet uniquement). Longueur totale : 100 octets.
+Les métadonnées `public_key`/`created_at`/`label` sont publiques :
+lisibles **sans passphrase** (`public_metadata_from_bytes`). La clé
+publique l'est par nature ; le label n'est qu'un nom affichable —
+le cacher n'apporte rien et coûte le listing sans passphrase. La
+longueur totale dépend du label : 141 octets à label vide
+(KEYFILE_LEN + 32 + 8 + 1), plus la longueur du label.
+
+**v1 (remplacé, 100 octets exactement)** : magic ‖ version=1 ‖ m ‖
+t ‖ salt ‖ nonce ‖ ciphertext — la clé publique n'était PAS
+stockée (un fichier verrouillé était anonyme). Les fichiers v1
+restent **lisibles** (métadonnées `None`, passphrase requise pour
+`identity show` ; re-sceller via `scone identity restore` les
+migre en v2).
 
 ### Choix de conception
 
@@ -125,17 +140,23 @@ scone identity show <n> [--dir <répertoire>] [--passphrase-env VAR]
 - Sans `--passphrase-env`, la passphrase est demandée sur le terminal
   **en saisie masquée** (`rpassword` : pas d'écho ; deux fois avec
   confirmation pour `generate`).
+- `identity generate` **affiche la phrase de récupération BIP39
+  (24 mots)** une seule fois — entropie fraîche de 256 bits, les
+  mots seuls régénèrent la même clé (`scone identity restore`) ;
+  ils ne sont stockés nulle part.
 - `identity generate` **refuse d'écraser** un keyfile existant ;
-  `--force` remplace explicitement (nouveau salt/nonce, nouvelle clé).
-- `identity show` affiche la clé publique et l'`OwnerId` en hex
-  minuscule (64 caractères, même convention que `DomainId`),
-  recalculés via `scone-core` (`PublicKeyRef` → `OwnerId`) — jamais
-  dupliqués.
+  `--force` remplace explicitement (nouveau salt/nonce, nouvelle
+  clé, nouvelle phrase).
+- `identity list` affiche, pour les fichiers v2, la clé publique et
+  le label **sans passphrase** (métadonnées publiques).
+- `identity show` lit les métadonnées publiques du keyfile v2 et
+  affiche la clé publique, l'`OwnerId` en hex minuscule (64
+  caractères, même convention que `DomainId`), le label et la date
+  de création **sans passphrase** ; un fichier v1 (sans métadonnées)
+  demande encore la passphrase.
 
 ## Ce que ce format ne fait pas (volontairement)
 
 - Pas de plusieurs clés par fichier (un seed par fichier).
 - Pas de changement de passphrase (à venir le cas échéant : réécrire le
   fichier avec nouveau salt/nonce).
-- Pas de métadonnées (date de création, commentaire) : garder l'empreinte
-  disque et la surface d'attaque minimales.

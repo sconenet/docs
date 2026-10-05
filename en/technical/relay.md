@@ -82,10 +82,12 @@ Three complementary mechanisms, in this priority order:
    recomposed: the relay finds its usual peers without
    configuration. It is a cache: missing/corrupted file = empty
    directory, never an error.
-4. **LAN mDNS** (`--mdns`, opt-in) — zero-config discovery on the
+4. **LAN mDNS** (`--mdns`) — zero-config discovery on the
    local link: neighbouring relays on the same network segment
    find each other with NO seed at all (the zero-config devnet
-   path). Behaviour: bind of the multicast socket; a bind failure
+   path). **Default: ON for devnet, OFF elsewhere** (a resettable
+   local network is a discovery network by design; a public
+   deployment multicasts nothing). Behaviour: bind of the multicast socket; a bind failure
    (no multicast on the interface, sandboxed environment)
    **disables** mDNS with a warning — never fatal (discovery is a
    convenience, never a lifeline). Every `Discovered` neighbour
@@ -105,9 +107,12 @@ Three complementary mechanisms, in this priority order:
    log, the mapping is skipped — normal cases on a home LAN. An
    expired mapping (failed renewal) is a warning.
 
-mDNS and UPnP are **disabled by default** (`enable_mdns` /
-`enable_upnp` = `false` in `config.rs`): a public deployment
-multicasts nothing and talks to no router.
+mDNS follows the network (an explicit `--mdns`/`SCONE_MDNS`
+always wins): **ON by default on devnet**, OFF on
+testnet/mainnet; UPnP stays **disabled by default**
+(`enable_mdns`/`enable_upnp` = `false` in `config.rs`, the relay
+turns mDNS on for devnet): a public deployment multicasts
+nothing and talks to no router.
 
 ### Local topology optimization (always on)
 
@@ -158,8 +163,8 @@ relay walks the Kademlia routing table: a peer is protected if it is
 `Connected` in a bucket, or `Disconnected` in a SATURATED bucket
 (k = 20). A protected peer is NEVER chosen for eviction.
 
-**Optimization loop** — every
-`--topology-optimization-interval-secs` (60 s by default):
+**Optimization loop** — at the profile's evaluation interval
+(60 s under `default`; see the table above):
 
 1. recompute `kad_required` (kbuckets);
 2. engine evaluation (hysteresis: 120 s grace period, minimum score
@@ -567,7 +572,7 @@ never commit a real `.env`). Variables:
 | `SCONE_LISTEN` | `--listen` | P2P listen multiaddr (default: all interfaces, ephemeral port) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds, **repeatable** (one line per value — dotenvy accumulates); replaces the builtin seeds |
 | `SCONE_GENESIS` | `--genesis` | genesis file (founder nodes) |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS discovery (`true` = enabled) |
+| `SCONE_MDNS` | `--mdns` | LAN mDNS discovery (`true` = enabled, `false` = off; default: ON on devnet, OFF elsewhere) |
 | `SCONE_UPNP` | `--upnp` | UPnP port mapping (`true` = enabled) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS server bind address |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | recursive fallbacks, **repeatable** |
@@ -576,6 +581,7 @@ never commit a real `.env`). Variables:
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | concurrent DNS query cap |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint (`ADDR` or `off`) |
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | metrics endpoint bearer token |
+| `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | topology profile (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; default `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | anchor keyfile (checkpoint + production) |
 
 `SCONE_ANCHOR_PASS` is NOT a variable's option: it is the DEFAULT
@@ -606,11 +612,12 @@ The offline surface `scone tx build` covers the full M8b family
 `revoke-tld`); `register`/`register-tld` claims mine their PoW at
 the default testnet difficulty (a few ms).
 
-The `--geo-*`/`--health-*` options enable GeoDNS and health
+The `--geo-*`/`--health-*` options configure GeoDNS and health
 checking **of the embedded DNS resolver**: full semantics,
 precedence order, and the local GeoIP table are documented in
-[`dns.md`](dns.md#geodns-geographic-routing-opt-in) — disabled by
-default, classic path unchanged.
+[`dns.md`](dns.md#geodns-geographic-routing) — geographic routing
+is **always on** (embedded GeoIP table, no option required);
+`--health-check` is off by default, classic path unchanged.
 
 ### `domain register|update` (M5) — signed transactions in one command
 
@@ -680,6 +687,28 @@ binary). Normative rules:
 
 The constant genesis hash pin (anti network-divergence) is a
 separate workstream.
+
+### `scone-genesis` binary manifest (kickstarter)
+
+The `scone-genesis` binary (crate `scone-genesis`) prepares the
+`genesis-manifest.json` manifest (`ALLOC-V1` format) then produces
+`genesis.bin`. Normative rules:
+
+- `scone-genesis new --network <network>` creates an empty
+  manifest; `add`/`remove`/`list` manage allocations, `build`
+  produces `genesis.bin` (+ hash), `verify` revalidates it.
+- `add domain <name>` requires the domain's **TLD to already be
+  allocated in the manifest** (immediate rejection otherwise — the
+  chain would have refused it at genesis application); its
+  `valid_until` is **automatic**: `born_at + 1 year` (the
+  manifest's default_validity), never entered by hand.
+- `add tld <name>`: **open by default** (nobody's, self-service,
+  1-year floor, owner = zero on the wire — kind `0x03`);
+  `--private` = private (owner, genesis term `born_at +
+  TLD_TERM_SECS` — 3 years, standard lifecycle: `RenewTld`,
+  60-day grace).
+- Canonical sort by name (equal contents → same block → same hash,
+  whatever the insertion order); duplicates refused.
 
 ## Limits and memory guarantees
 

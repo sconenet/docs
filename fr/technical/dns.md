@@ -489,10 +489,13 @@ restent jamais cachés.
   vérifiés contre la chaîne (owner, séquence, record_hash) avant
   toute utilisation. **Aucune confiance réseau sans validation** —
   un GEOROUTE DHT non vérifié ne répond jamais.
-- La position du client vient de la **configuration locale** du
-  resolver (`--geo-ip-table` ou `--geo-country`/`--geo-continent`/
-  `--geo-asn`/`--geo-region`), jamais d'une API GeoIP réseau (pas de
-  fuite de requête, pas de dépendance).
+- La position du client vient de la **table GeoIP embarquée**
+  (délegations RIR, voir ci-dessus) dérivée de son IP source — ou
+  de la configuration locale explicite du resolver
+  (`--geo-ip-table` ou
+  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`
+  qui prime), jamais d'une API GeoIP réseau (pas de fuite de
+  requête, pas de dépendance).
 - Le tirage est déterministe et local : aucun secret, aucune
   imprévisibilité requise (la sécurité est celle de la signature du
   record, pas du tirage).

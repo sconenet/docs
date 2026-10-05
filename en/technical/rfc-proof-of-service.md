@@ -15,9 +15,10 @@ Owning grants a seat — **operating** grants nothing. This RFC ties
 the right to sign checkpoints to proof of operation of an online
 relay, without ever conditioning ownership:
 
-- **Preserved freedom**: a private TLD remains immortal and
-  assignable with no activity condition. Only *checkpoint signing*
-  is earned through presence.
+- **Preserved freedom**: a private TLD remains assignable with no
+  activity condition for as long as its term is renewed
+  (`RenewTld`, 3-year term). Only *checkpoint signing* is earned
+  through presence.
 - **Incentive to operate**: operating a private TLD (or any seat)
   = sitting on the committee. The operator takes part in keeping
   the network up and the protocol recognizes it.
