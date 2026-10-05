@@ -125,6 +125,7 @@ env `SCONE_TOPOLOGY_PROFILE`, défaut `default`) :
 | `default` | 8 / 16 / 32 | 60 s | serveur standard (défaut) |
 | `high` | 16 / 32 / 64 | 45 s | nœud souverain, backbone |
 | `very-high` | 32 / 64 / 128 | 30 s | hubs fondateurs |
+| `devtest` | 2 / 4 / 6 | 5 s | **LAB/TEST uniquement** (instable par design) |
 
 ```
 scone relay --topology-profile tiny
@@ -522,7 +523,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
-            [--topology-profile tiny|small|default|high|very-high] [--topology-optimization-interval-secs U64 (lab)]
+            [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
             [--metrics-addr ADDR|off] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
