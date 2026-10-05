@@ -640,7 +640,7 @@ pub trait StateBackend: Default + Send {
   commet et ce qu'`accept_checkpoint` vérifie à la pointe. Le
   calcul ne traverse JAMAIS l'ensemble des domaines ;
 - l'ancien fold direct `SCONE-STATE-V1` survit comme
-  `state_root_v2()` : O(N), chemin d'archive/vérification
+  `state_root_archive()` : O(N), chemin d'archive/vérification
   (re-pli complet depuis le stockage pour recouper un root
   historique) — pas un artefact de consensus. Les deux engagent les
   mêmes feuilles : états logiques égaux ⇒ roots égaux (les deux) ;

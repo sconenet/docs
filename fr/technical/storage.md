@@ -42,7 +42,7 @@ reste du code (blockchain, futur relay M4) :
   sur `iterate_domains` ou l'état chaîne) ;
 - `tld_floors_all` / `snapshot_tld_floors_all` — lecture des
   planchers de vie des TLDs ouverts (owner-option : tables dédiées
-  `tld_floors_v1` vivante et `snapshot_v3_floors` gelée) ;
+  `tld_floors_v1` vivante et `snapshot_v1_floors` gelée) ;
 - `rewind_to_height(h)` — reorg : retire en UNE transaction les
   blocs au-dessus de `h` et ramène `tip`/`tip_height` à `h`
   (préalable à `persist_state_snapshot`, voir ci-dessous) ;
@@ -74,11 +74,11 @@ Règles :
 | `names_v3` (P0.2) | clé d'index (32 o, ordre octet) | id cible (32 o) |
 | `name_reverse_v3` (P0.2) | id cible (32 o, ordre octet) | `tag(1) ‖ nom canonique` |
 | `meta` | `&[u8]` | `&[u8]` |
-| `snapshot_v3_meta` (M6b) | `u64` = 0 (slot unique) | `height(8 BE) ‖ tip_hash(32)` = 40 o exactement |
-| `snapshot_v3_domains` (M6b) | `DomainId` (32 o, ordre octet) | `DomainStateBytes` (même format que `domains`) |
-| `snapshot_v3_tlds` (M6b) | `TldId` (32 o, ordre octet) | `TldStateBytes` (même format que `tlds`) |
+| `snapshot_v1_meta` (M6b) | `u64` = 0 (slot unique) | `height(8 BE) ‖ tip_hash(32)` = 40 o exactement |
+| `snapshot_v1_domains` (M6b) | `DomainId` (32 o, ordre octet) | `DomainStateBytes` (même format que `domains`) |
+| `snapshot_v1_tlds` (M6b) | `TldId` (32 o, ordre octet) | `TldStateBytes` (même format que `tlds`) |
 | `tld_floors_v1` (owner-option) | `TldId` (32 o, ordre octet) | `u64` (plancher d'expiration, BE implicite redb) |
-| `snapshot_v3_floors` (M6b) | `TldId` (32 o, ordre octet) | `u64` — copie figée des planchers (état AU snapshot, pas à la pointe) |
+| `snapshot_v1_floors` (M6b) | `TldId` (32 o, ordre octet) | `u64` — copie figée des planchers (état AU snapshot, pas à la pointe) |
 
 Clé de `meta` supplémentaire (P0.3/P0.4) :
 
@@ -159,7 +159,7 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)?
   n'est pas un attribut du TLD mais un fait dérivé de ses domaines
   (max des `valid_until + grâce`, plancher posé à l'ouverture). Elle
   vit dans la table dédiée `tld_floors_v1` (+ sa copie figée
-  `snapshot_v3_floors`), reconstruite au rejeu et restaurée au boot —
+  `snapshot_v1_floors`), reconstruite au rejeu et restaurée au boot —
   un nœud redémarré tue les mêmes TLD qu'un nœud continu.
 
 Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag
@@ -315,7 +315,7 @@ backend sans état persisté par bloc). Il offre un boot en
   est écrit. Un crash juste après ne peut jamais laisser un snapshot
   « au-dessus » de la chaîne persistée.
 - **Atomique** : le gel (clear + copie des tables `domains`/`tlds`
-  vers `snapshot_v3_*`, écriture de `snapshot_v3_meta`) se produit
+  vers `snapshot_v1_*`, écriture de `snapshot_v1_meta`) se produit
   dans la MÊME transaction redb que l'append du bloc déclencheur —
   un crash laisse soit l'ancien snapshot intact, soit le nouveau
   complet avec son bloc (WAL redb).
@@ -324,7 +324,7 @@ backend sans état persisté par bloc). Il offre un boot en
   gérer, la taille disque est bornée par ~2× l'état.
 - Le format des états gelés est strictement celui de
   `DomainStateBytes`/`TldStateBytes` (réutilisation, aucun encodage
-  nouveau) ; seule la ligne `snapshot_v3_meta` est un format neuf
+  nouveau) ; seule la ligne `snapshot_v1_meta` est un format neuf
   (`height(8 BE) ‖ tip_hash(32)`, décodage strict : toute autre
   longueur → `Corrupted`).
 
@@ -346,7 +346,7 @@ backend sans état persisté par bloc). Il offre un boot en
    pré-M6b** (lecture des tables vivantes, sans rejeu) — un snapshot
    en mauvais état ne fait jamais échouer le boot. La compatibilité
    descendante est le cas particulier « aucun snapshot » : un store
-   écrit avant M6b (sans les tables `snapshot_v3_*`) charge à
+   écrit avant M6b (sans les tables `snapshot_v1_*`) charge à
    l'identique, `snapshot_meta()` valant `None`.
 
 Le suffixe rejoué est borné par `SNAPSHOT_INTERVAL` (au plus 64
@@ -574,7 +574,7 @@ hauteur du snapshot (symétrie export/import : historiquement
 l'export oubliait les planchers — corrigé, test de non-régression
 `export_carries_tld_lifetime_floors`).
 Prérequis : le store détient un snapshot M6b persisté
-(`snapshot_v3_*`) exactement à la hauteur du checkpoint (la fenêtre
+(`snapshot_v1_*`) exactement à la hauteur du checkpoint (la fenêtre
 `CHECKPOINT_KEEP`/`SNAPSHOT_INTERVAL` garantit qu'un tel état est
 disponible régulièrement) ; l'ancre du bloc est RECALCULÉE depuis
 les octets stockés et doit égaler `checkpoint.data.block_hash`.
@@ -585,7 +585,7 @@ action explicite : attendre le prochain intervalle/checkpoint).
 
 Vérifie tout (voir ci-dessus), puis écrit dans UNE transaction
 redb : tables vivantes `domains`/`tlds` + compteurs + `tip = (H,
-hash du checkpoint)`, tables gelées `snapshot_v3_*` ancrées au même
+hash du checkpoint)`, tables gelées `snapshot_v1_*` ancrées au même
 bloc, et marqueur réservé `meta["verified_snapshot_v1"]`
 (`height ‖ tip_hash ‖ manifest_hash`). Cible : store vide
 uniquement (sinon `SnapshotUnavailable`).

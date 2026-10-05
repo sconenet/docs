@@ -631,7 +631,7 @@ pub trait StateBackend: Default + Send {
   what `accept_checkpoint` verifies at the tip. The computation
   NEVER traverses the set of domains;
 - the old direct fold `SCONE-STATE-V1` survives as
-  `state_root_v2()`: O(N), archive/verification path (full re-fold
+  `state_root_archive()`: O(N), archive/verification path (full re-fold
   from storage to cross-check a historical root) — not a consensus
   artifact. Both commit the same leaves: equal logical states ⇒ equal
   roots (for both);
