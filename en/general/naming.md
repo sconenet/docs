@@ -118,11 +118,14 @@ cleartext.
 
 Opened by M7a: `RegisterTld` claims a free TLD for the benefit of
 the identity derived from the signing key. Since M8b governance is
-complete: claim with PoW (per-network difficulty), namespace
-**closed** by default (assign-only), explicit opening
-(`SetTldOpen`), transfer (`TransferTld`), abandonment
-(`RevokeTld`, re-claimable). Domains expire after 1 year
-(renewable, 30-day grace — see `/docs/en/technical/blockchain.md`).
+complete: claim with PoW (per-network difficulty) opening a
+renewable 3-year term (`RenewTld`), namespace **closed** by
+default (assign-only), explicit opening (`SetTldOpen`), transfer
+(`TransferTld`), abandonment (`RevokeTld`, re-claimable). Private
+TLDs live 3 years (60-day grace, management frozen during the
+grace); open TLDs carry a 1-year floor maintained by their
+domains; domains expire after 1 year (renewable, 30-day grace —
+see `/docs/en/technical/blockchain.md`).
 
 **ICANN root TLDs**: reserved. `RegisterTld` on a TLD from the
 pinned IANA list (`is_icann_tld`, ~1,440 entries + RFC 2606) is

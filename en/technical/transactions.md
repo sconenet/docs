@@ -51,6 +51,7 @@ all in this table.
 | `0xB8` | `SetTldOpen` | **irreversible** opening of a TLD to self-registration (one-way, owner-option; `open=false` is a typed rejection) |
 | `0xD4` | `AssignDomain` | direct assignment of a domain by the TLD's owner (M8a) |
 | `0x3C` | `RenewDomain` | extension of a domain's registration (M8a; carries the canonical name since owner-option — an open TLD follows the expiry) |
+| `0x8F` | `RenewTld` | renewal of a PRIVATE TLD's 3-year term (PoW equal to the creation) |
 | `0x15` | `SlashTx` | evidence of anchor equivocation + banning (M9) |
 | `0xE2` | `TransferDomain` | transfer of a domain to a new owner (M8c) |
 | `0x71` | `Heartbeat` | liveness proof of an operator (proof-of-service RFC) |
@@ -236,6 +237,32 @@ The cost of a renewal depends on the nature of the underlying TLD
   delegated operator) — the signature IS the authorization, the
   `proof` field must be empty (20 zero bytes). The TLD owner
   renews the domains of its namespace under its own rules.
+
+### RENEW_TLD (0x8F)
+
+```text
+tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32] signature[64]
+```
+
+| Field | Type | Constraints |
+|---|---|---|
+| `tld` | `str` ≤ 63 | canonical TLD name; `tld_id` must equal `TldId(tld)` (recomputed) |
+| `valid_until` | varint | must be EXACTLY `now + 3 years` (fixed term — re-derived at apply, any other value rejected) |
+| `proof` | bounded | renewal PoW (see below) |
+
+Signed by the TLD's current **private** owner. Apply rules:
+
+- applies to a PRIVATE TLD only (an open TLD lives through its
+  domains — typed rejection `TldIsOpen`);
+- valid during the term AND through the **60-day grace** that
+  follows the expiry; beyond, the TLD is dead (GC) and the
+  rejection is `TldExpiredFrozen`;
+- **PoW equal to the creation**: challenge
+  `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (the anti-reuse
+  suffix binds each PoW to ONE term), same per-length difficulty
+  as the initial claim;
+- renewal is NOT frozen during the grace — it is the only
+  management operation still available to an expired owner.
 
 ## UPDATE_DOMAIN (0x52)
 

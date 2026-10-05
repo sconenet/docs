@@ -394,6 +394,30 @@ owner can re-claim the name; afterwards, it is free for everyone.
 The GC is journaled: a rejected block restores the pre-GC state bit
 for bit.
 
+**TLD lifecycle (fixed terms)**: TLDs carry their own clock,
+independent of the domains.
+
+- **Private TLD**: the claim opens a **3-year term**
+  (`TLD_TERM_SECS`). Renewal (`RenewTld`, 0x8F) pays a **PoW equal
+  to the creation** and resets exactly 3 years (fixed term
+  re-derived at apply). At expiry a **60-day grace**
+  (`TLD_GRACE_SECS`) opens: renewal stays possible, but **every
+  other management operation is frozen** — notably `AssignDomain`
+  (typed rejection `TldExpiredFrozen`): an expired owner loses
+  management rights until they renew. Domains already assigned
+  underneath live their own `valid_until` — the TLD freezes, not
+  its children. Grace elapsed without renewal: the TLD dies at GC
+  (PoS seat released, re-claimable). A `TransferTld` carries the
+  remaining term.
+- **Open TLD**: born (or opened) with a **1-year floor**
+  (`OPEN_TLD_FLOOR_SECS` — anti instant create-destroy). Every
+  living domain underneath pushes the death clock back (it follows
+  the most recent domain's expiry). No domain left + floor
+  elapsed: death at GC, re-claimable.
+
+TLD deaths share the domains' deterministic death queue
+(`tld_deaths`), journaled and bit-exactly restorable.
+
 **Height-1 exception**: genesis carries a STRUCTURALLY null timestamp
 (`GENESIS_TIMESTAMP` = 0, a protocol convention — not a clock). The
 chain time of the FIRST block is therefore its own timestamp

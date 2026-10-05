@@ -116,10 +116,13 @@ porte parallèlement le nom canonique en clair.
 
 Ouverte par M7a : `RegisterTld` réclame un TLD libre au profit de
 l'identité dérivée de la clé signataire. Depuis M8b la gouvernance
-est complète : claim avec PoW (difficulté par réseau), namespace
-**fermé** par défaut (assign-only), ouverture explicite
-(`SetTldOpen`), transfert (`TransferTld`), abandon (`RevokeTld`,
-re-claimable). Les domaines expirent après 1 an (renouvelables,
+est complète : claim avec PoW (difficulté par réseau) ouvrant un
+terme de 3 ans renouvelable (`RenewTld`), namespace **fermé** par
+défaut (assign-only), ouverture explicite (`SetTldOpen`),
+transfert (`TransferTld`), abandon (`RevokeTld`, re-claimable).
+Les TLD privés vivent 3 ans (grâce 60 j, gestion gelée pendant
+la grâce) ; les TLD ouverts ont un plancher d'1 an entretenu par
+leurs domaines ; les domaines expirent après 1 an (renouvelables,
 grâce 30 j — voir `/docs/fr/technical/blockchain.md`).
 
 **TLD de la racine ICANN** : réservés. `RegisterTld` sur un TLD de la
@@ -148,17 +151,36 @@ ce qui appartient à quelqu'un. Résumé normatif :
   passe dans son namespace : `assign` (attribuer un domaine),
   `set-tld-open` (irréversible — **libère le siège**), `transfer`,
   `revoke`, et le renouvellement des domaines qui y vivent.
-- **Mort — GC** : le TLD meurt quand son dernier domaine expire
-  (échéance dérivée, maintenue O(1)). Le siège disparaît avec lui.
+- **Terme — 3 ans** : l'enregistrement ouvre un terme FIXE de
+  3 ans (`TLD_TERM_SECS`). **Renouvellement — PoW égale à la
+  création** (`RenewTld`, même courbe de difficulté par longueur ;
+  challenge lié à l'échéance courante — anti-réutilisation) :
+  chaque terme de vie est payé en travail.
+- **Expiration — grâce 60 j, gestion gelée** : passé l'échéance,
+  une grâce de 60 jours (`TLD_GRACE_SECS`) laisse le renouvellement
+  possible, mais toute gestion autre que le renouvellement est
+  gelée — notamment l'`assign` : un owner expiré perd son droit de
+  gestion jusqu'à renouvellement. Les domaines déjà attribués
+  dessous vivent leur propre vie (leur `valid_until` à eux) —
+  c'est le TLD qui gèle, pas ses enfants.
+- **Mort — GC** : terme + grâce écoulés sans renouvellement → le
+  TLD disparaît (siège PoS libéré, re-claimable par n'importe qui
+  avec une nouvelle PoW). Un `TransferTld` porte le terme restant
+  (pas de remise à zéro).
 
 ### TLD ouvert (né ouvert)
 
 - **Naissance — PoW réduite** (un tiers moins cher que privé :
   ressource commune, personne ne la gouverne). **Aucun siège PoS**.
+- **Plancher — 1 an** (`OPEN_TLD_FLOOR_SECS`) : à la naissance (ou
+  à l'ouverture par `SetTldOpen`), un plancher de 1 an interdit la
+  création-destruction instantanée d'un TLD sans domaine.
 - **Vie** : personne ne signe rien — les domaines s'y enregistrent
-  en self-service. Son horloge de mort suit l'échéance de son
-  domaine le plus récent (un renouvellement la reporte).
-- **Mort — GC** quand plus aucun domaine ne vit dessous.
+  en self-service. Chaque domaine vivant dessous repousse l'horloge
+  de mort (elle suit l'échéance du domaine le plus récent, bornée
+  par le plancher).
+- **Mort — GC** quand plus aucun domaine ne vit dessous et le
+  plancher/échéance est passé ; le nom redevient claimable.
 
 ### Domaine sous TLD ouvert
 

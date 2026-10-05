@@ -54,6 +54,7 @@ non utilisée, documentée une fois pour toutes dans cette table.
 | `0xB8` | `SetTldOpen` | ouverture **irréversible** d'un TLD à l'auto-enregistrement (one-way, owner-option ; `open=false` rejeté typé) |
 | `0xD4` | `AssignDomain` | assignation directe d'un domaine par l'owner du TLD (M8a) |
 | `0x3C` | `RenewDomain` | prolongation de l'enregistrement d'un domaine (M8a ; porte le nom canonique depuis owner-option — le TLD ouvert suit l'échéance) |
+| `0x8F` | `RenewTld` | renouvellement du terme de 3 ans d'un TLD **privé** (PoW égale à la création) |
 | `0x15` | `SlashTx` | preuve d'équivocation d'un anchor + bannissement (M9) |
 | `0xE2` | `TransferDomain` | transfert d'un domaine à un nouvel owner (M8c) |
 | `0x71` | `Heartbeat` | preuve de vie d'un opérateur (RFC proof-of-service) |
@@ -241,6 +242,32 @@ Le coût d'un renouvellement dépend de la nature du TLD sous-jacent
   opérateur délégué) — la signature EST l'autorisation, le champ
   `proof` doit être vide (20 octets nuls). Le owner du TLD renouvelle
   les domaines de son espace selon ses propres règles.
+
+### RENEW_TLD (0x8F)
+
+```text
+tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(borné) public_key[32] signature[64]
+```
+
+| Champ | Type | Contraintes |
+|---|---|---|
+| `tld` | `str` ≤ 63 | nom canonique du TLD ; `tld_id` doit valoir `TldId(tld)` (recomputé) |
+| `valid_until` | varint | doit valoir EXACTEMENT `now + 3 ans` (terme fixe — re-dérivé à l'application, toute autre valeur est rejetée) |
+| `proof` | borné | PoW de renouvellement (voir ci-dessous) |
+
+Signé par le **owner courant du TLD privé**. Règles d'application :
+
+- s'applique uniquement à un TLD **privé** (un TLD ouvert vit de
+  ses domaines — rejet typé `TldIsOpen`) ;
+- valide pendant le terme ET pendant la **grâce de 60 jours** qui
+  suit l'échéance ; au-delà, le TLD est mort (GC) et le rejet est
+  `TldExpiredFrozen` ;
+- **PoW égale à la création** : challenge
+  `SCONE-TLD-V1 ‖ nom ‖ échéance_courante(BE64)` (le suffixe
+  anti-réutilisation lie chaque PoW à UN terme), même difficulté
+  par longueur que le claim initial ;
+- le renouvellement n'est PAS gelé pendant la grâce — c'est la
+  seule opération de gestion toujours possible à un owner expiré.
 
 ## UPDATE_DOMAIN (0x52)
 

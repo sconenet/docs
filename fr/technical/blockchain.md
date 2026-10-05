@@ -397,6 +397,31 @@ vivant et parqué dans une **fenêtre de grâce de 30 jours**
 re-réclamer le nom ; après, il est libre pour tous. Le GC est
 journalisé : un bloc rejeté restaure l'état pré-GC bit à bit.
 
+**Cycle de vie des TLD (terme fixe)** : les TLD ont leur propre
+horloge, indépendante des domaines.
+
+- **TLD privé** : le claim ouvre un **terme de 3 ans**
+  (`TLD_TERM_SECS`). Le renouvellement (`RenewTld`, 0x8F) paie une
+  **PoW égale à la création** et remet exactement 3 ans (terme
+  fixe re-dérivé à l'application). À l'échéance s'ouvre une
+  **grâce de 60 jours** (`TLD_GRACE_SECS`) : le renouvellement y
+  reste possible, mais **toute autre gestion est gelée** —
+  notamment l'`AssignDomain` (rejet typé `TldExpiredFrozen`) : un
+  owner expiré perd son droit de gestion jusqu'à renouvellement.
+  Les domaines déjà attribués dessous vivent leur propre
+  `valid_until` — c'est le TLD qui gèle, pas ses enfants. Grâce
+  écoulée sans renouvellement : le TLD meurt au GC (siège PoS
+  libéré, re-claimable). Un `TransferTld` porte le terme restant.
+- **TLD ouvert** : né (ou ouvert) avec un **plancher de 1 an**
+  (`OPEN_TLD_FLOOR_SECS` — anti création-destruction instantanée).
+  Chaque domaine vivant dessous repousse l'horloge de mort (elle
+  suit l'échéance du domaine le plus récent). Plus aucun domaine
+  + plancher écoulé : mort au GC, re-claimable.
+
+Les morts de TLD partagent la même file de mort déterministe que
+les domaines (`tld_deaths`), journalisées et restaurables bit à
+bit.
+
 **Exception hauteur 1** : la genèse porte un timestamp
 STRUCTURELLEMENT nul (`GENESIS_TIMESTAMP` = 0, convention
 protocolaire — pas une horloge). Le temps chaîne du PREMIER bloc est
