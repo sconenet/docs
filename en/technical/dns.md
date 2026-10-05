@@ -527,14 +527,14 @@ Expected behavior:
   answers);
 - **A** question on an IPv6-only route → empty answer (never an
   IPv6 in A);
-- without `--geo-dns` → same question, classic behavior (NODATA:
+- domain without an applicable rule → same question, classic behavior (NODATA:
   the GEOROUTE has no wire A rdata).
 
 ### CLI options (`scone relay`)
 
 | Option | Default | Role |
 |---|---|---|
-| `--geo-dns` | off | Arms the resolver's GeoDNS (absolute opt-in) |
+| (none — GeoDNS always on, embedded table) | on | Automatic routing by source IP |
 | `--geo-ip-table <path>` | — | **Local GeoIP table** (see below). Takes PRECEDENCE over all static `--geo-*` options |
 | `--geo-country <u16>` | — | Client country, ISO 3166-1 numeric (840=US…) — static |
 | `--geo-continent <u16>` | — | Client continent, UN M49 (150=EU…); derived from country if omitted — static |
@@ -599,7 +599,7 @@ Example:
 
 ```bash
 scone relay --dns 127.0.0.1:5353 \
-            --geo-dns --geo-ip-table /etc/scone/geoip.txt \
+            --geo-ip-table /etc/scone/geoip.txt \
             --no-health-check
 ```
 
@@ -607,7 +607,7 @@ Static v2 example:
 
 ```bash
 scone relay --dns 127.0.0.1:5353 \
-            --geo-dns --geo-country 250 --geo-asn 64500 --geo-region 11 \
+            --geo-country 250 --geo-asn 64500 --geo-region 11 \
             --health-check --health-port 443
 ```
 
