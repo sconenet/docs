@@ -111,14 +111,15 @@ mDNS et UPnP sont **désactivés par défaut** (`enable_mdns` /
 `enable_upnp` = `false` dans `config.rs`) : un déploiement public ne
 multicast rien et ne parle à aucune box.
 
-### Optimisation locale de topologie (`--topology`, opt-in)
+### Optimisation locale de topologie (toujours active)
 
-Le relay peut optimiser activement son voisinage à l'aide du moteur
-pur `scone-topology` (voir la doc de la crate). **Désactivé par
-défaut** ; `--topology` l'arme, les limites sont modulables :
+Le relay optimise activement son voisinage à l'aide du moteur pur
+`scone-topology` (voir la doc de la crate). **Toujours activée**
+(défauts sains : min 8 / cible 16 / max 32 connexions, évaluation
+toutes les 60 s) ; les limites sont modulables :
 
 ```
-scone relay --topology \
+scone relay \
   [--topology-min-connections 8] \
   [--topology-target-connections 16] \
   [--topology-max-connections 32] \
@@ -128,9 +129,7 @@ scone relay --topology \
 
 Une config incohérente (`min > target > max`, seuil hors `[0,1]`
 — `NaN` compris —, intervalle nul) est une **erreur de démarrage
-typée**, jamais un comportement silencieux. Des flags `--topology-*`
-fournis sans `--topology` déclenchent un avertissement (ils sont
-ignorés).
+typée**, jamais un comportement silencieux.
 
 **Vue (`TopologyView`)** — alimentée par les événements du swarm :
 

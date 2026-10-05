@@ -109,14 +109,15 @@ mDNS and UPnP are **disabled by default** (`enable_mdns` /
 `enable_upnp` = `false` in `config.rs`): a public deployment
 multicasts nothing and talks to no router.
 
-### Local topology optimization (`--topology`, opt-in)
+### Local topology optimization (always on)
 
-The relay can actively optimize its neighborhood using the pure
-`scone-topology` engine (see the crate's docs). **Disabled by
-default**; `--topology` enables it, limits are tunable:
+The relay actively optimizes its neighborhood using the pure
+`scone-topology` engine (see the crate's docs). **Always enabled**
+(sane defaults: min 8 / target 16 / max 32 connections, evaluation
+every 60 s); the limits are tunable:
 
 ```
-scone relay --topology \
+scone relay \
   [--topology-min-connections 8] \
   [--topology-target-connections 16] \
   [--topology-max-connections 32] \
@@ -126,8 +127,7 @@ scone relay --topology \
 
 An inconsistent config (`min > target > max`, threshold outside
 `[0,1]` — `NaN` included —, zero interval) is a **typed startup
-error**, never silent behavior. `--topology-*` flags provided
-without `--topology` trigger a warning (they are ignored).
+error**, never silent behavior.
 
 **View (`TopologyView`)** — fed by swarm events:
 
