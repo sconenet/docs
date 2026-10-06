@@ -55,7 +55,7 @@ scone relay --dns 0.0.0.0:53 \
 Le relay annonce l'adresse effective sur stdout (contrat
 machine-lisible, comme `p2p:`) : une ligne `dns: <addr>` dès le bind.
 
-Client de validation : `scone dig <name> --dns 127.0.0.1:5353
+Client de validation : `dig <name> --dns 127.0.0.1:5353
 --qtype A` (A, AAAA, TXT, MX, NS, CNAME, ANY).
 
 ## Chemin de résolution (AUTORITÉ = la chaîne, toujours)
@@ -286,7 +286,7 @@ DHT (le relay reste l'unique autorité de vérification).
   NXDOMAIN, fallback via mock, re-quête, sous-nom via apex.
 - E2E binaire (`crates/scone/tests/dns_cli.rs`) : le binaire
   `scone` réel — `relay --dns`, `identity generate`, `domain
-  register`, `domain update --file`, puis `scone dig` (A vérifié,
+  register`, `domain update --file`, puis `dig` (dnsutils) (A vérifié,
   TXT, NXDOMAIN, REFUSED) sur un vrai port UDP.
 
 ## Décisions ouvertes

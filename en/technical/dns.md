@@ -56,7 +56,7 @@ The relay announces the effective address on stdout
 (machine-readable contract, like `p2p:`): a `dns: <addr>` line as
 soon as the socket is bound.
 
-Validation client: `scone dig <name> --dns 127.0.0.1:5353
+Validation client: `dig <name> --dns 127.0.0.1:5353
 --qtype A` (A, AAAA, TXT, MX, NS, CNAME, ANY).
 
 ## Resolution path (AUTHORITY = the chain, always)
@@ -286,7 +286,7 @@ nor DHT (the relay remains the sole verification authority).
   apex.
 - Binary E2E (`crates/scone/tests/dns_cli.rs`): the real `scone`
   binary — `relay --dns`, `identity generate`, `domain register`,
-  `domain update --file`, then `scone dig` (verified A, TXT,
+  `domain update --file`, then `dig` (dnsutils) (verified A, TXT,
   NXDOMAIN, REFUSED) on a real UDP port.
 
 ## Open decisions

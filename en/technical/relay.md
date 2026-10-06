@@ -538,7 +538,6 @@ scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env
 scone domain info NAME [--peer MULTIADDR]
 scone record put NAME --file FILE [--peer MULTIADDR]      # FILE = canonical hex
 scone record get NAME [--peer MULTIADDR]
-scone dig NAME [--dns ADDR] [--qtype A|AAAA|TXT|MX|NS|CNAME|ANY]
 ```
 
 Every control command speaks QUIC directly to the relay's

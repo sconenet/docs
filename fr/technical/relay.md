@@ -539,7 +539,6 @@ scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env
 scone domain info NAME [--peer MULTIADDR]
 scone record put NAME --file FILE [--peer MULTIADDR]      # FILE = hex canonique
 scone record get NAME [--peer MULTIADDR]
-scone dig NAME [--dns ADDR] [--qtype A|AAAA|TXT|MX|NS|CNAME|ANY]
 ```
 
 Toutes les commandes de contrôle parlent QUIC direct au multiaddr
