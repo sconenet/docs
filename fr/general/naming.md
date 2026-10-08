@@ -4,24 +4,44 @@
 
 ASCII minuscules, chiffres et tirets (LDH, RFC 1123) : `[a-z0-9-]`, le
 tiret ni en première ni en dernière position d'un label. Pas de majuscules,
-pas d'underscore, pas d'unicode.
+pas d'underscore.
 
-La validation est **stricte** : un nom non canonique est rejeté, jamais
-corrigé. `"ABC"` → erreur (pas de lowercasing silencieux). Rationnel : une
-frontière de protocole doit être déterministe ; la canonicalisation
-implicite crée des ambiguïtés d'identité.
+La validation est **stricte** pour l'ASCII : un nom non canonique est
+rejeté, jamais corrigé. `"ABC"` → erreur (pas de lowercasing silencieux).
+Rationnel : une frontière de protocole doit être déterministe ; la
+canonicalisation implicite crée des ambiguïtés d'identité.
+
+## Noms internationalisés (IDNA)
+
+Les noms en écriture non latine sont acceptés en **entrée** et encodés en
+punycode (IDNA, RFC 5890/5891, UTS#46) : `例子.uip` a pour forme canonique
+`xn--fsqu00a.uip`.
+
+- la forme canonique (on-chain, IDs BLAKE3, DNS, storage) est toujours
+  l'**A-label** ASCII : toutes les règles LDH ci-dessus s'appliquent à
+  cette forme ;
+- l'original unicode (**U-label**) est conservé en mémoire pour
+  l'affichage (`DomainName::unicode()` / `TldName::unicode()`) ;
+- la limite de 63 octets par label et la limite de 253 octets au total
+  s'appliquent à la forme canonique A-label, pas à l'UTF-8 brut ;
+- l'ASCII reste sur le chemin strict : l'IDNA ne s'applique qu'à l'entrée
+  non-ASCII (`"ABC"` reste invalide) ;
+- politique anti-homographes (scripts mélangés, confusables) : non
+  filtrée pour l'instant, UTS#46 seul.
 
 ## TLD
 
 Un TLD est un label DNS comme les autres : la limite générique des labels
 (RFC 1035 : 63 octets) s'applique, pas une limite spécifique plus courte.
 
-- motif : `[a-z0-9-]{1,63}` (LDH, pas de tiret initial/final)
+- motif : `[a-z0-9-]{1,63}` (LDH, pas de tiret initial/final), sur la
+  forme canonique A-label
 - limite codée : `TldName::MAX_LEN = 63` octets
 - valides : `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, un TLD de 63
-  octets exactement
-- invalides : un TLD de 64 octets, `ABC`, `-ab`, `ab-`, `éxemple`,
-  chaîne vide
+  octets exactement, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  (→ `xn--fsqu00a`)
+- invalides : un TLD dont l'A-label dépasse 63 octets, `ABC`, `-ab`,
+  `ab-`, chaîne vide
 
 ## Domaines
 

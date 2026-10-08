@@ -4,24 +4,43 @@
 
 Lowercase ASCII letters, digits, and hyphens (LDH, RFC 1123):
 `[a-z0-9-]`, with the hyphen neither in first nor last position of a
-label. No uppercase, no underscore, no unicode.
+label. No uppercase, no underscore.
 
-Validation is **strict**: a non-canonical name is rejected, never
-corrected. `"ABC"` → error (no silent lowercasing). Rationale: a
+Validation is **strict** for ASCII: a non-canonical name is rejected,
+never corrected. `"ABC"` → error (no silent lowercasing). Rationale: a
 protocol boundary must be deterministic; implicit canonicalization
 creates identity ambiguities.
+
+## Internationalized names (IDNA)
+
+Non-Latin names are accepted as **input** and encoded to punycode
+(IDNA, RFC 5890/5891, UTS#46): `例子.uip` has `xn--fsqu00a.uip` as its
+canonical form.
+
+- the canonical form (on-chain, BLAKE3 ids, DNS, storage) is always the
+  ASCII **A-label**: every LDH rule above applies to that form;
+- the original unicode form (**U-label**) is kept in memory for
+  display (`DomainName::unicode()` / `TldName::unicode()`);
+- the 63-byte per-label limit and the 253-byte total limit apply to the
+  canonical A-label form, not to raw UTF-8;
+- ASCII stays on the strict path: IDNA only applies to non-ASCII input
+  (`"ABC"` remains invalid);
+- anti-homograph policy (mixed scripts, confusables): not filtered for
+  now, UTS#46 only.
 
 ## TLD
 
 A TLD is a DNS label like any other: the generic label limit
 (RFC 1035: 63 bytes) applies, not a shorter TLD-specific limit.
 
-- pattern: `[a-z0-9-]{1,63}` (LDH, no leading/trailing hyphen)
+- pattern: `[a-z0-9-]{1,63}` (LDH, no leading/trailing hyphen), on the
+  canonical A-label form
 - coded limit: `TldName::MAX_LEN = 63` bytes
 - valid: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, a TLD of
-  exactly 63 bytes
-- invalid: a 64-byte TLD, `ABC`, `-ab`, `ab-`, `éxemple`,
-  empty string
+  exactly 63 bytes, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  (→ `xn--fsqu00a`)
+- invalid: a TLD whose A-label exceeds 63 bytes, `ABC`, `-ab`,
+  `ab-`, empty string
 
 ## Domains
 
