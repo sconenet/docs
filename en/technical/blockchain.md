@@ -414,6 +414,13 @@ independent of the domains.
   living domain underneath pushes the death clock back (it follows
   the most recent domain's expiry). No domain left + floor
   elapsed: death at GC, re-claimable.
+- **Immortal open TLD** (genesis only, e.g. `.scone`): the
+  `OpenImmortalTld` allocation sets the `until = u64::MAX`
+  sentinel — the GC can never cross it and the monotone re-arm
+  can never lower it: the TLD never expires, even emptied of
+  all its domains. No runtime transaction can create an
+  immortal (`RegisterTld` keeps its 1-year floor); domains
+  underneath live their normal cycle.
 
 TLD deaths share the domains' deterministic death queue
 (`tld_deaths`), journaled and bit-exactly restorable.
