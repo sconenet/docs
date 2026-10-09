@@ -405,7 +405,9 @@ horloge, indépendante des domaines.
   Chaque domaine vivant dessous repousse l'horloge de mort (elle
   suit l'échéance du domaine le plus récent). Plus aucun domaine
   + plancher écoulé : mort au GC, re-claimable.
-- **TLD ouvert immortel** (genèse uniquement, ex. `.scone`) :
+- **TLD ouvert immortel** (genèse uniquement : `.scone`,
+  `.tor` — naming vérifiable au-dessus des adresses onion via
+  CNAME —, `.p2p`) :
   l'allocation `OpenImmortalTld` pose la sentinelle
   `until = u64::MAX` — le GC ne peut jamais la franchir et le
   re-arm monotone ne peut jamais la baisser : le TLD n'expire

@@ -418,7 +418,8 @@ independent of the domains.
   living domain underneath pushes the death clock back (it follows
   the most recent domain's expiry). No domain left + floor
   elapsed: death at GC, re-claimable.
-- **Immortal open TLD** (genesis only, e.g. `.scone`): the
+- **Immortal open TLD** (genesis only: `.scone`, `.tor` —
+  verifiable naming above onion addresses via CNAME —, `.p2p`): the
   `OpenImmortalTld` allocation sets the `until = u64::MAX`
   sentinel — the GC can never cross it and the monotone re-arm
   can never lower it: the TLD never expires, even emptied of
