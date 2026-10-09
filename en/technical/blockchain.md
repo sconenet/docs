@@ -117,11 +117,11 @@ API: `block_hash(&BlockHeader) -> Result<BlockHash>`.
 Scone defines three disjoint networks, identified by a canonical
 `network_id` (1..=16 ASCII bytes `[a-z0-9-]`):
 
-| Network | `network_id` | 1-char TLD apex | domain apex | floor |
-|---|---|---|---|---|
-| testnet | `scone-testnet` | 8 bits | 6 bits | 2 bits |
-| mainnet | `scone-mainnet` | 42 bits | 40 bits | 30 bits |
-| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit |
+| Network | `network_id` | private TLD apex | open TLD apex | domain apex | TLD floor | domain floor |
+|---|---|---|---|---|---|---|
+| testnet | `scone-testnet` | 8 bits | 7 bits | 6 bits | 2 bits | 1 bit |
+| mainnet | `scone-mainnet` | 25 bits | 24 bits | 23 bits | 22 bits | 19 bits |
+| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit | 1 bit | 1 bit |
 
 The parameters live in `scone-core::network::NetworkParams`
 (named instances `TESTNET` / `MAINNET` / `DEVNET`, lookup via
@@ -140,21 +140,25 @@ difficulty of a creation depends on the length of the **created label**
 label for `RegisterDomain`). The formula yields:
 
 ```text
-cost(len) = cost(len−1) / (1 + 1/3)      # ÷ (4/3) per character
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD     : difficulty(len) = apex − round(0.287 × (len − 1)), clamped at the floor
+domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the floor
 ```
 
-(0.415 = log₂(4/3); since difficulty is an integer number of bits, the
-exact curve is approximated in steps — deviation ≤ 5%.) Private-TLD
-mainnet benchmarks: 1 character = 42 bits (≥ 7 days at 6 M hashes/s),
-5 chars = 40 bits (~2 days), 19 chars = 35 bits (~1.6 h), 29+ chars =
-30-bit floor (~3 min). The domain and the born-open TLD follow the
-same curve with apex − 2 (40 bits mainnet). **Opening** an existing
-private TLD (`SetTldOpen`) stays at flat difficulty
+Two distinct slopes: `log₂(1.22) ≈ 0.287` bit/character for TLDs
+(each extra character divides the cost by ~1.22), and
+`log₂(1.40) ≈ 0.480` bit/character for domains — domains decay
+faster: their value sits in the TLD carrying them. A born-open TLD
+sits at the private apex − 1; a domain at the private apex − 2
+(mainnet: private TLD 25, open TLD 24, domain 23). Mainnet
+benchmarks (memory-hard Argon2id, ~11.4 H/s single-thread):
+private TLD 1 char = 25 bits ≈ 34 days, 9+ chars = 22-bit floor
+≈ 4.3 days; open TLD 1 char = 24 bits ≈ 17 days; domain 1 char =
+23 bits ≈ 8.5 days, 9+ chars = 19-bit floor ≈ 13 h. **Opening** an
+existing private TLD (`SetTldOpen`) stays at flat difficulty
 (`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): the tx
-carries only the `tld_id`, the name has paid for its length at
-creation. Pure function (determinism: two nodes compute the same
-difficulty for the same name).
+carries only the `tld_id`, the name paid its length at creation.
+Pure function (determinism: two nodes compute the same difficulty
+for the same name).
 
 Genesis is a protocol constant **per network**, reproducible from the
 constants alone (no randomness, no local clock, no network):

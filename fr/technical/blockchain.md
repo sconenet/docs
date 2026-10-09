@@ -118,39 +118,27 @@ API : `block_hash(&BlockHeader) -> Result<BlockHash>`.
 Scone définit trois réseaux disjoints, identifiés par un
 `network_id` canonique (1..=16 octets ASCII `[a-z0-9-]`) :
 
-| Réseau | `network_id` | apex TLD 1 car. | apex domaine | plancher |
-|---|---|---|---|---|
-| testnet | `scone-testnet` | 8 bits | 6 bits | 2 bits |
-| mainnet | `scone-mainnet` | 42 bits | 40 bits | 30 bits |
-| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit |
-
-Les paramètres vivent dans `scone-core::network::NetworkParams`
-(instances nommées `TESTNET` / `MAINNET` / `DEVNET`, lookup
-`NetworkParams::by_name`). Changer une difficulté = changement de
-consensus **pour ce réseau**.
-
-**Invariant structurel** : la devnet est une troisième
-`NetworkParams` complète — jamais un sous-ensemble de flags testnet.
-La testnet reste **strictement identique** à ce qu'elle était avant
-l'ajout de la devnet (mêmes constantes Argon2id, mêmes courbes, mêmes
-fenêtres d'époque) ; la suite de tests épingle cet invariant.
-
-**Difficulté variable par longueur** (`scone-core::pow_length`) : la
-difficulté d'une création dépend de la longueur du **label créé** (le
-TLD pour `RegisterTld` — privé ou né ouvert —, le label de gauche
-pour `RegisterDomain`). La formule produit :
+| Réseau | `network_id` | apex TLD privé | apex TLD ouvert | apex domaine | plancher TLD | plancher domaine |
+|---|---|---|---|---|---|---|
+| testnet | `scone-testnet` | 8 bits | 7 bits | 6 bits | 2 bits | 1 bit |
+| mainnet | `scone-mainnet` | 25 bits | 24 bits | 23 bits | 22 bits | 19 bits |
+| devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit | 1 bit | 1 bit |
 
 ```text
-coût(len) = coût(len−1) / (1 + 1/3)      # ÷ (4/3) par caractère
-difficulté(len) = apex − round(0,415 × (len − 1)), bornée au plancher
+TLD     : difficulté(len) = apex − round(0,287 × (len − 1)), bornée au plancher
+domaine : difficulté(len) = apex − round(0,480 × (len − 1)), bornée au plancher
 ```
 
-(0,415 = log₂(4/3) ; la difficulté étant un entier de bits, la courbe
-exacte est approximée par paliers — écart ≤ 5 %.) Repères mainnet
-TLD privé : 1 caractère = 42 bits (≥ 7 jours à 6 M hashs/s), 5 car =
-40 bits (~2 j), 19 car = 35 bits (~1,6 h), 29+ car = plancher 30
-bits (~3 min). Le domaine et le TLD né ouvert suivent la même courbe
-avec l'apex − 2 (40 bits mainnet). L'**ouverture** d'un TLD privé
+Deux pentes distinctes : `log₂(1,22) ≈ 0,287` bit/caractère pour les
+TLD (chaque caractère supplémentaire divise le coût par ~1,22), et
+`log₂(1,40) ≈ 0,480` bit/caractère pour les domaines — les domaines
+décroissent plus vite : leur valeur est dans le TLD qui les porte.
+Le TLD né ouvert vaut l'apex privé − 1 ; le domaine vaut l'apex privé
+− 2 (mainnet : TLD privé 25, TLD ouvert 24, domaine 23). Repères
+mainnet (Argon2id à mémoire dure, ~11,4 H/s mono-cœur) : TLD privé
+1 car. = 25 bits ≈ 34 j, 9+ car. = plancher 22 bits ≈ 4,3 j ;
+TLD ouvert 1 car. = 24 bits ≈ 17 j ; domaine 1 car. = 23 bits ≈ 8,5 j,
+9+ car. = plancher 19 bits ≈ 13 h. L'**ouverture** d'un TLD privé
 existant (`SetTldOpen`) reste à difficulté plate
 (`open_tld_pow_difficulty` : 6 bits testnet / 22 bits mainnet) : la tx
 ne porte que le `tld_id`, le nom a payé sa longueur à la création.
