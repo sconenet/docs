@@ -121,7 +121,7 @@ Scone définit trois réseaux disjoints, identifiés par un
 | Réseau | `network_id` | apex TLD privé | apex TLD ouvert | apex domaine | plancher TLD | plancher domaine |
 |---|---|---|---|---|---|---|
 | testnet | `scone-testnet` | 8 bits | 7 bits | 6 bits | 2 bits | 1 bit |
-| mainnet | `scone-mainnet` | 25 bits | 24 bits | 23 bits | 22 bits | 19 bits |
+| mainnet | `scone-mainnet` | 28 bits | 27 bits | 26 bits | 25 bits | 22 bits |
 | devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit | 1 bit | 1 bit |
 
 ```text
@@ -134,13 +134,15 @@ TLD (chaque caractère supplémentaire divise le coût par ~1,22), et
 `log₂(1,40) ≈ 0,480` bit/caractère pour les domaines — les domaines
 décroissent plus vite : leur valeur est dans le TLD qui les porte.
 Le TLD né ouvert vaut l'apex privé − 1 ; le domaine vaut l'apex privé
-− 2 (mainnet : TLD privé 25, TLD ouvert 24, domaine 23). Repères
-mainnet (Argon2id à mémoire dure, ~11,4 H/s mono-cœur) : TLD privé
-1 car. = 25 bits ≈ 34 j, 9+ car. = plancher 22 bits ≈ 4,3 j ;
-TLD ouvert 1 car. = 24 bits ≈ 17 j ; domaine 1 car. = 23 bits ≈ 8,5 j,
-9+ car. = plancher 19 bits ≈ 13 h. L'**ouverture** d'un TLD privé
+− 2 (mainnet : TLD privé 28, TLD ouvert 27, domaine 26). Repères
+mainnet (Argon2id à mémoire dure, ~11,4 H/s/cœur, machine de
+référence **8 cœurs** — recalibrage 2026-10, le minage CLI est
+multi-cœur) : TLD privé
+1 car. = 28 bits ≈ 30 j, 9+ car. = plancher 25 bits ≈ 3,8 j ;
+TLD ouvert 1 car. = 27 bits ≈ 15 j ; domaine 1 car. = 26 bits ≈ 3,8 j,
+9+ car. = plancher 22 bits ≈ 11,5 h. L'**ouverture** d'un TLD privé
 existant (`SetTldOpen`) reste à difficulté plate
-(`open_tld_pow_difficulty` : 6 bits testnet / 22 bits mainnet) : la tx
+(`open_tld_pow_difficulty` : 6 bits testnet / 25 bits mainnet) : la tx
 ne porte que le `tld_id`, le nom a payé sa longueur à la création.
 Fonction pure (déterminisme : deux nœuds calculent la même difficulté
 pour le même nom).

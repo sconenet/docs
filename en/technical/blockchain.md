@@ -120,7 +120,7 @@ Scone defines three disjoint networks, identified by a canonical
 | Network | `network_id` | private TLD apex | open TLD apex | domain apex | TLD floor | domain floor |
 |---|---|---|---|---|---|---|
 | testnet | `scone-testnet` | 8 bits | 7 bits | 6 bits | 2 bits | 1 bit |
-| mainnet | `scone-mainnet` | 25 bits | 24 bits | 23 bits | 22 bits | 19 bits |
+| mainnet | `scone-mainnet` | 28 bits | 27 bits | 26 bits | 25 bits | 22 bits |
 | devnet | `scone-devnet` | 2 bits | 1 bit | 1 bit | 1 bit | 1 bit |
 
 The parameters live in `scone-core::network::NetworkParams`
@@ -151,9 +151,11 @@ faster: their value sits in the TLD carrying them. A born-open TLD
 sits at the private apex − 1; a domain at the private apex − 2
 (mainnet: private TLD 25, open TLD 24, domain 23). Mainnet
 benchmarks (memory-hard Argon2id, ~11.4 H/s single-thread):
-private TLD 1 char = 25 bits ≈ 34 days, 9+ chars = 22-bit floor
-≈ 4.3 days; open TLD 1 char = 24 bits ≈ 17 days; domain 1 char =
-23 bits ≈ 8.5 days, 9+ chars = 19-bit floor ≈ 13 h. **Opening** an
+private TLD 1 char = 28 bits ≈ 30 days, 9+ chars = 25-bit floor
+≈ 3.8 days; open TLD 1 char = 27 bits ≈ 15 days; domain 1 char =
+26 bits ≈ 3.8 days, 9+ chars = 22-bit floor ≈ 11.5 h. **8-core
+reference machine** (2026-10 recalibration — the CLI mines
+multi-core), ~11.4 H/s/core. **Opening** an
 existing private TLD (`SetTldOpen`) stays at flat difficulty
 (`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): the tx
 carries only the `tld_id`, the name paid its length at creation.
