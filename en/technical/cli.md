@@ -108,14 +108,14 @@ logs from boot).
   identity (it is used silently; several → the error lists them).
 - Removed (stubs suggest the replacement): `show`, `submit`,
   `lookup`, `owned`, `record put`.
-- New: `scone renew <name>`, `scone domains`, `scone domain
+- New: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (single record, no file).
 
 ```bash
 scone identity generate --name me
 scone domain register example.scone
 scone domain set example.scone A 192.0.2.1
-scone renew example.scone
+scone domain renew example.scone
 ```
 
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)

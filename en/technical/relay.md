@@ -536,7 +536,7 @@ scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [-
 scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # express single record
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
-scone renew NAME [--identity ID] [--peer MULTIADDR]
+scone domain renew NAME [--identity ID] [--peer MULTIADDR]
 scone record get NAME [--peer MULTIADDR]
 
 # --peer defaults to the local relay (SCONE_PEER env overrides);
