@@ -752,3 +752,13 @@ A signal-driven shutdown logs `relay shutting down (signal)` (INFO,
 stderr) and exits with exit code **0**: a requested shutdown is not
 a failure. If handler installation failed, the signal's default
 behavior applies (degradation, never a panic).
+
+
+## Tor transport (open issue)
+
+QUIC/UDP does not traverse plain SOCKS proxies, so relays cannot
+trivially run over Tor today. A native libp2p Tor transport
+(onion-addressed relay) is the tracked path forward — see the
+website's censorship-resistance guide for the current state and
+the `.tor` CNAME bridge (readable names for hidden services,
+supported today).
