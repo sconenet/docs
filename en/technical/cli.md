@@ -98,3 +98,21 @@ Library crates (`scone-network`, …) emit `tracing` macros but
 **initialize no subscriber**: initialization lives only in the
 `scone` binary (before subcommand dispatch — the relay needs its
 logs from boot).
+
+
+## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
+
+Default builds carry **no mainnet**: `scone relay --network
+mainnet` (and registrar services with `SCONE_NETWORK=mainnet`)
+fail immediately with a rebuild hint. The official distributed
+binary is built with:
+
+```bash
+cargo build --release --features mainnet
+```
+
+`scone --version` shows `+mainnet` on such builds, and the
+relay startup log says `build: mainnet-enabled`. This is an
+operational guardrail (accidental runs, dev/CI binaries) — not
+a cryptographic boundary; consensus rules remain the defense
+against hostile nodes.
