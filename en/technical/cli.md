@@ -5,7 +5,7 @@
 
 ## Principles
 
-- **stdout is reserved for command output** (`scone show`,
+- **stdout is reserved for command output** (`scone status`,
   `identity list`, `status`, …). A script can redirect stdout
   without ever finding logs in it — piping stays reliable. Accepted
   exception: `scone relay` emits the data lines

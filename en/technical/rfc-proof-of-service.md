@@ -234,15 +234,12 @@ tx like any other (mempool, production by anyone).
 
 ## 8. CLI (`scone`)
 
-```
-scone tx build heartbeat --identity NAME [--tip_seen HEX32] [--height_seen N] [--timestamp TS]
-```
-
-- Offline heartbeat builder (manual/air-gapped operation — the
-  relay emits its own automatically, §7). `--identity` names the
-  OPERATOR identity destined to sign; defaults: `tip_seen` = 32
-  zero bytes (the field is observability-only), `height_seen` = 0,
-  `timestamp` = now.
+The offline heartbeat builder (`scone tx build heartbeat`) was
+removed with the offline tx surface (cli-simplify-v1). Relays
+emit their own heartbeat automatically (§7); manual/air-gapped
+emission, if ever needed again, would come back as a dedicated
+command. Defaults were: `tip_seen` = 32 zero bytes
+(observability-only), `height_seen` = 0, `timestamp` = now.
 - As for every tx, `tx sign` **rebinds** operator and owner to the
   REAL signing key (input values never trusted); `tx verify`
   validates locally.

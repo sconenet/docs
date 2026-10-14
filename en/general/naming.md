@@ -98,7 +98,7 @@ DomainId([0x00; 32]) → "000000000000000000000000000000000000000000000000000000
 This form is produced by `Display` (the Rust `Debug` prints
 `DomainId(<hex>)`, same string). Any output consumed by a human or a
 machine outside the canonical binary format — logs, error messages,
-CLI (`scone show`) — MUST use this representation and no other (no
+CLI output — MUST use this representation and no other (no
 truncation, no prefix, no uppercase).
 
 ## Limits and future rules (not settled)

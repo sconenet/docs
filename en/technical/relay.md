@@ -403,7 +403,7 @@ malicious peer cannot get anything invalid accepted.
 
 ### Record DHT
 
-- **put** (`record put`): strict bounded decoding
+- **put** (API/web flow — the `record put` CLI was removed): strict bounded decoding
   (`MAX_DHT_CACHE_ENTRY`), verification against on-chain state
   (owner, sequence, recomputed `record_hash` — see "Record
   verification"), then `kad.put_record` (local storage +
@@ -505,7 +505,7 @@ Control messages served by the relay:
 - `Transaction (tx)` → submission with free gossip (the relay
   rebroadcasts to peers);
 - `GetRecord { domain_id }` / `Record (r)` — DHT resolution and
-  publication (like `record get`/`record put`);
+  publication (like `scone record get` on the CLI side);
 - application rejection → `Message::Error(msg)` (reaches the
   client as a readable message, not an EOF).
 
@@ -531,13 +531,18 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
             [--metrics-addr ADDR|off] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
-scone submit tx --hex HEX [--peer MULTIADDR]
-scone lookup NAME [--peer MULTIADDR]
-scone domain register NAME --identity ID [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
-scone domain update NAME --file FILE --identity ID [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
-scone domain info NAME [--peer MULTIADDR]
-scone record put NAME --file FILE [--peer MULTIADDR]      # FILE = canonical hex
+scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
+scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
+scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # express single record
+scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
+scone domain get NAME [--peer MULTIADDR]
+scone renew NAME [--identity ID] [--peer MULTIADDR]
 scone record get NAME [--peer MULTIADDR]
+
+# --peer defaults to the local relay (SCONE_PEER env overrides);
+# --identity defaults to the single keystore identity when there
+# is exactly one. Removed (stubs suggest replacements): show,
+# submit, lookup, owned, record put.
 ```
 
 Every control command speaks QUIC directly to the relay's
@@ -598,18 +603,22 @@ domains/TLDs (PoS eligibility is never free). `--no-anchor-auto`
 keeps the relay strictly passive. The default env var of
 `--anchor-passphrase-env` is `SCONE_ANCHOR_PASS`.
 
-`--network` (M8b): `testnet` by default (project in dev), explicit
-`mainnet`, `devnet` for the resettable local network (own
+`--network`: the default follows the BUILD (mainnet on
+mainnet-enabled binaries, testnet otherwise); `devnet` is the
+resettable local network (own
 `scone-devnet` genesis, near-zero 0..=2 bit PoW — wiping
 `~/.scone/devnet/` and relaunching resets the chain). Sets the
 genesis, PoW difficulties, and the default
 data-dir (`~/.scone/<network>/`); a tx from another network is
 refused in typed fashion (`WrongNetwork`).
 
-The offline surface `scone tx build` covers the full M8b family
-(`set-tld-open`, `assign-domain`, `renew-domain`, `transfer-tld`,
-`revoke-tld`); `register`/`register-tld` claims mine their PoW at
-the default testnet difficulty (a few ms).
+The offline `scone tx` surface was removed (cli-simplify-v1):
+the signed-hex format remains a web/API flow. The CLI covers
+the user paths (`domain register`, `renew`, `domains`); the M8b
+family (`set-tld-open`, `assign-domain`, `transfer-tld`,
+`revoke-tld`) is reachable through the registrar web app.
+`register` claims mine their PoW at the network difficulty
+(milliseconds on devnet).
 
 The `--geo-*`/`--health-*` options configure GeoDNS and health
 checking **of the embedded DNS resolver**: full semantics,
@@ -621,8 +630,7 @@ is **always on** (embedded GeoIP table, no option required);
 ### `domain register|update` (M5) — signed transactions in one command
 
 These commands chain build → sign (keystore) → submit →
-(confirmation) in a single invocation; they remove the M4 devnet
-shell pipe `tx build | tx sign | submit tx`.
+(confirmation) in a single invocation.
 
 - **register**: builds a signed `RegisterDomain` (timestamp = now,
   empty proof in devnet), submits it, waits for on-chain
