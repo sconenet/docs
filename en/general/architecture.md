@@ -1,5 +1,24 @@
 # Architecture
 
+## In plain words first
+
+Five concepts are enough to understand everything else:
+
+1. **A name** — an address on the internet, like `mysite.scone`.
+2. **Your 24-word phrase** — your identity. It is the deed that
+   proves a name is yours, and signs every change you make.
+3. **The public record book** (the blockchain) — the shared,
+   public ledger of who owns what. Nobody controls it, nobody
+   can rewrite it.
+4. **Mining** — how you reserve a name: your computer does some
+   work, fair and equal for everyone. No queue, no middleman.
+5. **A relay** — a computer that runs the network by keeping a
+   copy of the book and answering questions. Anyone can run
+   one; the more there are, the stronger the network.
+
+The rest of this page goes deeper — you can stop here and
+already understand the project.
+
 ## Guiding principle
 
 Scone separates authority from availability:
