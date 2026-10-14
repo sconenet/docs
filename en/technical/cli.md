@@ -100,6 +100,24 @@ Library crates (`scone-network`, …) emit `tracing` macros but
 logs from boot).
 
 
+## Simple usage (cli-simplify-v1)
+
+- **No `--peer` needed**: commands talk to the local relay by
+  default; `SCONE_PEER` env or `--peer` overrides.
+- **No `--identity` needed** when the keystore holds a single
+  identity (it is used silently; several → the error lists them).
+- Removed (stubs suggest the replacement): `show`, `submit`,
+  `lookup`, `owned`, `record put`.
+- New: `scone renew <name>`, `scone domains`, `scone domain
+  get|set` (single record, no file).
+
+```bash
+scone identity generate --name me
+scone domain register example.scone
+scone domain set example.scone A 192.0.2.1
+scone renew example.scone
+```
+
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
 
 Default builds carry **no mainnet**: `scone relay --network
