@@ -162,7 +162,7 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ## Default identity (cli-simplify-v1)
 
 Commands that need a signing identity (`domain register`,
-`domain set`, `domain update`, `renew`) use the keystore's
+`domain set`, `domain update`, `domain renew`) use the keystore's
 SINGLE identity without `--identity` when there is exactly one.
 With several identities the command fails and lists them
 (`scone identity list`); pass `--identity <name>` explicitly.

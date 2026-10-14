@@ -614,7 +614,7 @@ refused in typed fashion (`WrongNetwork`).
 
 The offline `scone tx` surface was removed (cli-simplify-v1):
 the signed-hex format remains a web/API flow. The CLI covers
-the user paths (`domain register`, `renew`, `domains`); the M8b
+the user paths (`domain register`, `domain renew`, `domains`); the M8b
 family (`set-tld-open`, `assign-domain`, `transfer-tld`,
 `revoke-tld`) is reachable through the registrar web app.
 `register` claims mine their PoW at the network difficulty
