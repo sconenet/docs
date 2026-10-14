@@ -112,7 +112,13 @@ cargo build --release --features mainnet
 ```
 
 `scone --version` shows `+mainnet` on such builds, and the
-relay startup log says `build: mainnet-enabled`. This is an
+relay startup log says `build: mainnet-enabled`.
+
+The default `--network` follows the build too: `mainnet` on
+mainnet-enabled builds (the official binary lands users on the
+production network), `testnet` otherwise. An explicit
+`--network` flag or the `SCONE_NETWORK` env always wins
+(clap order: flag > env > default). This is an
 operational guardrail (accidental runs, dev/CI binaries) — not
 a cryptographic boundary; consensus rules remain the defense
 against hostile nodes.
