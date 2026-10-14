@@ -118,6 +118,25 @@ scone domain set example.scone A 192.0.2.1
 scone domain renew example.scone
 ```
 
+## Advanced commands
+
+The defaults above cover everyday use. For scripts and web/API
+interop the full surface stays available:
+
+- `scone show <name>` — the internal DomainId of a name.
+- `scone lookup <name>` / `scone owned <pubkey>` — aliases of
+  `domain get` / `domains --pubkey` (same output).
+- `scone renew <name>` — alias of `scone domain renew`.
+- `scone domain info` — alias of `scone domain get`.
+- `scone submit tx <HEX>` — submit a signed transaction as
+  canonical hex (QUIC).
+- `scone tx build|sign|verify` — build, sign and locally verify
+  raw transactions (hex payloads).
+- `scone record put <name> --file <hex-file>` — publish a
+  signed record to the DHT from a file.
+
+`domain get` also prints the `domain_id` and `valid_until`.
+
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
 
 Default builds carry **no mainnet**: `scone relay --network
