@@ -167,6 +167,13 @@ PoW mined for you), `scone tld transfer <tld> <owner>`,
 resolution moved to `scone domain resolve <name>` (ex-`record
 get`); the hex publication channel (`record put`) is gone —
 editing goes through `domain set` / `domain update`.
+- `scone domain export <name> [--out FILE]` — writes the
+  chain-verified record set in the exact `update --file` format
+  (round-trip guaranteed: export → edit → update re-submits the
+  same set). Without `--out`: stdout. `domain resolve` uses the
+  same readable format, so `resolve > zone.txt` is directly
+  importable. Kinds with no textual syntax (GEOROUTE, unknown)
+  are exported as commented warnings — never silently dropped.
 
 `domain get` also prints the `domain_id` and `valid_until`.
 
