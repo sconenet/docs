@@ -124,7 +124,7 @@ generations cannot silently overwrite each other.
 ## CLI
 
 ```bash
-scone identity generate --name <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```

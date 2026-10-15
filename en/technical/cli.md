@@ -112,7 +112,7 @@ logs from boot).
   get|set` (single record, no file).
 
 ```bash
-scone identity generate --name me
+scone identity generate me
 scone domain register example.scone
 scone domain set example.scone A 192.0.2.1
 scone domain renew example.scone
