@@ -118,6 +118,33 @@ scone domain set example.scone A 192.0.2.1
 scone domain renew example.scone
 ```
 
+## TLD lifecycle (cli-unified-lifecycle)
+
+`scone tld register <tld>` is the one-command TLD entry point,
+symmetric with `scone domain register` — the on-chain state is
+read FIRST, then the right action runs:
+
+- **free TLD** → registered, born **OPEN by default** (no flag:
+  self-service namespace, 1/3 of the PoW). `--private` opts into
+  an owned namespace at the full PoW price, with an explicit
+  confirmation (economic decision). `--yes` skips confirmations
+  (scripts).
+- **yours, expiring within 90 days** → the RENEWAL is proposed
+  (PoW bound to the current expiry — anti-reuse) and runs after
+  confirmation.
+- **yours, far from expiry** → nothing to do (`tld renew --force`
+  to renew anyway).
+- **someone else's** → clean typed error with the owner.
+
+```bash
+scone tld register mytld            # open birth (default)
+scone tld register mytld --private  # owned namespace (confirm)
+scone tld renew mytld               # explicit renewal
+```
+
+Likewise, `scone domain register <name>` on a name you own that
+expires within 90 days proposes the renewal instead of failing.
+
 ## Advanced commands
 
 The defaults above cover everyday use. For scripts and web/API
