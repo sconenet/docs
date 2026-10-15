@@ -107,7 +107,7 @@ logs from boot).
 - **No `--identity` needed** when the keystore holds a single
   identity (it is used silently; several → the error lists them).
 - Removed (stubs suggest the replacement): `show`, `submit`,
-  `lookup`, `owned`, `record put`.
+  `lookup`, `owned`.
 - New: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (single record, no file).
 
@@ -155,8 +155,6 @@ interop the full surface stays available:
   `domain get` / `domains --pubkey` (same output).
 - `scone renew <name>` — alias of `scone domain renew`.
 - `scone domain info` — alias of `scone domain get`.
-- `scone record put <name> --file <hex-file>` — publish a
-  signed record to the DHT from a file.
 
 The offline hex surface (`scone tx build|sign|verify`, `scone
 submit tx`) was REMOVED (remove-tx-surface-v2): the M8b
@@ -165,7 +163,10 @@ operations it served are first-class commands now —
 PoW mined for you), `scone tld transfer <tld> <owner>`,
 `scone tld revoke <tld>`, `scone domain assign <name> <owner>`
 (TLD owner, private TLD) and `scone domain transfer <name>
-<owner>`. Every one: state read, signature, submission, txid.
+<owner>`. Every one: state read, signature, submission, txid. DNS record
+resolution moved to `scone domain resolve <name>` (ex-`record
+get`); the hex publication channel (`record put`) is gone —
+editing goes through `domain set` / `domain update`.
 
 `domain get` also prints the `domain_id` and `valid_until`.
 

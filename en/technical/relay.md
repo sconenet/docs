@@ -403,13 +403,13 @@ malicious peer cannot get anything invalid accepted.
 
 ### Record DHT
 
-- **put** (API/web flow — the `record put` CLI was removed): strict bounded decoding
+- **put** (API/web flow — the CLI hex channel was removed): strict bounded decoding
   (`MAX_DHT_CACHE_ENTRY`), verification against on-chain state
   (owner, sequence, recomputed `record_hash` — see "Record
   verification"), then `kad.put_record` (local storage +
   replication to the closest peers, `Quorum::Majority` of the
   replication factor) and persistent redb cache.
-- **get** (`record get`): `kad.get_record`; the waiter is bound
+- **get** (`domain resolve`): `kad.get_record`; the waiter is bound
   to its `QueryId` and the requested `DomainId` — a reply only
   resolves the matching query, and the record key must be exactly
   the requested domain (checked **before** on-chain verification).
@@ -505,7 +505,7 @@ Control messages served by the relay:
 - `Transaction (tx)` → submission with free gossip (the relay
   rebroadcasts to peers);
 - `GetRecord { domain_id }` / `Record (r)` — DHT resolution and
-  publication (like `scone record get` on the CLI side);
+  publication (like `scone domain resolve` on the CLI side);
 - application rejection → `Message::Error(msg)` (reaches the
   client as a readable message, not an EOF).
 
@@ -537,12 +537,12 @@ scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # ex
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
 scone domain renew NAME [--identity ID] [--peer MULTIADDR]
-scone record get NAME [--peer MULTIADDR]
+scone domain resolve NAME [--peer MULTIADDR]
 
 # --peer defaults to the local relay (SCONE_PEER env overrides);
 # --identity defaults to the single keystore identity when there
 # is exactly one. Removed (stubs suggest replacements): show,
-# submit, lookup, owned, record put.
+# submit, lookup, owned.
 ```
 
 Every control command speaks QUIC directly to the relay's
