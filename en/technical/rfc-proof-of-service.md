@@ -234,7 +234,7 @@ tx like any other (mempool, production by anyone).
 
 ## 8. CLI (`scone`)
 
-The offline heartbeat builder (`scone tx build heartbeat`) was
+The offline heartbeat builder (removed with the `scone tx` surface) was
 removed with the offline tx surface (cli-simplify-v1). Relays
 emit their own heartbeat automatically (§7); manual/air-gapped
 emission, if ever needed again, would come back as a dedicated

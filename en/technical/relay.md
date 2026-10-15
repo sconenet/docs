@@ -612,11 +612,11 @@ genesis, PoW difficulties, and the default
 data-dir (`~/.scone/<network>/`); a tx from another network is
 refused in typed fashion (`WrongNetwork`).
 
-The offline `scone tx` surface was removed (cli-simplify-v1):
-the signed-hex format remains a web/API flow. The CLI covers
-the user paths (`domain register`, `domain renew`, `domains`); the M8b
-family (`set-tld-open`, `assign-domain`, `transfer-tld`,
-`revoke-tld`) is reachable through the registrar web app.
+The offline hex surface (`scone tx`, `scone submit tx`) is
+gone (remove-tx-surface-v2). The CLI covers the user paths
+(`domain register`, `domain renew`, `domains`) AND the M8b
+family as first-class commands: `tld open`, `tld transfer`,
+`tld revoke`, `domain assign`, `domain transfer`.
 `register` claims mine their PoW at the network difficulty
 (milliseconds on devnet).
 

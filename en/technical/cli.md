@@ -155,12 +155,17 @@ interop the full surface stays available:
   `domain get` / `domains --pubkey` (same output).
 - `scone renew <name>` — alias of `scone domain renew`.
 - `scone domain info` — alias of `scone domain get`.
-- `scone submit tx <HEX>` — submit a signed transaction as
-  canonical hex (QUIC).
-- `scone tx build|sign|verify` — build, sign and locally verify
-  raw transactions (hex payloads).
 - `scone record put <name> --file <hex-file>` — publish a
   signed record to the DHT from a file.
+
+The offline hex surface (`scone tx build|sign|verify`, `scone
+submit tx`) was REMOVED (remove-tx-surface-v2): the M8b
+operations it served are first-class commands now —
+`scone tld open <tld>` (one-way self-service opening, opening
+PoW mined for you), `scone tld transfer <tld> <owner>`,
+`scone tld revoke <tld>`, `scone domain assign <name> <owner>`
+(TLD owner, private TLD) and `scone domain transfer <name>
+<owner>`. Every one: state read, signature, submission, txid.
 
 `domain get` also prints the `domain_id` and `valid_until`.
 
