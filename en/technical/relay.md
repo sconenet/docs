@@ -612,7 +612,7 @@ genesis, PoW difficulties, and the default
 data-dir (`~/.scone/<network>/`); a tx from another network is
 refused in typed fashion (`WrongNetwork`).
 
-The offline hex surface (`scone tx`, `scone submit tx`) is
+The offline hex surface (the `tx` and `submit` subcommands) is
 gone (remove-tx-surface-v2). The CLI covers the user paths
 (`domain register`, `domain renew`, `domains`) AND the M8b
 family as first-class commands: `tld open`, `tld transfer`,

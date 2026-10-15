@@ -601,7 +601,7 @@ payload to be signed.)
 
 ## Where the hex lives now
 
-The offline `scone tx build|sign|verify` commands were removed
+The offline `tx build|sign|verify` commands were removed
 (cli-simplify-v1). The signed-hex format itself is unchanged and
 remains the wire format of the **web/API flow**: the registrar
 web app builds, signs (in-browser keystore) and submits

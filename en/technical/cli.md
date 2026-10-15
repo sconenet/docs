@@ -156,8 +156,8 @@ interop the full surface stays available:
 - `scone renew <name>` — alias of `scone domain renew`.
 - `scone domain info` — alias of `scone domain get`.
 
-The offline hex surface (`scone tx build|sign|verify`, `scone
-submit tx`) was REMOVED (remove-tx-surface-v2): the M8b
+The offline hex surface (`tx build|sign|verify`, `submit tx`
+subcommands) was REMOVED (remove-tx-surface-v2): the M8b
 operations it served are first-class commands now —
 `scone tld open <tld>` (one-way self-service opening, opening
 PoW mined for you), `scone tld transfer <tld> <owner>`,
