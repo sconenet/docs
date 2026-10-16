@@ -167,6 +167,15 @@ PoW mined for you), `scone tld transfer <tld> <owner>`,
 resolution moved to `scone domain resolve <name>` (ex-`record
 get`); the hex publication channel (`record put`) is gone —
 editing goes through `domain set` / `domain update`.
+- `scone domain mine <name>` — mines ONLY the registration
+  proof (no identity, no keystore, no submission): prints the
+  `scone-domain-pow-v1` JSON `{type, name, network_id, epoch,
+  proof}` to stdout. Delegated mining: another machine mines
+  for you, your keys never leave yours. Pipe or redirect it:
+  `scone domain mine n.tld | scone domain register n.tld
+  --proof -` (or `--proof FILE`). The proof is name- and
+  network-bound; freshness is enforced by the node at apply
+  time (epoch validity window).
 - `scone domain export <name> [--out FILE]` — writes the
   chain-verified record set in the exact `update --file` format
   (round-trip guaranteed: export → edit → update re-submits the

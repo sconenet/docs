@@ -184,6 +184,16 @@ soumission, txid. La résolution d'enregistrement DNS a déménagé
 vers `scone domain resolve <nom>` (ex-`record get`) ; le canal
 de publication hexadécimal (`record put`) a disparu — l'édition
 passe par `domain set` / `domain update`.
+- `scone domain mine <nom>` — mine UNIQUEMENT la preuve
+  d'enregistrement (aucune identité, aucun coffre, aucune
+  soumission) : imprime le JSON `scone-domain-pow-v1` `{type,
+  name, network_id, epoch, proof}` sur stdout. Minage délégué :
+  une autre machine mine pour vous, vos clés ne quittent jamais
+  la vôtre. Pipez ou redirigez : `scone domain mine n.tld |
+  scone domain register n.tld --proof -` (ou `--proof FICHIER`).
+  La preuve est liée au nom et au réseau ; la fraîcheur est
+  vérifiée par le nœud à l'application (fenêtre de validité
+  d'époque).
 - `scone domain export <nom> [--out FILE]` — écrit le jeu
   d'enregistrements vérifié sur chaîne dans le format exact de
   `update --file` (aller-retour garanti : export → édition →
