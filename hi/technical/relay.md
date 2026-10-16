@@ -449,11 +449,8 @@ gossip किया हारा ब्लॉक पुनर्मूल्य�
 घुमाया exposition — कोई नई निर्भरता नहीं) समर्पित task द्वारा
 सेव:
 
-- **डिफ़ॉल्ट रूप से सार्वजनिक** `127.0.0.1:9101` पर (CLI वही
-  डिफ़ॉल्ट लगाता है; लाइब्रेरी डिफ़ॉल्ट `None` — एक
-  प्रक्रिया में कई रिले कभी नहीं टकराते)।
-- `--metrics-addr ADDR|off`: दूसरा पता, या `off` = endpoint
-  अक्षम।
+- **डिफ़ॉल्ट रूप से बंद**: `--metrics-addr` के बिना कोई HTTP सर्वर नहीं चलता (मेट्रिक्स ऑप्ट-इन हैं)।
+- `--metrics-addr ADDR:PORT`: उस पते पर एंडपॉइंट बाइंड करता है (जैसे स्थानीय `127.0.0.1:9101`, बाहर `0.0.0.0:9101`)।
 - `--metrics-token TOKEN`: **निजी** मोड में बदलता है —
   `Authorization: Bearer *** आवश्यक (constant-time
   तुलना, अन्यथा `401`; token कभी लॉग या
@@ -532,7 +529,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -586,7 +583,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS कैश प्रविष्टि सीमा |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS कैश मेमोरी सीमा (उदा. `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | समवर्ती DNS प्रश्न सीमा |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint (`ADDR` या `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | metrics endpoint bearer token |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | टोपोलॉजी profile (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; डिफ़ॉल्ट `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | एंकर कीफ़ाइल (चेकपॉइंट + उत्पादन) |

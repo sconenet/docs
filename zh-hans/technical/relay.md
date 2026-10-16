@@ -463,8 +463,7 @@ Ed25519 签名由中继**在收到时验证**
 - 默认在 `127.0.0.1:9101` **公开**（CLI 应用该
   默认；库默认为 `None` —— 单进程中的多个中继
   绝不碰撞）。
-- `--metrics-addr ADDR|off`：其他地址、或 `off` =
-  禁用端点。
+- `--metrics-addr ADDR:PORT`：将端点绑定到该地址（如本地 `127.0.0.1:9101`，对外 `0.0.0.0:9101`）。
 - `--metrics-token TOKEN`：切换到**私有**模式 ——
   `Authorization: Bearer *** required`（常数时间
   比较、否则 `401`；令牌绝不出现在日志或
@@ -549,7 +548,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -603,7 +602,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS 缓存条目上限 |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS 缓存内存上限（如 `64MB`） |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | 并发 DNS 查询上限 |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | 指标端点（`ADDR` 或 `off`） |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | 指标端点 bearer 令牌 |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | 拓扑 profile（`tiny`/`small`/`default`/`high`/`very-high`/`devtest`；默认 `default`） |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | 锚密钥文件（检查点 + 生产） |

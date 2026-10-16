@@ -442,11 +442,8 @@ clap يتجاوزه دائمًا):
 نقطة HTTP (صيغة نص Prometheus 0.0.4، عرض مكتوب يدويًا — لا
 تبعية جديدة) تخدمها مهمة مخصصة:
 
-- **عامة افتراضيًا** على `127.0.0.1:9101` (يطبّق الـ CLI ذلك
-  الافتراض؛ افتراض المكتبة `None` — عدة مُرحّلات في عملية
-  واحدة لا تتصادم أبدًا).
-- `--metrics-addr ADDR|off`: عنوان آخر، أو `off` = تعطيل
-  النقطة.
+- **معطّل افتراضيًا**: لا يعمل أي خادم HTTP بدون `--metrics-addr` (القياسات اختيارية).
+- `--metrics-addr ADDR:PORT`：يربط نقطة النهاية على هذا العنوان (مثل `127.0.0.1:9101` محليًا، `0.0.0.0:9101` للخارج).
 - `--metrics-token TOKEN`: ينتقل إلى نمط **خاص** —
   `Authorization: Bearer *** مطلوب (مقارنة زمن-ثابت،
   `401` وإلا؛ التوكن لا يظهر في السجلات ولا في العرض).
@@ -524,7 +521,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -578,7 +575,7 @@ unreachable — is a relay running?"، خروج غير صفري. يُحتفظ
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | سقف مداخل ذاكرة DNS |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | سقف ذاكرة ذاكرة DNS (مثل `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | سقف استعلامات DNS المتزامنة |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | نقطة المقاييس (`ADDR` أو `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | توكن bearer لنقطة المقاييس |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | ملف الطوبولوجيا (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`؛ الافتراضي `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | ملف مفاتيح الـ anchor (نقطة تفتيش + إنتاج) |

@@ -456,11 +456,8 @@ commitment بنیادی
 exposition — کوئی نیا انحصار نہیں) ایک مخصوص کام سے خدمت
 پاتا ہے:
 
-- **بطور ڈیفالٹ عوامی** `127.0.0.1:9101` پر (CLI وہی
-  ڈیفالٹ لگاتی ہے؛ لائبریری ڈیفالٹ `None` ہے — ایک پروسیس میں
-  کئی ریلے کبھی نہیں ٹکراتے)۔
-- `--metrics-addr ADDR|off`: کوئی اور پتہ، یا `off` = اینڈ پوائنٹ
-  بند۔
+- **بذریعہ ڈیفالٹ بند**: `--metrics-addr` کے بغیر کوئی HTTP سرور نہیں چلتا (میٹرکس آپٹ ان ہیں)۔
+- `--metrics-addr ADDR:PORT`: اُس پتے پر اینڈپوائنٹ باندھتا ہے (مثلاً مقامی `127.0.0.1:9101`، بیرونی `0.0.0.0:9101`)۔
 - `--metrics-token TOKEN`: **نجی** موڈ پر سویچ —
   `Authorization: Bearer *** required (مستقل وقت
   موازنہ، ورنہ `401`؛ ٹوکن کبھی لاگز میں یا exposition میں
@@ -539,7 +536,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -594,7 +591,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS کیش اندراج کیپ |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS کیش میموری کیپ (مثلاً `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | بیک وقت DNS سوال کیپ |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | میٹرکس اینڈ پوائنٹ (`ADDR` یا `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | میٹرکس اینڈ پوائنٹ bearer ٹوکن |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | ٹوپولوجی پروفائل (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`؛ ڈیفالٹ `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | اینکر کلیدی فائل (چیک پوائنٹ + پیداوار) |

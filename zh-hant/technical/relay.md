@@ -506,8 +506,7 @@ gossip 的輸家區塊不被重新評估。
 - 預設**公開**於 `127.0.0.1:9101`（CLI
   套用該預設；函式庫預設為 `None` — 一個
   行程中的多個中繼站絕不碰撞）。
-- `--metrics-addr ADDR|off`：另一個位址、
-  或 `off` = 停用端點。
+- `--metrics-addr ADDR:PORT`：將端點綁定到該位址（如本機 `127.0.0.1:9101`，對外 `0.0.0.0:9101`）。
 - `--metrics-token TOKEN`：切換為**私有**
   模式 — 需要 `Authorization: Bearer ***`
  （常數時間比較、否則 `401`；token 絕不
@@ -597,7 +596,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -653,7 +652,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS 快取條目上限 |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS 快取記憶體上限（如 `64MB`） |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | 並發 DNS 查詢上限 |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | 指標端點（`ADDR` 或 `off`） |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | 指標端點 bearer token |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | 拓撲設定檔（`tiny`／`small`／`default`／`high`／`very-high`／`devtest`；預設 `default`） |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | 錨點金鑰檔（檢查點 + 生產） |

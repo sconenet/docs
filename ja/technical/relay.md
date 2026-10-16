@@ -225,7 +225,7 @@ scone relay --topology-profile tiny
 専用タスクによって提供されるHTTPエンドポイント(Prometheusテキスト形式0.0.4、手書きのエクスポジション — 新しい依存関係なし):
 
 - デフォルトで `127.0.0.1:9101` で**公開**(CLIがそのデフォルトを適用。ライブラリのデフォルトは `None` — 1プロセスで複数のリレーが衝突することは決してない)。
-- `--metrics-addr ADDR|off`: 別のアドレス、または `off` = エンドポイント無効。
+- `--metrics-addr ADDR:PORT`：指定アドレスにエンドポイントをバインド（例：`127.0.0.1:9101`、公開は `0.0.0.0:9101`）。
 - `--metrics-token TOKEN`: **プライベート**モードに切り替え — `Authorization: Bearer ***` 必須(定数時間比較、さもなければ `401`。トークンはログにもエクスポジションにも決して現れません)。
 - バインド失敗は**エンドポイントを無効化**します(致命的でない警告)— ノードでは決してなく。
 
@@ -273,7 +273,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -315,7 +315,7 @@ scone domain resolve NAME [--peer MULTIADDR]
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNSキャッシュエントリ上限 |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNSキャッシュメモリ上限(例: `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | 並行DNSクエリ上限 |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | メトリクスエンドポイント(`ADDR` または `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | メトリクスエンドポイントのベアラートークン |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | トポロジープロファイル(`tiny`/`small`/`default`/`high`/`very-high`/`devtest`。デフォルト `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | アンカーキーファイル(チェックポイント + 生成) |

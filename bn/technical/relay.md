@@ -563,13 +563,8 @@ SATURATED বাকেটে `Disconnected` হয়
 এক্সপোজিশন — কোনো নতুন ডিপেন্ডেন্সি নয়) একটি
 নিবেদিত টাস্ক দ্বারা সেবা পায়:
 
-- `127.0.0.1:9101`-এ **ডিফল্টে পাবলিক**
-  (CLI সেই
-  ডিফল্ট প্রয়োগ করে; লাইব্রেরির ডিফল্ট `None` —
-  একটি প্রসেসে কয়েকটি রিলে কখনো
-  সংঘর্ষ করে না)।
-- `--metrics-addr ADDR|off`: অন্য ঠিকানা, বা `off`
-  = এন্ডপয়েন্ট নিষ্ক্রিয়।
+- **ডিফল্টে বন্ধ**: `--metrics-addr` ছাড়া কোনো HTTP সার্ভার চলে না (মেট্রিক্স অপ্ট-ইন)।
+- `--metrics-addr ADDR:PORT`: সেই ঠিকানায় এন্ডপয়েন্ট বাঁধে (যেমন লোকাল `127.0.0.1:9101`, বাইরের জন্য `0.0.0.0:9101`)।
 - `--metrics-token TOKEN`: **প্রাইভেট**
   মোডে স্যুইচ করে —
   `Authorization: Bearer ***` প্রয়োজন (ধ্রুবক-সময়
@@ -663,7 +658,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -725,7 +720,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS ক্যাশ এন্ট্রি ক্যাপ |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS ক্যাশ মেমরি ক্যাপ (যেমন `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | সমান্তরাল DNS কোয়েরি ক্যাপ |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | মেট্রিক্স এন্ডপয়েন্ট (`ADDR` বা `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | মেট্রিক্স এন্ডপয়েন্ট বিয়ারার টোকেন |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | টোপোলজি প্রোফাইল (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; ডিফল্ট `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | অ্যাঙ্কর কী-ফাইল (চেকপয়েন্ট + প্রোডাকশন) |

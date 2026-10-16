@@ -480,11 +480,8 @@ HTTP-точка (текстовый формат Prometheus 0.0.4, самоде�
 экспозиция — без новой зависимости), обслуживаемая выделенной
 задачей:
 
-- **Публична по умолчанию** на `127.0.0.1:9101` (CLI применяет
-  это значение по умолчанию; библиотечное — `None` — несколько
-  реле в одном процессе никогда не конфликтуют).
-- `--metrics-addr ADDR|off`: другой адрес или `off` = точка
-  отключена.
+- **Отключено по умолчанию**: HTTP-сервер не запускается без `--metrics-addr` (метрики опциональны).
+- `--metrics-addr ADDR:PORT`: привязывает endpoint к этому адресу (напр. `127.0.0.1:9101` локально, `0.0.0.0:9101` для наружу).
 - `--metrics-token TOKEN`: переключает в **приватный** режим —
   `Authorization: Bearer *** required (сравнение за
   константное время, иначе `401`; токен никогда не появляется
@@ -566,7 +563,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -622,7 +619,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | потолок записей DNS-кэша |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | потолок памяти DNS-кэша (например `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | потолок одновременных DNS-запросов |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | точка метрик (`ADDR` или `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | bearer-токен точки метрик |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | профиль топологии (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; по умолчанию `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | файл ключей якоря (чекпоинт + продакшен) |

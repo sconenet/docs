@@ -474,11 +474,8 @@ Un endpoint HTTP (formato texto Prometheus 0.0.4, exposición
 hecha a mano — sin dependencia nueva) servido por una tarea
 dedicada:
 
-- **Público por defecto** en `127.0.0.1:9101` (el CLI aplica ese
-  valor; el de la biblioteca es `None` — varios relays en un
-  proceso nunca colisionan).
-- `--metrics-addr ADDR|off`: otra dirección, o `off` = endpoint
-  desactivado.
+- **Desactivado por defecto**: ningún servidor HTTP se ejecuta sin `--metrics-addr` (métricas opt-in).
+- `--metrics-addr ADDR:PORT`: enlaza el endpoint en esa dirección (p. ej. `127.0.0.1:9101` local, `0.0.0.0:9101` para exponerlo).
 - `--metrics-token TOKEN`: pasa a modo **privado** — `Authorization:
   Bearer ***` requerido (comparación en tiempo constante, `401` en
   caso contrario; el token nunca aparece en logs ni en la
@@ -561,7 +558,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -616,7 +613,7 @@ cada variable (copiar a `.env` y ajustar; `.env` está
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | tope de entradas de la caché DNS |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | tope de memoria de la caché DNS (p. ej. `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | tope de consultas DNS concurrentes |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | endpoint de métricas (`ADDR` u `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | token bearer del endpoint de métricas |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | perfil de topología (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; por defecto `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | archivo de claves anchor (checkpoint + producción) |

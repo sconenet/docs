@@ -468,11 +468,8 @@ utama.
 Endpoint HTTP (format teks Prometheus 0.0.4, eksposisi buatan
 sendiri — tanpa dependensi baru) yang dilayani task khusus:
 
-- **Publik secara default** pada `127.0.0.1:9101` (CLI
-  menerapkan default itu; default pustaka `None` — beberapa
-  relay dalam satu proses tidak pernah bertabrakan).
-- `--metrics-addr ADDR|off`: alamat lain, atau `off` = endpoint
-  nonaktif.
+- **Nonaktif secara default**: tidak ada server HTTP tanpa `--metrics-addr` (metrik opt-in).
+- `--metrics-addr ADDR:PORT`: mengikat endpoint ke alamat tersebut (mis. `127.0.0.1:9101` lokal, `0.0.0.0:9101` untuk diekspos).
 - `--metrics-token TOKEN`: beralih ke mode **privat** —
   `Authorization: Bearer *** wajib (perbandingan waktu-konstan,
   `401` jika tidak; token tidak pernah muncul di log maupun
@@ -554,7 +551,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -608,7 +605,7 @@ setiap variabel (salin ke `.env` dan sesuaikan; `.env`
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | tutup entri cache DNS |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | tutup memori cache DNS (mis. `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | tutup kueri DNS bersamaan |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | endpoint metrik (`ADDR` atau `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | token bearer endpoint metrik |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | profil topologi (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; default `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | keyfile anchor (checkpoint + produksi) |

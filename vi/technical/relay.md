@@ -450,11 +450,8 @@ chính.
 Một điểm cuối HTTP (định dạng văn bản Prometheus 0.0.4, phơi bày
 tự viết — không phụ thuộc mới) phục vụ bởi một tác vụ riêng:
 
-- **Công khai mặc định** trên `127.0.0.1:9101` (CLI áp mặc định
-  đó; mặc định thư viện là `None` — vài relay trong một tiến
-  trình không bao giờ va chạm).
-- `--metrics-addr ADDR|off`: địa chỉ khác, hay `off` = điểm cuối
-  tắt.
+- **Tắt mặc định**: không có máy chủ HTTP nào chạy khi thiếu `--metrics-addr` (metrics là opt-in).
+- `--metrics-addr ADDR:PORT`: gắn endpoint vào địa chỉ đó (vd. `127.0.0.1:9101` cục bộ, `0.0.0.0:9101` để mở ra ngoài).
 - `--metrics-token TOKEN`: chuyển sang chế độ **riêng tư** —
   `Authorization: Bearer *** required` (so sánh thời-gian-
   không-đổi, `401` ngược lại; token không bao giờ xuất hiện
@@ -534,7 +531,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -588,7 +585,7 @@ giờ commit một `.env` thật). Các biến:
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | nắp mục cache DNS |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | nắp bộ nhớ cache DNS (ví dụ `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | nắp truy vấn DNS đồng thời |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | điểm cuối chỉ số (`ADDR` hay `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | token bearer điểm cuối chỉ số |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | hồ sơ cấu trúc liên kết (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; mặc định `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | tệp khóa anchor (checkpoint + sản xuất) |
