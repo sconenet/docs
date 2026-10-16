@@ -445,11 +445,10 @@ integrity control.
 An HTTP endpoint (Prometheus text format 0.0.4, hand-rolled
 exposition — no new dependency) served by a dedicated task:
 
-- **Public by default** on `127.0.0.1:9101` (the CLI applies that
-  default; the library default is `None` — several relays in one
-  process never collide).
-- `--metrics-addr ADDR|off`: another address, or `off` = endpoint
-  disabled.
+- **OFF by default**: no HTTP server runs unless `--metrics-addr`
+  is given (metrics are opt-in).
+- `--metrics-addr ADDR:PORT`: binds the endpoint on that address
+  (e.g. `127.0.0.1:9101` locally, `0.0.0.0:9101` to expose it).
 - `--metrics-token TOKEN`: switches to **private** mode —
   `Authorization: Bearer <TOKEN>` required (constant-time
   comparison, `401` otherwise; the token never appears in logs
@@ -523,13 +522,13 @@ waiter — see `dns.md`).
 
 ```
 scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+            [--mdns] [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -583,7 +582,7 @@ never commit a real `.env`). Variables:
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS cache entry cap |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS cache memory cap (e.g. `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | concurrent DNS query cap |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint (`ADDR` or `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`) |
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | metrics endpoint bearer token |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | topology profile (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; default `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | anchor keyfile (checkpoint + production) |

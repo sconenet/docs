@@ -452,11 +452,10 @@ le contrôle d'intégrité primaire.
 Un point d'accès HTTP (format texte Prometheus 0.0.4, exposition écrite
 à la main — pas de nouvelle dépendance) servi par une tâche dédiée :
 
-- **Public par défaut** sur `127.0.0.1:9101` (la CLI applique ce
-  défaut ; le défaut de la bibliothèque est `None` — plusieurs relais
-  dans un processus n'entrent jamais en collision).
-- `--metrics-addr ADDR|off` : une autre adresse, ou `off` = point
-  d'accès désactivé.
+- **Désactivé par défaut** : aucun serveur HTTP ne tourne tant que
+  `--metrics-addr` n'est pas fourni (les métriques sont opt-in).
+- `--metrics-addr ADDR:PORT` : lie le point d'accès sur cette adresse
+  (ex. `127.0.0.1:9101` en local, `0.0.0.0:9101` pour l'exposer).
 - `--metrics-token TOKEN` : bascule en mode **privé** —
   `Authorization: Bearer *** required (comparaison à temps
   constant, `401` sinon ; le jeton n'apparaît jamais dans les logs
@@ -536,7 +535,7 @@ scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIA
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
-            [--metrics-addr ADDR|off] [--metrics-token TOKEN]
+            [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
 scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [--peer MULTIADDR]
@@ -590,7 +589,7 @@ jamais committer un vrai `.env`). Variables :
 | `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | plafond d'entrées du cache DNS |
 | `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | plafond mémoire du cache DNS (p. ex. `64MB`) |
 | `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | plafond de requêtes DNS concurrentes |
-| `SCONE_METRICS_ADDR` | `--metrics-addr` | point d'accès métriques (`ADDR` ou `off`) |
+| `SCONE_METRICS_ADDR` | `--metrics-addr` | adresse du point d'accès métriques (`ADDR:PORT`) |
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | jeton bearer du point d'accès métriques |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | profil de topologie (`tiny`/`small`/`default`/`high`/`very-high`/`devtest` ; défaut `default`) |
 | `SCONE_ANCHOR_KEY` | `--anchor-key` | fichier de clé d'ancre (point de contrôle + production) |
