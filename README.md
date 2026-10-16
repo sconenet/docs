@@ -8,7 +8,7 @@ doc/code divergence is a bug (identify the source of truth, fix it).
 - [`fr/`](fr/README.md) — documentation en français
 - Translations (community): [`es/`](es/README.md) · [`pt/`](pt/README.md) ·
   [`de/`](de/README.md) · [`ru/`](ru/README.md) · [`ja/`](ja/README.md) ·
-  [`zh-Hans/`](zh-Hans/README.md) · [`zh-Hant/`](zh-Hant/README.md) ·
+  [`zh-hans/`](zh-hans/README.md) · [`zh-hant/`](zh-hant/README.md) ·
   [`hi/`](hi/README.md) · [`ar/`](ar/README.md) · [`id/`](id/README.md) ·
   [`bn/`](bn/README.md) · [`ur/`](ur/README.md) · [`vi/`](vi/README.md)
 
