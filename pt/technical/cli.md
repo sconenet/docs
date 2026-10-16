@@ -1,0 +1,202 @@
+# CLI (`scone`) — log e verbosidade
+
+> Comportamento normativo do log do binário `scone`. Qualquer divergência
+> doc/código = bug (corrigir a fonte da verdade).
+
+## Princípios
+
+- **stdout é reservado à saída de comandos** (`scone status`,
+  `identity list`, `status`, …). Um script pode redirecionar stdout
+  sem nunca encontrar logs nele — o piping permanece confiável. Exceção
+  aceita: `scone relay` emite as linhas de dados
+  `p2p: <multiaddr>`, `dns: <addr>` e `metrics: <addr>` no
+  stdout assim que os listeners estão vinculados
+  (dados utilizáveis para `--bootstrap` / configuração, não logs;
+  emitidos exatamente uma vez cada, com flush imediato).
+- **Todos os logs vão para stderr** (formato `tracing` compacto),
+  incluindo os do relay — o relay já logava no stderr antes da
+  migração.
+- As mensagens de erro voltadas ao usuário da CLI (`scone: <erro>`)
+  ficam no stderr: isto é UX, não logs.
+
+## Níveis e `--verbose` / `-v`
+
+| Invocação | Nível efetivo |
+|---|---|
+| `scone <cmd>` (sem `-v`) | `warn` |
+| `scone relay` (sem `-v`) | `info` |
+| `scone -v <cmd>` / `scone relay -v` | `info` |
+| `scone -vv …` | `debug` |
+| `scone -vvv …` (e mais) | `trace` |
+
+`-v`/`--verbose` é uma flag **global e repetível**: é
+aceita antes ou depois do subcomando (`scone -vv identity list`
+e `scone identity list -vv` são equivalentes).
+
+**Por que `scone relay` permanece em INFO por padrão**: o relay é um
+daemon — ele deve logar sua atividade (escuta RPC/p2p, blocos aceitos e
+produzidos, pares conectados, rejeições) para ser operável, sem exigir
+uma flag. Os comandos one-shot, por outro lado, permanecem silenciosos
+(WARN) para não poluir um terminal ou um script.
+
+## `RUST_LOG` (override)
+
+Se a variável de ambiente `RUST_LOG` estiver definida, ela **substitui
+integralmente** o nível derivado de `-v` (sintaxe `env-filter`):
+
+```bash
+RUST_LOG=debug scone identity list        # debug sem -v
+RUST_LOG=error scone -vv relay            # error vence sobre -vv
+RUST_LOG=scone_network=trace,info scone relay   # por alvo
+```
+
+## Configuração de ambiente (`.env`)
+
+Antes de analisar os argumentos, `scone` carrega um arquivo `.env` do
+diretório atual (`dotenvy::dotenv()` em `main.rs`). Arquivo ausente
+= no-op silencioso, nunca um erro. Os valores carregados tornam-se a
+linha de base ambiental das opções do relay que declaram uma variável
+de ambiente (`env = "…"` em `cli.rs`).
+
+Precedência (uma opção, três fontes):
+
+```text
+explicit CLI flag  >  .env variable  >  built-in default
+```
+
+- uma flag passada na linha de comando SEMPRE vence;
+- caso contrário a variável (seja carregada do `.env` ou definida no
+  ambiente real do processo — mesma variável, mesmo efeito);
+- caso contrário o padrão embutido do clap.
+
+Variáveis repetíveis (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
+acumulam: uma linha por valor no `.env` (dotenvy anexa).
+
+A tabela completa das variáveis `SCONE_*` (rede, escuta P2P,
+bootstrap, gênese, mDNS, UPnP, superfície DNS, métricas, perfil de
+topologia, âncora) e a semântica de cada uma vive em
+[`relay.md`](relay.md#environment-configuration-env); o
+modelo comentado é o `.env.example` na raiz do repositório (copiar
+para `.env`, nunca comitar — `.env` é gitignored).
+
+## Semântica dos níveis (convenção de código)
+
+- `error!`: falhas (nenhum call site hoje — falhas de rede são
+  engolidas como `warn!` e apenas falhas locais fatais surgem como um
+  erro tipado de `run()`);
+- `warn!`: entradas de rede hostis ou maliciosas rejeitadas,
+  txs velhas evacuadas do mempool, txs conflitantes descartadas
+  durante a produção, falhas de saída/entrada, divergência de chave DHT;
+- `info!`: bloco aceito/produzido, escuta RPC/p2p, par
+  conectado, partida do relay (checkpoints de estado);
+- `debug!`: detalhes internos (tx aceita, par desconectado, ida e volta
+  RPC, listagem do keystore, eventos kad sob
+  `SCONE_KAD_DEBUG`);
+- `trace!`: reservado a payloads (nenhum call site hoje).
+
+As crates de biblioteca (`scone-network`, …) emitem macros `tracing` mas
+**inicializam nenhum subscriber**: a inicialização vive apenas no
+binário `scone` (antes do despacho de subcomandos — o relay precisa de
+seus logs desde o boot).
+
+
+## Uso simples (cli-simplify-v1)
+
+- **Sem `--peer` necessário**: os comandos falam com o relay local por
+  padrão; env `SCONE_PEER` ou `--peer` sobrepõe.
+- **Sem `--identity` necessário** quando o keystore detém uma única
+  identidade (usada silenciosamente; várias → o erro as lista).
+- Removidos (os stubs sugerem a substituição): `show`, `submit`,
+  `lookup`, `owned`.
+- Novos: `scone domain renew <name>`, `scone domains`, `scone domain
+  get|set` (registro único, sem arquivo).
+
+```bash
+scone identity generate me
+scone domain register example.scone
+scone domain set example.scone A 192.0.2.1
+scone domain renew example.scone
+```
+
+## Ciclo de vida dos TLDs (cli-unified-lifecycle)
+
+`scone tld register <tld>` é o ponto de entrada de TLD em um comando,
+simétrico ao `scone domain register` — o estado on-chain é
+lido PRIMEIRO, depois a ação certa executa:
+
+- **TLD livre** → registrado, nasce **ABERTO por padrão** (sem flag:
+  namespace em autoatendimento, 1/3 do PoW). `--private` opta por
+  um namespace possuído ao preço integral do PoW, com confirmação
+  explícita (decisão econômica). `--yes` pula confirmações
+  (scripts).
+- **seu, expirando em 90 dias** → a RENOVAÇÃO é proposta
+  (PoW vinculado à expiração atual — anti-reuso) e executa após
+  confirmação.
+- **seu, longe da expiração** → nada a fazer (`tld renew --force`
+  para renovar mesmo assim).
+- **de outro** → erro tipado limpo com o owner.
+
+```bash
+scone tld register mytld            # nascimento aberto (padrão)
+scone tld register mytld --private  # namespace possuído (confirmar)
+scone tld renew mytld               # renovação explícita
+```
+
+Da mesma forma, `scone domain register <name>` num nome que você possui e
+que expira em 90 dias propõe a renovação em vez de falhar.
+
+## Comandos avançados
+
+Os padrões acima cobrem o uso cotidiano. Para scripts e interoperabilidade
+web/API a superfície completa permanece disponível:
+
+- `scone show <name>` — o DomainId interno de um nome.
+- `scone lookup <name>` / `scone owned <pubkey>` — aliases de
+  `domain get` / `domains --pubkey` (mesma saída).
+- `scone renew <name>` — alias de `scone domain renew`.
+- `scone domain info` — alias de `scone domain get`.
+
+A superfície hex offline (`tx build|sign|verify`, subcomandos
+`submit tx`) foi REMOVIDA (remove-tx-surface-v2): as operações M8b
+que ela servia são agora comandos de primeira classe —
+`scone tld open <tld>` (abertura autoatendimento sentido único, PoW de
+abertura minerado para você), `scone tld transfer <tld> <owner>`,
+`scone tld revoke <tld>`, `scone domain assign <name> <owner>`
+(owner do TLD, TLD privado) e `scone domain transfer <name>
+<owner>`. Cada um: leitura de estado, assinatura, submissão, txid. A
+resolução de registros DNS mudou para `scone domain resolve <name>`
+(ex-`record get`); o canal de publicação hex (`record put`) sumiu —
+a edição passa por `domain set` / `domain update`.
+- `scone domain export <name> [--out FILE]` — escreve o
+  conjunto de registros verificado pela chain no formato exato de
+  `update --file` (round-trip garantido: export → editar → update
+  reenvia o mesmo conjunto). Sem `--out`: stdout. `domain resolve` usa o
+  mesmo formato legível, portanto `resolve > zone.txt` é diretamente
+  importável. Tipos sem sintaxe textual (GEOROUTE, desconhecidos)
+  são exportados como avisos comentados — nunca silenciosamente
+  descartados.
+
+`domain get` também imprime o `domain_id` e `valid_until`.
+
+## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
+
+Os builds padrão **não carregam mainnet**: `scone relay --network
+mainnet` (e serviços registradores com `SCONE_NETWORK=mainnet`)
+falham imediatamente com uma dica de rebuild. O binário oficial
+distribuído é construído com:
+
+```bash
+cargo build --release --features mainnet
+```
+
+`scone --version` mostra `+mainnet` nesses builds, e o
+log de partida do relay diz `build: mainnet-enabled`.
+
+O `--network` padrão segue o build também: `mainnet` em
+builds mainnet-enabled (o binário oficial coloca os usuários na rede
+de produção), `testnet` caso contrário. Uma flag `--network` explícita
+ou o env `SCONE_NETWORK` sempre vencem
+(ordem clap: flag > env > padrão). Isto é um
+guardrail operacional (execuções acidentais, binários dev/CI) — não
+uma fronteira criptográfica; as regras de consenso permanecem a defesa
+contra nós hostis.
