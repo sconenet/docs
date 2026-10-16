@@ -1,16 +1,24 @@
 # Scone documentation
 
-The documentation is **bilingual** and **normative**: it must enable an
+The documentation is **multilingual** and **normative**: it must enable an
 independent implementation without reading the Rust code. Any
 doc/code divergence is a bug (identify the source of truth, fix it).
 
-- [`en/`](en/README.md) — reference documentation (English, normative)
-- [`fr/`](fr/README.md) — documentation en français
-- Translations (community): [`es/`](es/README.md) · [`pt/`](pt/README.md) ·
-  [`de/`](de/README.md) · [`ru/`](ru/README.md) · [`ja/`](ja/README.md) ·
-  [`zh-hans/`](zh-hans/README.md) · [`zh-hant/`](zh-hant/README.md) ·
-  [`hi/`](hi/README.md) · [`ar/`](ar/README.md) · [`id/`](id/README.md) ·
-  [`bn/`](bn/README.md) · [`ur/`](ur/README.md) · [`vi/`](vi/README.md)
+- [`en/`](en/README.md)
+- [`zh-hans/`](zh-hans/README.md)
+- [`zh-hant/`](zh-hant/README.md)
+- [`es/`](es/README.md)
+- [`hi/`](hi/README.md)
+- [`ar/`](ar/README.md)
+- [`pt/`](pt/README.md)
+- [`ru/`](ru/README.md)
+- [`fr/`](fr/README.md)
+- [`de/`](de/README.md)
+- [`ja/`](ja/README.md)
+- [`id/`](id/README.md)
+- [`vi/`](vi/README.md)
+- [`bn/`](bn/README.md)
+- [`ur/`](ur/README.md)
 
 Each language tree mirrors the same structure:
 
