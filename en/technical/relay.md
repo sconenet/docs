@@ -596,9 +596,11 @@ flag names.
 **Anchor auto (default ON)**: without `--anchor-key`, an anchor
 keyfile is generated/persisted automatically in the data dir
 (`anchor.sconekey`, passphrase `SCONE_ANCHOR_PASS` if defined,
-otherwise randomly generated and written to `anchor.pass`) — the
-relay becomes a producer as soon as its key owns live
-domains/TLDs (PoS eligibility is never free). `--no-anchor-auto`
+otherwise randomly generated and written to `anchor.pass`
+(permissions `0600`, write failure reported — a lost passphrase
+makes the keyfile unrecoverable)) — the relay becomes a producer
+as soon as its key owns live domains/TLDs (PoS eligibility is
+never free). `--no-anchor-auto`
 keeps the relay strictly passive. The default env var of
 `--anchor-passphrase-env` is `SCONE_ANCHOR_PASS`.
 

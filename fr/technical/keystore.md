@@ -151,6 +151,13 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   (24 mots)** exactement une fois — entropie fraîche de 256
   bits, les mots seuls régénèrent la même clé (`scone identity
   restore`) ; ils ne sont jamais stockés nulle part.
+- `identity restore` lit la phrase **jamais en argument de
+  processus** (visible par `ps` et l'historique shell) :
+  prompt masqué, `--phrase-file <fichier>` ou
+  `--phrase-env <VAR>`. Par défaut il **refuse d'écraser** un
+  trousseau existant (`--force` le remplace explicitement) ; la
+  phrase de passe d'ancre auto-générée est écrite en `0600` et
+  son échec d'écriture est signalé, jamais avalé.
 - `identity generate` **refuse d'écraser** un fichier de clés
   existant ; `--force` le remplace explicitement (nouveau
   sel/nonce, nouvelle clé, nouvelle phrase).

@@ -602,11 +602,13 @@ le relais lit la phrase de passe dans la variable que ce flag nomme.
 **Ancre auto (défaut ACTIF)** : sans `--anchor-key`, un fichier de clé
 d'ancre est généré/persisté automatiquement dans le répertoire de
 données (`anchor.sconekey`, phrase de passe `SCONE_ANCHOR_PASS` si
-définie, sinon générée aléatoirement et écrite dans `anchor.pass`) — le
-relais devient producteur dès que sa clé possède des
-domaines/TLDs vivants (l'éligibilité PoS n'est jamais gratuite).
-`--no-anchor-auto` garde le relais strictement passif. La variable env
-par défaut de `--anchor-passphrase-env` est `SCONE_ANCHOR_PASS`.
+définie, sinon générée aléatoirement et écrite dans `anchor.pass`
+(permissions `0600`, échec d'écriture signalé — la passphrase perdue
+rend le keyfile irrécupérable)) — le relais devient producteur dès que
+sa clé possède des domaines/TLDs vivants (l'éligibilité PoS n'est
+jamais gratuite). `--no-anchor-auto` garde le relais strictement
+passif. La variable env par défaut de `--anchor-passphrase-env` est
+`SCONE_ANCHOR_PASS`.
 
 `--network` : le défaut suit le BUILD (mainnet sur les binaires
 activés mainnet, testnet sinon) ; `devnet` est le réseau local

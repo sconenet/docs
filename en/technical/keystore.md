@@ -141,6 +141,13 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   words)** exactly once — fresh 256-bit entropy, the words alone
   regenerate the same key (`scone identity restore`); they are
   never stored anywhere.
+- `identity restore` reads the phrase **never as a process
+  argument** (visible via `ps` and shell history): masked
+  prompt, `--phrase-file <file>` or `--phrase-env <VAR>`. It
+  **refuses to overwrite** an existing keyfile by default
+  (`--force` replaces it explicitly); the auto-generated anchor
+  passphrase is written `0600` and a write failure is reported,
+  never swallowed.
 - `identity generate` **refuses to overwrite** an existing
   keyfile; `--force` explicitly replaces it (new salt/nonce, new
   key, new phrase).
