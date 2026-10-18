@@ -642,7 +642,7 @@ CLI-Seite sind die Nutzerpfade die Ein-Befehl-Formen:
 
 ```bash
 scone domain register example.uip        # mint, signiert, reicht ein
-scone renew example.uip                  # Verlängerungs-Proof, signiert, reicht ein
+scone domain renew example.uip                      # Verlängerungs-Proof, signiert, reicht ein
 scone domains                            # was Sie besitzen
 ```
 

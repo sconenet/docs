@@ -155,12 +155,7 @@ scone tld renew mytld               # تجديد صريح
 والتشغيل البيني مع الويب/API تبقى السطحية الكاملة
 متاحة:
 
-- `scone show <name>` — الـ DomainId الداخلي لاسم.
-- `scone lookup <name>` / `scone owned <pubkey>` — اسمين
-  مستعارين لـ `domain get` / `domains --pubkey` (نفس
-  المُخرج).
-- `scone renew <name>` — اسم مستعار لـ `scone domain renew`.
-- `scone domain info` — اسم مستعار لـ `scone domain get`.
+لكل إجراء مسار أساسي واحد فقط؛ تمت إزالة الأسماء المستعارة الجذرية السابقة (`show` و`lookup` و`owned` و`renew`) (remove-cli-aliases)، وكذلك ذكر `domain info` الذي لم يطابق أي أمر حقيقي قط.
 
 السطحية السداسية غير المتصلة (الأوامر الفرعية `tx
 build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):

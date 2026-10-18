@@ -148,13 +148,10 @@ expires within 90 days proposes the renewal instead of failing.
 ## Advanced commands
 
 The defaults above cover everyday use. For scripts and web/API
-interop the full surface stays available:
-
-- `scone show <name>` — the internal DomainId of a name.
-- `scone lookup <name>` / `scone owned <pubkey>` — aliases of
-  `domain get` / `domains --pubkey` (same output).
-- `scone renew <name>` — alias of `scone domain renew`.
-- `scone domain info` — alias of `scone domain get`.
+interop the full surface stays available — every action has exactly ONE
+canonical path; the former root aliases (`show`, `lookup`,
+`owned`, `renew`) were removed (remove-cli-aliases), along with
+the `domain info` mention, which never matched a real command.
 
 The offline hex surface (`tx build|sign|verify`, `submit tx`
 subcommands) was REMOVED (remove-tx-surface-v2): the M8b

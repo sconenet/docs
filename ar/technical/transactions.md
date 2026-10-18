@@ -608,7 +608,7 @@ offline التي أُزيلت؛ المتجهات أدناه تبقى مثبَّ�
 
 ```bash
 scone domain register example.uip        # يعدّن، يوقّع، يرسل
-scone renew example.uip                  # إثبات تجديد، يوقّع، يرسل
+scone domain renew example.uip                      # إثبات تجديد، يوقّع، يرسل
 scone domains                            # ما تملكه
 ```
 

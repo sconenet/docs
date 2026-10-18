@@ -152,11 +152,7 @@ scone tld renew mytld               # explicit renewal
 اوپر کے ڈیفالٹس روزمرہ استعمال کو ڈھانپتے ہیں۔ اسکرپٹس اور ویب/API
 باہری عمل کے لیے مکمل سطح موجود رہتی ہے:
 
-- `scone show <name>` — کسی نام کی اندرونی DomainId۔
-- `scone lookup <name>` / `scone owned <pubkey>` — `domain
-  get` / `domains --pubkey` کے متبادل نام (وہی آؤٹ پٹ)۔
-- `scone renew <name>` — `scone domain renew` کا متبادل نام۔
-- `scone domain info` — `scone domain get` کا متبادل نام۔
+ہر عمل کا بالکل ایک معیاری راستہ ہے؛ پرانے روٹ aliases (`show`، `lookup`، `owned`، `renew`) ہٹا دیے گئے ہیں (remove-cli-aliases)، نیز `domain info` کا ذکر بھی، جو کبھی کسی حقیقی کمانڈ سے مطابق نہ تھا۔
 
 آف لائن ہیکس سطح (`tx build|sign|verify`، `submit tx`
 ذیلی کمانڈز) ہٹا دی گئی (remove-tx-surface-v2): جن M8b

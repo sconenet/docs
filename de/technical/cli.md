@@ -155,11 +155,10 @@ vor, statt zu scheitern.
 Die obigen Standards decken den Alltag ab. Für Skripte und
 Web/API-Interoperabilität bleibt die vollständige Fläche verfügbar:
 
-- `scone show <name>` — die interne DomainId eines Namens.
-- `scone lookup <name>` / `scone owned <pubkey>` — Aliase von
-  `domain get` / `domains --pubkey` (gleiche Ausgabe).
-- `scone renew <name>` — Alias von `scone domain renew`.
-- `scone domain info` — Alias von `scone domain get`.
+Jede Aktion hat genau EINEN kanonischen Pfad; die früheren
+Root-Aliase (`show`, `lookup`, `owned`, `renew`) wurden entfernt
+(remove-cli-aliases), ebenso `domain info`, das nie einem echten
+Befehl entsprach.
 
 Die Offline-Hex-Fläche (`tx build|sign|verify`, `submit
 tx`-Unterbefehle) wurde ENTFERNT (remove-tx-surface-v2): die

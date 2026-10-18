@@ -630,7 +630,7 @@ utilisateur sont les formes en une commande :
 
 ```bash
 scone domain register example.uip        # mines, signs, submits
-scone renew example.uip                  # renewal proof, signs, submits
+scone domain renew example.uip           # renewal proof, signs, submits
 scone domains                            # what you own
 ```
 

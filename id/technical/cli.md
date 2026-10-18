@@ -155,11 +155,10 @@ alih-alih gagal.
 Default di atas mencakup pemakaian sehari-hari. Untuk skrip dan
 interop web/API permukaan lengkap tetap tersedia:
 
-- `scone show <name>` — DomainId internal sebuah nama.
-- `scone lookup <name>` / `scone owned <pubkey>` — alias dari
-  `domain get` / `domains --pubkey` (keluaran sama).
-- `scone renew <name>` — alias dari `scone domain renew`.
-- `scone domain info` — alias dari `scone domain get`.
+setiap aksi memiliki tepat SATU jalur kanonik; alias root lama
+(`show`, `lookup`, `owned`, `renew`) telah dihapus
+(remove-cli-aliases), begitu juga `domain info` yang tidak
+pernah menjadi perintah nyata.
 
 Permukaan heks offline (`tx build|sign|verify`, subperintah
 `submit tx`) DIHAPUS (remove-tx-surface-v2): operasi M8b yang

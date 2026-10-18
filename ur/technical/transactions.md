@@ -606,7 +606,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 
 ```bash
 scone domain register example.uip        # mines, signs, submits
-scone renew example.uip                  # renewal proof, signs, submits
+scone domain renew example.uip                      # renewal proof, signs, submits
 scone domains                            # what you own
 ```
 

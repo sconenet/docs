@@ -620,7 +620,7 @@ một-lệnh:
 
 ```bash
 scone domain register example.uip        # đào, ký, nộp
-scone renew example.uip                  # bằng chứng gia hạn, ký, nộp
+scone domain renew example.uip                      # bằng chứng gia hạn, ký, nộp
 scone domains                            # những gì bạn sở hữu
 ```
 

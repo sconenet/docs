@@ -151,11 +151,10 @@ scone tld renew mytld               # explicit renewal
 উপরের ডিফল্টগুলো দৈনন্দিন ব্যবহার কভার করে। স্ক্রিপ্ট এবং
 web/API ইন্টারঅপের জন্য সম্পূর্ণ সারফেস উপলব্ধ থাকে:
 
-- `scone show <name>` — একটি নামের অভ্যন্তরীণ DomainId।
-- `scone lookup <name>` / `scone owned <pubkey>` — `domain get` /
-  `domains --pubkey`-এর উপনাম (একই আউটপুট)।
-- `scone renew <name>` — `scone domain renew`-এর উপনাম।
-- `scone domain info` — `scone domain get`-এর উপনাম।
+প্রতিটি কাজের জন্য ঠিক একটি আদর্শ পথ রয়েছে; পুরনো রুট উপনামগুলি
+(`show`, `lookup`, `owned`, `renew`) সরিয়ে নেওয়া হয়েছে
+(remove-cli-aliases), সাথে `domain info`-এর উল্লেখও, যা কখনো কোনো
+প্রকৃত কমান্ডের সঙ্গে মেলেনি।
 
 অফলাইন হেক্স সারফেস (`tx build|sign|verify`, `submit tx`
 সাবকমান্ড) অপসারিত হয়েছে (remove-tx-surface-v2): যে M8b

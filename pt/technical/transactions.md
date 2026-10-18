@@ -612,7 +612,7 @@ os caminhos do usuário são as formas de um comando:
 
 ```bash
 scone domain register example.uip        # minera, assina, submete
-scone renew example.uip                  # prova de renovação, assina, submete
+scone domain renew example.uip                      # prova de renovação, assina, submete
 scone domains                            # o que você possui
 ```
 

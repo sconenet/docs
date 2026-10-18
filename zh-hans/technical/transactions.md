@@ -629,7 +629,7 @@ web 应用构建、签名（浏览器内 keystore）并
 
 ```bash
 scone domain register example.uip        # mines, signs, submits
-scone renew example.uip                  # renewal proof, signs, submits
+scone domain renew example.uip                      # renewal proof, signs, submits
 scone domains                            # what you own
 ```
 

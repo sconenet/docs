@@ -157,11 +157,10 @@ scone tld renew mytld               # explicit renewal
 Для скриптов и веб/API-интероперабельности остаётся доступной
 полная поверхность:
 
-- `scone show <name>` — внутренний DomainId имени.
-- `scone lookup <name>` / `scone owned <pubkey>` — псевдонимы
-  `domain get` / `domains --pubkey` (тот же вывод).
-- `scone renew <name>` — псевдоним `scone domain renew`.
-- `scone domain info` — псевдоним `scone domain get`.
+у каждого действия ровно один канонический путь; прежние
+корневые псевдонимы (`show`, `lookup`, `owned`, `renew`) удалены
+(remove-cli-aliases), как и упоминание `domain info`, которое
+никогда не соответствовало реальной команде.
 
 Автономная hex-поверхность (подкоманды `tx build|sign|verify`,
 `submit tx`) была УДАЛЕНА (remove-tx-surface-v2): операции M8b,

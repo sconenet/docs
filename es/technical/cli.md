@@ -155,11 +155,10 @@ Los valores por defecto anteriores cubren el uso cotidiano. Para
 scripts e interoperabilidad web/API la superficie completa sigue
 disponible:
 
-- `scone show <name>` — el DomainId interno de un nombre.
-- `scone lookup <name>` / `scone owned <pubkey>` — alias de
-  `domain get` / `domains --pubkey` (misma salida).
-- `scone renew <name>` — alias de `scone domain renew`.
-- `scone domain info` — alias de `scone domain get`.
+cada acción tiene exactamente UNA ruta canónica; los antiguos
+alias de raíz (`show`, `lookup`, `owned`, `renew`) fueron
+eliminados (remove-cli-aliases), igual que `domain info`, que
+nunca correspondió a un comando real.
 
 La superficie hex offline (subcomandos `tx build|sign|verify`,
 `submit tx`) fue ELIMINADA (remove-tx-surface-v2): las operaciones

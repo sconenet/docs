@@ -156,14 +156,7 @@ scone tld renew mytld               # explicit renewal
 上述預設涵蓋日常使用。供腳本與 web/API
 互通的完整表面仍可用：
 
-- `scone show <name>` — 名稱的內部 DomainId。
-- `scone lookup <name>`／`scone owned <pubkey>` —
-  `domain get`／`domains --pubkey` 的別名（相同
-  輸出）。
-- `scone renew <name>` — `scone domain renew` 的
-  別名。
-- `scone domain info` — `scone domain get` 的
-  別名。
+每個操作只有一條規範路徑；以前的根層級別名（`show`、`lookup`、`owned`、`renew`）已被移除（remove-cli-aliases），從未真實存在的 `domain info` 提法也一併移除。
 
 離線十六進位表面（`tx build|sign|verify`、
 `submit tx` 子指令）已移除

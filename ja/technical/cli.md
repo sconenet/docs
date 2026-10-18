@@ -96,10 +96,7 @@ scone tld renew mytld               # 明示的な更新
 
 上記のデフォルトは日常の使用をカバーします。スクリプトやWeb/API相互運用のために、完全なサーフェスは引き続き利用可能です:
 
-- `scone show <name>` — 名前の内部DomainId。
-- `scone lookup <name>` / `scone owned <pubkey>` — `domain get` / `domains --pubkey` のエイリアス(同じ出力)。
-- `scone renew <name>` — `scone domain renew` のエイリアス。
-- `scone domain info` — `scone domain get` のエイリアス。
+すべての操作には正規のパスが1つだけ存在します。かつてのルートエイリアス（`show`、`lookup`、`owned`、`renew`）は削除されました（remove-cli-aliases）。実在しなかった `domain info` の記載も同時に削除されています。
 
 オフラインの16進サーフェス(`tx build|sign|verify`、`submit tx` サブコマンド)は削除されました(remove-tx-surface-v2)。これらが担っていたM8bの操作は、今や第一級のコマンドです。`scone tld open <tld>`(一方向のセルフサービスオープン、オープン用PoWは代わりにマイニングされます)、`scone tld transfer <tld> <owner>`、`scone tld revoke <tld>`、`scone domain assign <name> <owner>`(TLD所有者、プライベートTLD)、そして `scone domain transfer <name> <owner>`。いずれも:状態読み取り、署名、送信、txid。DNSレコードの解決は `scone domain resolve <name>`(旧 `record get`)に移動しました。16進公開チャンネル(`record put`)はなくなりました。編集は `domain set` / `domain update` 経由で行います。
 - `scone domain export <name> [--out FILE]` — チェーン検証済みのレコードセットを、ちょうど `update --file` のフォーマットで書き出します(往復保証:export → 編集 → update が同じセットを再送信)。`--out` なしの場合はstdout。`domain resolve` は同じ可読フォーマットを使うので、`resolve > zone.txt` はそのままインポート可能です。テキスト構文のない種類(GEOROUTE、不明)はコメント付き警告としてエクスポートされます。黙って破棄されることは決してありません。

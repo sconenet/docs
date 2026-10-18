@@ -640,7 +640,7 @@ las rutas de usuario son las formas de un solo comando:
 
 ```bash
 scone domain register example.uip        # mina, firma, envía
-scone renew example.uip                  # prueba de renovación, firma, envía
+scone domain renew example.uip                      # prueba de renovación, firma, envía
 scone domains                            # lo que posees
 ```
 

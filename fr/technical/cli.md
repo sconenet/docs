@@ -163,13 +163,10 @@ au lieu d'échouer.
 
 Les défauts ci-dessus couvrent l'usage quotidien. Pour les
 scripts et l'interopérabilité web/API, la surface complète reste
-disponible :
-
-- `scone show <nom>` — le DomainId interne d'un nom.
-- `scone lookup <nom>` / `scone owned <pubkey>` — alias de
-  `domain get` / `domains --pubkey` (même sortie).
-- `scone renew <nom>` — alias de `scone domain renew`.
-- `scone domain info` — alias de `scone domain get`.
+disponible — chaque action n'a qu'UN seul chemin canonique ; les
+anciens alias racine (`show`, `lookup`, `owned`, `renew`) ont été
+supprimés (remove-cli-aliases), tout comme la mention `domain
+info`, qui ne correspondait à aucune commande réelle.
 
 La surface hexadécimale hors ligne (sous-commandes `tx
 build|sign|verify`, `submit tx`) a été SUPPRIMÉE

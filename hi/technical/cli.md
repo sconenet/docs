@@ -149,11 +149,10 @@ scone tld renew mytld               # explicit renewal
 ऊपर के डिफ़ॉल्ट रोज़मर्रा उपयोग को कवर करते हैं। स्क्रिप्ट और web/API
 इंटरऑप के लिए पूरी सतह उपलब्ध रहती है:
 
-- `scone show <name>` — किसी नाम का आंतरिक DomainId।
-- `scone lookup <name>` / `scone owned <pubkey>` — `domain get` /
-  `domains --pubkey` के उपनाम (वही आउटपुट)।
-- `scone renew <name>` — `scone domain renew` का उपनाम।
-- `scone domain info` — `scone domain get` का उपनाम।
+प्रत्येक क्रिया का ठीक एक ही मानक पथ है; पुराने रूट उपनाम (`show`,
+`lookup`, `owned`, `renew`) हटा दिए गए हैं (remove-cli-aliases),
+साथ ही `domain info` का उल्लेख भी, जो कभी किसी वास्तविक कमांड से
+मेल नहीं खाता था।
 
 ऑफ़लाइन हेक्स सतह (`tx build|sign|verify`, `submit tx`
 subcommands) हटा दी गई (remove-tx-surface-v2): जिन M8b

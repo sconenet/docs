@@ -641,7 +641,7 @@ jalur pengguna adalah bentuk satu-perintah:
 
 ```bash
 scone domain register example.uip        # menambang, menandatangani, mengirim
-scone renew example.uip                  # bukti perpanjangan, menandatangani, mengirim
+scone domain renew example.uip                      # bukti perpanjangan, menandatangani, mengirim
 scone domains                            # apa yang Anda miliki
 ```
 

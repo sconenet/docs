@@ -150,11 +150,10 @@ que expira em 90 dias propõe a renovação em vez de falhar.
 Os padrões acima cobrem o uso cotidiano. Para scripts e interoperabilidade
 web/API a superfície completa permanece disponível:
 
-- `scone show <name>` — o DomainId interno de um nome.
-- `scone lookup <name>` / `scone owned <pubkey>` — aliases de
-  `domain get` / `domains --pubkey` (mesma saída).
-- `scone renew <name>` — alias de `scone domain renew`.
-- `scone domain info` — alias de `scone domain get`.
+cada ação tem exatamente UM caminho canônico; os antigos aliases
+de raiz (`show`, `lookup`, `owned`, `renew`) foram removidos
+(remove-cli-aliases), assim como `domain info`, que nunca
+correspondeu a um comando real.
 
 A superfície hex offline (`tx build|sign|verify`, subcomandos
 `submit tx`) foi REMOVIDA (remove-tx-surface-v2): as operações M8b

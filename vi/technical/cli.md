@@ -149,11 +149,10 @@ mà hết hạn trong vòng 90 ngày sẽ đề xuất gia hạn thay vì thất
 Các mặc định ở trên phủ việc dùng hằng ngày. Cho script và tương
 tác web/API, toàn bộ bề mặt vẫn khả dụng:
 
-- `scone show <name>` — DomainId nội bộ của một tên.
-- `scone lookup <name>` / `scone owned <pubkey>` — bí danh của
-  `domain get` / `domains --pubkey` (cùng đầu ra).
-- `scone renew <name>` — bí danh của `scone domain renew`.
-- `scone domain info` — bí danh của `scone domain get`.
+mỗi thao tác chỉ có đúng MỘT đường dẫn chuẩn; các bí danh gốc cũ
+(`show`, `lookup`, `owned`, `renew`) đã bị xóa
+(remove-cli-aliases), cùng với đề cập `domain info` — vốn chưa
+bao giờ tương ứng với lệnh thật.
 
 Bề mặt hex ngoại tuyến (`tx build|sign|verify`, các lệnh con
 `submit tx`) đã BỊ GỠ BỎ (remove-tx-surface-v2): các thao tác M8b
