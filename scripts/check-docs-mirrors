@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# check-docs-mirrors — fr/ and en/ must be file mirrors.
+#
+# The bilingual docs are normative; any behavioral change updates BOTH
+# trees in the same commit. This guard catches structural drift (a page
+# present on one side only). Output: orphan paths — exit 1 if any.
+# Usage: bash scripts/check-docs-mirrors   (from the repo root)
+set -u
+ROOT="${1:-.}"
+STATUS=0
+
+FR=$(cd "$ROOT/fr" 2>/dev/null && find . -type f | LC_ALL=C sort)
+EN=$(cd "$ROOT/en" 2>/dev/null && find . -type f | LC_ALL=C sort)
+
+only_fr=$(comm -23 <(echo "$FR") <(echo "$EN"))
+only_en=$(comm -13 <(echo "$FR") <(echo "$EN"))
+
+[ -n "$only_fr" ] && { echo "fr only:"; echo "$only_fr"; STATUS=1; }
+[ -n "$only_en" ] && { echo "en only:"; echo "$only_en"; STATUS=1; }
+
+if [ "$STATUS" -eq 0 ]; then
+  echo "OK: fr and en are file mirrors"
+fi
+exit $STATUS
