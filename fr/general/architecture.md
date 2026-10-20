@@ -175,7 +175,9 @@ gestion de voisinage.
 
 **scone-genesis** — outil binaire one-shot (kickstarter) pour la
 préparation de la genèse mainnet : manifeste JSON versionné,
-allocations, bloc déterministe.
+allocations, bloc déterministe. L'outil produit les artefacts, le
+dépôt ne les versionne jamais (refus d'écriture dans un workspace
+Rust ; distribution réservée au lancement, cf. `blockchain.md`).
 
 **scone** — binaire/CLI. Ne dépend d'une crate que lorsqu'il
 l'utilise réellement (aujourd'hui : scone-network pour le relais,

@@ -155,7 +155,7 @@ expirations et grâce côté domaines. Aucune charge ne porte de champ
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Champ | Type | Contraintes |
@@ -163,6 +163,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 octets bruts | le TLD transféré |
 | `owner` | 32 octets bruts | dérivation de `public_key` (propriétaire actuel / signataire) |
 | `new_owner` | 32 octets bruts | identité du destinataire (opaque : toute valeur est syntaxiquement valide ; le lien vers les clés pouvant le dépenser est une règle d'état M8b) |
+| `proof` | borné (varint ‖ octets) | preuve de cession anti-churn, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, difficulté plate `transfer_pow_difficulty`, sel d'époque |
 | `public_key` | 32 octets bruts | clé publique Ed25519 du signataire |
 | `signature` | **exactement 64 octets** | signature Ed25519 de la charge signée |
 
@@ -204,14 +205,17 @@ signé `open_proof` et ne peut pas être substituée après signature.
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Miroir de `RegisterDomain` : le nom canonique est porté en clair et
 `domain_id` doit être égal à `DomainId(name)` (recalculé au décodage,
 à l'encodage et à la validation). Signé par le **propriétaire du TLD
 du nom** (vérifié à l'application, M8b) ; `assignee` devient le
-premier propriétaire du domaine (opaque, comme `new_owner`).
+premier propriétaire du domaine (opaque, comme `new_owner`). Porte sa
+propre preuve plate anti-spam (`assign_pow_difficulty`, challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ nom` — plate par décision : l'exclusivité
+du namespace a été payée à la création du TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -349,17 +353,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Propriétés :
@@ -512,8 +516,28 @@ si les cibles matérielles baissent (ARM mobile : ~4–8× plus lent).
 
 Branches d'état (M8b, livré) : `RegisterTld` exige TOUJOURS son PoW ;
 `RegisterDomain` l'exige sur un TLD **ouvert** (le chemin fermé est à
-attribution uniquement — `AssignDomain`, sans PoW, signé par le
-propriétaire du TLD).
+attribution uniquement — `AssignDomain`, signé par le propriétaire du
+TLD, avec sa propre preuve plate anti-spam).
+
+**Preuves de cession et d'assignation (anti-spam consensus)** :
+`TransferTld`, `TransferDomain` et `AssignDomain` portent chacune une
+preuve de travail **plate** — `transfer_pow_difficulty` pour les deux
+cessions (challenge `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` pour
+l'assignation (challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ nom`). Même sel
+d'époque et fenêtre anti-préminage que les enregistrements ; vérifiées
+à l'admission mempool (époque estimée, best-effort) puis à
+l'application (stricte). Objectif : les allers-retours de transferts
+et la création en masse sous TLD privé coûtent du travail au niveau
+consensus, pas de la policy. Aucune taxation par longueur : pour
+l'assignation, l'exclusivité du namespace a été payée à la création du
+TLD privé.
+
+**Cession passive** : ces chemins d'acquisition (`TransferTld`,
+`TransferDomain`, `AssignDomain`) sont signés par le cédant seul — le
+bénéficiaire n'est jamais consulté. Choix assumé (dons, dead-drops,
+legs), sans dette PoS imposable : voir `security-model.md`
+(acquisition passive et éligibilité).
 
 ## Règles de validation
 

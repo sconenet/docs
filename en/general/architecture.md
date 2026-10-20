@@ -161,7 +161,9 @@ connections) and receives neighborhood management decisions.
 
 **scone-genesis** — one-shot tool binary (kickstarter) for mainnet
 genesis preparation: versioned JSON manifest, allocations,
-deterministic block.
+deterministic block. The tool produces the artifacts, the repository
+never versions them (refuses writes inside a Rust workspace;
+distribution reserved for launch, see `blockchain.md`).
 
 **scone** — binary/CLI. Depends on a crate only when it actually
 uses it (today: scone-network for the relay, scone-blockchain,

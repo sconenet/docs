@@ -80,6 +80,36 @@ discriminant `0x15`) : bannissement du pool PoS (journalisé,
 réversible sur réorg). Les domaines/TLDs de l'accusé ne sont pas saisis
 (sanction minimale — décision M9).
 
+## Acquisition passive et éligibilité PoS
+
+**Question** : un tiers peut-il m'imposer une possession — et donc une
+obligation PoS — sans mon consentement ?
+
+**Oui pour la possession, non pour la dette.** Un nom peut être acquis
+passivement : les transactions de cession (`TransferTld`,
+`TransferDomain`) sont signées par le **cédant** seul (le bénéficiaire
+n'est qu'un `OwnerId` opaque, jamais consulté), `AssignDomain` est signée
+par le propriétaire du TLD, et les allocations de genèse atterrissent sur
+la clé du manifeste. C'est une feature assumée : dons, dead-drops, legs.
+L'anti-Sybil n'en dépend pas : un siège par **propriétaire distinct de nom
+vivant** (`owner_refcounts`), et chaque possession coûte du travail à
+quelqu'un.
+
+**Aucune dette imposable** : le slashing ne punit que l'**équivoque
+prouvée** (deux signatures conflictuelles, `SlashTx`, bannissement) ; une
+clé passive ne signe rien et ne peut donc jamais être slashée. L'absence
+d'un membre tiré au sort va au **recovery** (re-tirage), sans sanction.
+Un siège reçu sans l'avoir voulu reste abandonnable : expiration + GC,
+`SetTldOpen` (le siège est libéré à l'ouverture), `RevokeTld`, ou
+re-transfert.
+
+**Décision tracée — pas de consentement d'acquisition** : un claim en
+deux phases (transfert en attente, acceptation signée par le
+bénéficiaire) a été considéré et rejeté — il casse les dead-drops et le
+« first applied wins », ajoute une machine à états sur les noms, et
+protège d'un risque démontrablement inexistant (aucune dette imposable,
+cf. ci-dessus).
+
 ## Propriétés vérifiées par les tests
 
 - `checkpoint_hash_engages_signatures` : le hachage du point de contrôle

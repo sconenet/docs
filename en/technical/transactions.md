@@ -336,17 +336,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Properties:
@@ -495,7 +495,27 @@ at scale (anti-squat). To recalibrate if hardware targets drop
 
 State branches (M8b, shipped): `RegisterTld` ALWAYS requires its PoW;
 `RegisterDomain` requires it on an **open** TLD (the closed path is
-assign-only — `AssignDomain`, no PoW, signed by the TLD's owner).
+assign-only — `AssignDomain`, signed by the TLD's owner, with its own
+flat anti-spam proof).
+
+**Cession and assignment proofs (consensus-level anti-spam)**:
+`TransferTld`, `TransferDomain` and `AssignDomain` each carry a **flat**
+proof of work — `transfer_pow_difficulty` for the two cessions
+(challenges `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` for the
+assignment (challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Same epoch
+salt and anti-premining window as registrations; verified at mempool
+admission (estimated epoch, best-effort) then at application
+(strict). Goal: transfer churn and mass creation under a private TLD
+cost consensus-level work, not policy. No per-length taxation: for
+assignments, the namespace's exclusivity was already paid when the
+private TLD was created.
+
+**Passive cession**: these acquisition paths (`TransferTld`,
+`TransferDomain`, `AssignDomain`) are signed by the transferor alone —
+the recipient is never consulted. An assumed choice (gifts, dead
+drops, bequests), with no imposable PoS debt: see `security-model.md`
+(passive acquisition and eligibility).
 
 ## Validation rules
 

@@ -160,8 +160,17 @@ domaine 1 caractère = 26 bits ≈ 3.8 jours, 9+ caractères = plancher
 d'un TLD privé existant (`SetTldOpen`) reste à difficulté plate
 (`open_tld_pow_difficulty` : 6 bits testnet / 22 bits mainnet) : la
 transaction ne porte que le `tld_id`, le nom a payé sa longueur à la
-création. Fonction pure (déterminisme : deux nœuds calculent la même
-difficulté pour le même nom).
+création. **Deux autres preuves plates** complètent la famille
+(anti-spam consensus, mêmes sel d'époque et fenêtre que les
+enregistrements) : `transfer_pow_difficulty` pour les cessions
+(`TransferTld`/`TransferDomain`, challenges `SCONE-TLD-XFER-V1 ‖
+tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) et
+`assign_pow_difficulty` pour la création sous TLD privé
+(`AssignDomain`, challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ nom` — plate par
+décision : l'exclusivité du namespace a été payée à la création du
+TLD, pas de taxation par longueur). Valeurs indicatives : 16 bits
+mainnet (~1.2 h à 11.4 H/s), 4 bits testnet, 1 bit devnet —
+calibration à affiner. Fonction pure (déterminisme).
 
 La genèse est une constante de protocole **par réseau**, reproductible
 à partir des seules constantes (pas d'aléa, pas d'horloge locale, pas
@@ -182,6 +191,20 @@ champ `consensus` porte `network_id ‖ ALLOC-V1 ‖ count.v ‖ entries`
 (domaines/TLD prépayés, tri canonique par nom, manifeste ≤ 60 KiB,
 ≤ 2048 allocations) — ce format élargi est ce qui justifie
 `MAX_CONSENSUS_LEN` = 64 KiB (voir `scone-blockchain::genesis_alloc`).
+
+**Distribution de la genèse d'allocation** : aucun artefact de genèse
+(`genesis.bin`, manifeste) ne vit dans le dépôt source ni dans les
+releases du code, quel que soit le réseau ou le stade du projet —
+deux fichiers de genèse, c'est deux réseaux. La genèse d'allocation
+mainnet naît uniquement au lancement (passage à la feature `mainnet`
+activée par défaut) : produite par `scone-genesis` depuis un
+manifeste signé publié hors dépôt, son hash est épinglé dans
+l'annonce de lancement, et seuls les nœuds fondateurs la consomment
+(`--genesis`, naissance de la chaîne) ; tous les autres nœuds
+rejoignent le réseau par synchronisation. L'outil refuse toute
+écriture dans un répertoire de workspace Rust (présence de
+`Cargo.toml`) : une genèse ne doit jamais pouvoir atterrir dans le
+code source.
 
 Le `network_id` dans la charge de consensus rend les hachages de
 genèse — et donc toute la blockchain — **disjoints entre les

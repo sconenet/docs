@@ -78,6 +78,33 @@ discriminant `0x15`): banishment from the PoS pool (journaled,
 reversible on reorg). The accused's domains/TLDs are not seized
 (minimal sanction — M9 decision).
 
+## Passive acquisition and PoS eligibility
+
+**Question**: can a third party impose a possession on me — and thus a
+PoS obligation — without my consent?
+
+**Yes for the possession, no for the debt.** A name can be acquired
+passively: cession transactions (`TransferTld`, `TransferDomain`) are
+signed by the **transferor** alone (the recipient is only an opaque
+`OwnerId`, never consulted), `AssignDomain` is signed by the TLD owner,
+and genesis allocations land on the manifest's key. This is an assumed
+feature: gifts, dead drops, bequests. The anti-Sybil property does not
+depend on it: one seat per **distinct owner of a live name**
+(`owner_refcounts`), and every possession costs someone work.
+
+**No imposable debt**: slashing punishes only **proven equivocation**
+(two conflicting signatures, `SlashTx`, banning); a passive key signs
+nothing and can therefore never be slashed. The absence of a drawn
+member goes to **recovery** (re-draw), without sanction. A seat
+received unwanted remains disposable: expiration + GC, `SetTldOpen`
+(the seat is released upon opening), `RevokeTld`, or re-transfer.
+
+**Tracked decision — no acquisition consent**: a two-phase claim
+(pending transfer, acceptance signed by the recipient) was considered
+and rejected — it breaks dead drops and "first applied wins", adds a
+state machine over names, and protects against a demonstrably
+non-existent risk (no imposable debt, see above).
+
 ## Properties verified by tests
 
 - `checkpoint_hash_engages_signatures`: the checkpoint hash

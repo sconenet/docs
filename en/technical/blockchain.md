@@ -159,8 +159,17 @@ multi-core), ~11.4 H/s/core. **Opening** an
 existing private TLD (`SetTldOpen`) stays at flat difficulty
 (`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): the tx
 carries only the `tld_id`, the name paid its length at creation.
-Pure function (determinism: two nodes compute the same difficulty
-for the same name).
+**Two more flat proofs** complete the family (consensus-level
+anti-spam, same epoch salt and window as registrations):
+`transfer_pow_difficulty` for cessions (`TransferTld`/
+`TransferDomain`, challenges `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`) and `assign_pow_difficulty` for
+creation under a private TLD (`AssignDomain`, challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flat by decision: the namespace's
+exclusivity was paid at TLD creation, no per-length double taxation).
+Indicative values: 16-bit mainnet (~1.2 h at 11.4 H/s), 4-bit
+testnet, 1-bit devnet — calibration to refine. Pure function
+(determinism).
 
 Genesis is a protocol constant **per network**, reproducible from the
 constants alone (no randomness, no local clock, no network):
@@ -180,6 +189,18 @@ constants alone (no randomness, no local clock, no network):
 (pre-paid domains/TLDs, canonical sort by name, manifest ≤ 60 KiB,
 ≤ 2048 allocations) — this widened format is what justifies
 `MAX_CONSENSUS_LEN` = 64 KiB (see `scone-blockchain::genesis_alloc`).
+
+**Allocation genesis distribution**: no genesis artifact
+(`genesis.bin`, manifest) ever lives in the source repository or in
+code releases, whatever the network or project stage — two genesis
+files are two networks. The mainnet allocation genesis is born only
+at launch (the switch to the `mainnet` feature enabled by default):
+produced by `scone-genesis` from a signed manifest published outside
+the repository, its hash is pinned in the launch announcement, and
+only founder nodes consume it (`--genesis`, chain birth); every
+other node joins the network by sync. The tool refuses any write
+inside a Rust workspace directory (presence of `Cargo.toml`): a
+genesis must never be able to land in the source tree.
 
 The `network_id` in the consensus payload makes the genesis hashes —
 and therefore the entire blockchain — **disjoint across networks**: a
