@@ -150,7 +150,7 @@ payload only).
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Field | Type | Constraints |
@@ -158,6 +158,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 raw bytes | the transferred TLD |
 | `owner` | 32 raw bytes | derivation of `public_key` (current owner / signer) |
 | `new_owner` | 32 raw bytes | recipient's identity (opaque: any value is syntactically valid; binding to the keys that can spend it is an M8b state rule) |
+| `proof` | bounded (varint ‖ bytes) | anti-churn cession proof, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, flat difficulty `transfer_pow_difficulty`, epoch salt |
 | `public_key` | 32 raw bytes | signer's Ed25519 public key |
 | `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
 
@@ -197,14 +198,17 @@ cannot be substituted after signing.
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Mirror of `RegisterDomain`: the canonical name is carried in
 cleartext and `domain_id` must equal `DomainId(name)` (recomputed at
 decoding, encoding and validation). Signed by the **owner of the
 name's TLD** (checked at application, M8b); `assignee` becomes the
-domain's first owner (opaque, like `new_owner`).
+domain's first owner (opaque, like `new_owner`). Carries its own flat
+anti-spam proof (`assign_pow_difficulty`, challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flat by decision: the namespace's
+exclusivity was paid at TLD creation).
 
 ### RENEW_DOMAIN (0x3C)
 
