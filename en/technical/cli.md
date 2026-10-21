@@ -183,6 +183,24 @@ editing goes through `domain set` / `domain update`.
 
 `domain get` also prints the `domain_id` and `valid_until`.
 
+## PoW benchmark (`scone bench-pow`)
+
+Measures the machine's Argon2id hash rate (the same hash the
+consensus verification uses) and translates the network's
+difficulties into concrete waiting times:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+Output: total and per-worker H/s, then the expected average time
+per operation — transfer/assign (flat rate), private-TLD opening,
+and the TLD/domain registration floors (the length curve). The
+selected network determines the Argon2id parameters (mainnet:
+64 MiB, t=2 — the real cost; testnet/devnet: the light profile,
+millisecond proofs). Each worker allocates its own 64 MiB Argon2id
+lane — size `--cores` to the available RAM.
+
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
 
 Default builds carry **no mainnet**: `scone relay --network
