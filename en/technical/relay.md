@@ -343,17 +343,37 @@ With `--anchor-key` (`.sconekey` keyfile, passphrase via
 `scone-network` library default `SCONE_ANCHOR_PASSPHRASE` is never
 reached through the binary, clap always overrides it):
 
+- **proposer rotation**: exactly ONE designated committee member
+  self-proposes per epoch (`committee[epoch % size]`,
+  deterministic); the other members never sign their own tip — a
+  checkpoint's content depends on the proposer's tip, and un-gated
+  self-proposals splintered the epoch into rival contents that each
+  guard rightly refuses as equivocation (testnet, 2026-10-21);
 - after each accepted/produced block, if this node is a member of
   the current committee **and** the committee reaches
   `MIN_FINALITY_COMMITTEE_SIZE`, the relay signs the proposed
   checkpoint via its `SignerGuard` (`signer-state.dat` in the
   data-dir — one key = one vote/epoch, crash-safe fail-closed) and
   gossips it;
+- **vote-on-receipt**: a proposal whose content is valid on OUR
+  chain (the referenced block is present, at the same hash) and
+  carries a committee signature gets OUR signature too — without
+  it, every anchor signed only its own tip's content and no quorum
+  ever assembled;
 - received signatures (`Message::Checkpoint`) are accumulated by
   `CheckpointData` hash (bounded to 256 entries); at
   `quorum_for(committee size)` member signatures on the SAME
   data → `accept_checkpoint` + broadcast of the finalized
   checkpoint;
+- **finality persistence**: the checkpoint window and the frozen
+  base are written to the store at every finalization and reloaded
+  at boot. Checkpoints are GOSSIP state (never carried by blocks) —
+  a restart without this persistence started from an empty base and
+  could never chain a peer-served window again (the epoch anchors
+  below the network's window are gone);
+- **finality catch-up**: a relay whose base is empty (a fresh node's
+  boot) requests `GetCheckpoints` from a peer every tick until the
+  base is restored;
 - a relay without an anchor key stays **passive**: it accumulates,
   finalizes, and relays, but never signs;
 - `GetCheckpoints` → the `checkpoint_window()` window is served;

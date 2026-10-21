@@ -812,11 +812,19 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)` :
 
-1. **Amorçage** (pas de point de contrôle finalisé) : le pool ENTIER
-   signe — un comité tiré d'une vue locale divergerait entre nœuds en
-   retard (la cause racine des gels de finalité) ; le pool entier est
-   déterministe par la chaîne. La sélection stricte reprend à la
-   première finalité.
+1. **Amorçage** (pas de point de contrôle finalisé) : signent les
+   **opérateurs frais** du pool (`fresh_operators` — battement de
+   cœur récent, même fenêtre que le régime finalisé). Le filtre est
+   de l'état de chaîne (les heartbeats sont on-chain), donc
+   déterministe par le sommet : deux nœuds au même sommet calculent
+   le même ensemble. Sous `MIN_FINALITY_COMMITTEE_SIZE` opérateurs
+   frais, dégradation sûre vers le pool ENTIER (amorçage à froid,
+   panne générale — la finalité n'est jamais perdue par
+   construction). Le pool brut ne peut pas servir d'ensemble de
+   signature : chaque inscription auto-service grossit le dénominateur
+   du quorum alors que ces propriétaires ne signent jamais — la
+   finalité devenait inatteignable après ~10 inscriptions
+   (testnet, 2026-10-21).
 2. **Régime finalisé** : tirage dans le sous-ensemble **frais** du
    pool gelé (RFC proof-of-service §5.2) — chaque siège (clé
    propriétaire) est résolu vers son opérateur EFFECTIF par l'état au
@@ -830,10 +838,22 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    panne générale des opérateurs — la finalité n'est jamais perdue par
    construction).
 
-`allowed_producers(block_ts)` (production de blocs) suit le même
-schéma : pool entier à l'amorçage ; comité élu + tirages de
-récupération (tirage k déverrouillé après k × `epoch_secs` de temps de
-consensus) en régime finalisé.
+`allowed_producers(block_ts)` (production de blocs) suit une règle
+délibérément plus large : pool entier à l'amorçage ; **pool gelé
+ENTIER** en régime finalisé. Le comité élu (+ tirages de récupération)
+reste l'ensemble de SIGNATURE des points de contrôle uniquement.
+Restreindre la production au comité a d'abord été spécifié puis
+implémenté, avant d'être retiré : un producteur dont la vue est en
+retard d'un point de contrôle évalue ses candidats sous les règles
+d'amorçage et émet des blocs que tout pair finalisé rejette
+(`InvalidProducer`), et toute historique de chaîne assemblé à travers
+la transition ne peut alors plus jamais passer le replay de
+`pool_at_height` — la finalité gèle à jamais au premier point de
+contrôle (reproducteur sim `duplicate_and_delay`, 2026-10-21). Le
+gel du pool porte à lui seul la charge de sûreté : les changements de
+membership (inscription, transfert, bannissement, expiration) ne
+prennent effet qu'au point de contrôle SUIVANT, donc l'ensemble
+producteur reste une fonction pure de la chaîne finalisée.
 
 Le quorum de point de contrôle est `quorum_for(taille du comité)`
 (floor(2n/3)+1) ; un comité sous `MIN_FINALITY_COMMITTEE_SIZE` ne

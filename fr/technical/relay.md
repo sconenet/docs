@@ -348,17 +348,39 @@ Avec `--anchor-key` (fichier de clés `.sconekey`, phrase de passe via
 la bibliothèque `scone-network` `SCONE_ANCHOR_PASSPHRASE` n'est jamais
 atteint via le binaire, clap le surcharge toujours) :
 
+- **rotation du proposant** : exactement UN membre désigné du comité
+  auto-propose par époque (`comité[époque % taille]`, déterministe) ;
+  les autres membres ne signent jamais leur propre sommet — le
+  contenu d'un point de contrôle dépend du sommet du proposant, et
+  des auto-propositions non filtrées auraient fragmenté l'époque en
+  contenus rivaux que chaque garde refuse à raison comme équivoque
+  (testnet, 2026-10-21) ;
 - après chaque bloc accepté/produit, si ce nœud est membre du comité
   courant **et** que le comité atteint
   `MIN_FINALITY_COMMITTEE_SIZE`, le relais signe le point de contrôle
   proposé via son `SignerGuard` (`signer-state.dat` dans le
   data-dir — une clé = un vote/époque, fail-safe anti-crash) et le
   propage en gossip ;
+- **vote à réception** : une proposition dont le contenu est valide
+  sur notre chaîne (le bloc référencé y est, au même haché) et
+  portée par une signature de membre du comité reçoit NOTRE
+  signature aussi — sans elle, chaque ancre ne signait que le
+  contenu de son propre sommet et aucun quorum ne s'assemblait ;
 - les signatures reçues (`Message::Checkpoint`) sont accumulées par
   hachage `CheckpointData` (bornées à 256 entrées) ; à
   `quorum_for(taille du comité)` signatures de membres sur les MÊMES
   données → `accept_checkpoint` + diffusion du point de contrôle
   finalisé ;
+- **persistance de la finalité** : la fenêtre de checkpoints et la
+  base gelée sont écrites dans le store à chaque finalisation et
+  rechargées au démarrage. Les checkpoints sont de l'état de gossip
+  (jamais portés par les blocs) — un redémarrage sans cette
+  persistance repartait d'une base vide et ne pouvait plus jamais
+  enchainer une fenêtre servie par les pairs (les ancres d'époque
+  sous la fenêtre du réseau ont disparu) ;
+- **rattrapage de finalité** : un relais dont la base est vide (boot
+  d'un nouveau nœud) demande `GetCheckpoints` à un pair à chaque
+  tick tant que la base n'est pas restaurée ;
 - un relais sans clé d'ancre reste **passif** : il accumule, finalise
   et relaie, mais ne signe jamais ;
 - `GetCheckpoints` → la fenêtre `checkpoint_window()` est servie ;

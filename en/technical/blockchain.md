@@ -791,11 +791,17 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`:
 
-1. **Bootstrap** (no finalized checkpoint): the ENTIRE pool signs
-   — a committee drawn from a local view would diverge between
-   lagging nodes (the root cause of finality freezes); the whole
-   pool is deterministic per the chain. Strict selection resumes
-   at the first finality.
+1. **Bootstrap** (no finalized checkpoint): the **FRESH operators**
+   of the pool sign (`fresh_operators` — a recent heartbeat, the
+   same window as the finalized regime). The filter is chain state
+   (heartbeats are on-chain), so it is deterministic per tip: two
+   nodes at the same tip compute the same set. Below
+   `MIN_FINALITY_COMMITTEE_SIZE` fresh operators, safe degradation
+   to the ENTIRE pool (cold bootstrap, general outage — finality is
+   never lost by construction). The raw pool cannot serve as the
+   signing set: every self-service registration grows the quorum
+   denominator while those owners never sign — finality became
+   unreachable after ~10 registrations (testnet, 2026-10-21).
 2. **Finalized regime**: drawing from the **fresh** subset of the
    frozen pool (RFC proof-of-service §5.2) — each seat (owner
    key) is resolved to its EFFECTIVE operator by the state at the
@@ -809,10 +815,20 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    bootstrap, general operator outage — finality is never lost by
    construction).
 
-`allowed_producers(block_ts)` (block production) follows the same
-scheme: entire pool at bootstrap; elected committee + recovery
-draws (draw k unlocked after k × `epoch_secs` of consensus time)
-in the finalized regime.
+`allowed_producers(block_ts)` (block production) follows a deliberately
+wider rule: entire pool at bootstrap; **entire FROZEN pool** in the
+finalized regime. The elected committee (+ recovery draws) remains the
+CHECKPOINT SIGNING set only. Narrowing production to the committee was
+specified and implemented first, then removed: a producer whose view
+lags one checkpoint behind evaluates candidates under the bootstrap
+rules and emits blocks every finalized peer rejects
+(`InvalidProducer`), and any chain history assembled across the
+transition can then never pass the `pool_at_height` replay — finality
+freezes at the first checkpoint forever (sim reproducer
+`duplicate_and_delay`, 2026-10-21). The pool freeze alone carries the
+safety load: membership changes (registration, transfer, ban, expiry)
+only ever take effect at the NEXT checkpoint, so the producer set
+stays a pure function of the finalized chain.
 
 The checkpoint quorum is `quorum_for(committee size)`
 (floor(2n/3)+1); a committee below `MIN_FINALITY_COMMITTEE_SIZE`
