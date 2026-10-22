@@ -79,7 +79,7 @@ Les variables répétables (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
 s'accumulent : une ligne par valeur dans `.env` (dotenvy ajoute).
 
 Le tableau complet des variables `SCONE_*` (réseau, écoute P2P,
-bootstrap, genèse, mDNS, UPnP, surface DNS, métriques, profil de
+bootstrap, genèse, UPnP, surface DNS, métriques, profil de
 topologie, ancre) et la sémantique de chacune vit dans
 [`relay.md`](relay.md#configuration-par-environnement-env) ; le
 modèle commenté est `.env.example` à la racine du dépôt (copier

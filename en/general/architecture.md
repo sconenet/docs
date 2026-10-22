@@ -145,8 +145,7 @@ embedded GeoIP table, recursive fallback), the anchors'
 checkpoint/heartbeat loop (the CLI speaks direct p2p QUIC to the
 relay, no local RPC anymore). Reachability and discovery: AutoNAT
 v2 (reachable/NATed verdict), circuit-relay v2 + DCUtR for NATed
-nodes, mDNS (zero-config LAN discovery, ON by default on devnet)
-and UPnP (QUIC port mapping by the router, opt-in). Configuration via a `.env` file (see `.env.example`).
+nodes and UPnP (QUIC port mapping by the router, opt-in). Configuration via a `.env` file (see `.env.example`).
 Reference: `/docs/en/technical/relay.md`.
 
 **scone-keystore** — encrypted storage of Ed25519 signing keys

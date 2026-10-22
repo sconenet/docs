@@ -157,8 +157,7 @@ actif — table GeoIP embarquée, repli récursif), la boucle de point
 de contrôle/battement de cœur des ancrès (le CLI parle directement
 en p2p QUIC au relais, plus de RPC local). Joignabilité et découverte :
 AutoNAT v2 (verdict joignable/sous NAT), circuit-relay v2 + DCUtR
-pour les nœuds sous NAT, mDNS (découverte LAN sans configuration,
-ACTIVE par défaut sur devnet) et UPnP (mappage du port QUIC par le
+pour les nœuds sous NAT et UPnP (mappage du port QUIC par le
 routeur, opt-in). Configuration via un fichier `.env`
 (voir `.env.example`). Référence : `/docs/en/technical/relay.md`.
 

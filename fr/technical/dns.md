@@ -319,17 +319,26 @@ Chaque binaire embarque une **table de correspondance IP → pays**
 compilée dans le relais : **aucune configuration nécessaire**, le
 routage géographique est actif partout, automatiquement.
 
-- **Source de données** : les **fichiers de délégation RIR** (RIPE
-  NCC, ARIN, APNIC, LACNIC, AFRINIC), librement téléchargeables et
-  redistribuables :
-  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
-  (pays d'enregistrement de chaque bloc IPv4/IPv6 délégué). La date
-  de génération est dans l'en-tête de la table
-  (`assets/embedded-geo.table`).
-- **Régénération** : `scripts/gen-geo-table.py` (télécharge les 5
-  fichiers, convertit, normalise les préfixes — ~176 000 règles).
+- **Source de données** : **DB-IP Lite** (« IP to Country Lite »),
+  licence **CC BY 4.0** — redistribuable avec attribution :
+  `https://db-ip.com` (curée mensuellement ; auparavant : les
+  délégations RIR via `scripts/gen-geo-table.py`, retiré).
+  Cellules quantizées **/20 v4 et /24 v6** (la granularité native
+  DB-IP, ~1,3 M de plages, dépasse la borne mémoire du parseur) —
+  ~96 500 règles. La date de génération est dans l'en-tête de la
+  table (`assets/embedded-geo.table`).
+- **Checksum** : le SHA-256 de la table est calculé à la
+  compilation (`build.rs`), **revérifié au démarrage** (mismatch =
+  refus typé — un binaire altéré ne sert jamais de réponses
+  géographiques) et journalisé au boot avec l'attribution. Le hash
+  est la garantie que « tous les nœuds d'un même build partagent la
+  même table ».
+- **Régénération** : `scripts/geo-convert.py` (télécharge le CSV
+  DB-IP Lite du mois, convertit — pays numérique, continent dérivé
+  ISO→M49, ASN/région absents de la Lite).
 - **Granularité** : pays (ISO 3166-1 numérique) + continent (ONU
-  M49) dérivé. Pas d'ASN ni de région (absents des délégations).
+  M49) dérivé. Pas d'ASN ni de région (absents de la Lite — les
+  tables opérateur `--geo-ip-table` les couvrent).
 - **Performance** : recherche par **dichotomie** sur des plages
   triées (index construit une fois à la première utilisation, par
   famille v4/v6) — mesuré ~95 ns/recherche à chaud, ~50 µs en accès

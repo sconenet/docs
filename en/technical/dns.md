@@ -310,16 +310,25 @@ Every binary embeds an **IP → country mapping table** compiled
 into the relay: **no configuration needed**, geographic routing is
 active everywhere, automatically.
 
-- **Data source**: the **RIR delegation files** (RIPE NCC, ARIN,
-  APNIC, LACNIC, AFRINIC), freely downloadable and redistributable:
-  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
-  (registration country of each delegated IPv4/IPv6 block). The
-  generation date is in the table header
+- **Data source**: **DB-IP Lite** ("IP to Country Lite"),
+  licensed **CC BY 4.0** — redistributable with attribution:
+  `https://db-ip.com` (curated monthly; previously: the RIR
+  delegations via `scripts/gen-geo-table.py`, removed).
+  Quantized cells **/20 v4 and /24 v6** (DB-IP's native
+  granularity, ~1.3M ranges, exceeds the parser's memory bound) —
+  ~96,500 rules. The generation date is in the table header
   (`assets/embedded-geo.table`).
-- **Regeneration**: `scripts/gen-geo-table.py` (downloads the 5
-  files, converts, normalizes prefixes — ~176,000 rules).
+- **Checksum**: the table's SHA-256 is computed at compile time
+  (`build.rs`), **re-verified at boot** (mismatch = typed refusal —
+  an altered binary never serves geographic answers) and logged at
+  boot with the attribution. The hash guarantees "every node of a
+  build shares the same table" is CHECKABLE, not assumed.
+- **Regeneration**: `scripts/geo-convert.py` (downloads the month's
+  DB-IP Lite CSV, converts — numeric country, continent derived
+  ISO→M49, ASN/region absent from the Lite).
 - **Granularity**: country (numeric ISO 3166-1) + continent (UN
-  M49) derived. No ASN nor region (absent from delegations).
+  M49) derived. No ASN nor region (absent from the Lite — operator
+  `--geo-ip-table` tables cover them).
 - **Performance**: **binary search** lookup over sorted ranges
   (index built once at first use, per v4/v6 family) — measured
   ~95 ns/lookup hot, ~50 µs random-access on the full table

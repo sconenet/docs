@@ -83,23 +83,7 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    sans bootstrap, l'annuaire est recomposé : le relais retrouve ses
    pairs habituels sans configuration. C'est un cache : fichier
    manquant/corrompu = annuaire vide, jamais une erreur.
-4. **mDNS LAN** (`--mdns`) — découverte sans configuration sur le lien
-   local : les relais voisins d'un même segment réseau se trouvent SANS
-   aucune seed (le chemin devnet zéro-configuration). **Défaut :
-   ACTIF sur devnet, INACTIF ailleurs** (un réseau local réinitialisable
-   est un réseau de découverte par conception ; un déploiement public ne
-   multidiffuse rien). Comportement : bind de la socket multicast ; un
-   échec de bind (pas de multicast sur l'interface, environnement
-   bac à sable) **désactive** mDNS avec un avertissement — jamais fatal
-   (la découverte est un confort, jamais une bouée de sauvetage).
-   Chaque voisin `Discovered` alimente la table Kademlia
-   (`kad.add_address`), exactement comme un bootstrap explicite moins
-   la configuration ; les entrées `Expired` sont suivies par libp2p
-   lui-même (la connexion se ferme à son propre timeout). Les membres
-   `mdns`/`upnp` du behaviour sont des `Toggle`s (activés/désactivés à
-   la construction,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, opt-in) — mappage du port d'écoute QUIC par la
+4. **UPnP** (`--upnp`, opt-in) — mappage du port d'écoute QUIC par la
    box domestique : le nœud devient joignable depuis l'extérieur SANS
    circuit relay. Sur `NewExternalAddr`, l'adresse externe est
    enregistrée comme vraie adresse externe du swarm
@@ -109,12 +93,14 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    d'info, le mappage est sauté — cas normaux sur un LAN domestique. Un
    mappage expiré (échec de renouvellement) est un avertissement.
 
-mDNS suit le réseau (un `--mdns`/`SCONE_MDNS` explicite gagne
-toujours) : **ACTIF par défaut sur devnet**, INACTIF sur
-testnet/mainnet ; UPnP reste **désactivé par défaut**
-(`enable_mdns`/`enable_upnp` = `false` dans `config.rs`, le relais
-active mDNS pour devnet) : un déploiement public ne multidiffuse
-rien et ne parle à aucun routeur.
+UPnP reste **désactivé par défaut** (`enable_upnp` = `false` dans
+`config.rs`) : un déploiement public ne parle à aucun routeur sans
+consentement. **La découverte mDNS a été supprimée**
+(remove-mdns-discovery, 2026-10-22) : le peering vient
+exclusivement du bootstrap explicite, des seeds builtin et de
+Kademlia — le flag hérité `--mdns`/`SCONE_MDNS` reste accepté
+sans effet (compatibilité des scripts, même traitement que
+`--rpc`).
 
 ### Optimisation de la topologie locale (toujours active)
 
@@ -551,7 +537,7 @@ voir `dns.md`).
 
 ```
 scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolète, ignoré)]
+            [--upnp] [--rpc ADDR (obsolète, ignoré)] [--mdns VAL (obsolète, ignoré)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
@@ -604,7 +590,7 @@ jamais committer un vrai `.env`). Variables :
 | `SCONE_LISTEN` | `--listen` | multiaddr d'écoute P2P (défaut : toutes interfaces, port éphémère) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | seeds de bootstrap, **répétable** (une ligne par valeur — dotenvy accumule) ; remplace les seeds intégrées |
 | `SCONE_GENESIS` | `--genesis` | fichier de genèse (nœuds fondateurs) |
-| `SCONE_MDNS` | `--mdns` | découverte mDNS LAN (`true` = activée, `false` = coupée ; défaut : ACTIF sur devnet, INACTIF ailleurs) |
+| `SCONE_MDNS` | `--mdns` | (obsolète — découverte mDNS supprimée ; accepté, ignoré) |
 | `SCONE_UPNP` | `--upnp` | mappage de port UPnP (`true` = activé) |
 | `SCONE_DNS_ADDR` | `--dns` | adresse de bind du serveur DNS UDP |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | replis récursifs, **répétable** |

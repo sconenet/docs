@@ -82,22 +82,7 @@ Three complementary mechanisms, in this priority order:
    recomposed: the relay finds its usual peers without
    configuration. It is a cache: missing/corrupted file = empty
    directory, never an error.
-4. **LAN mDNS** (`--mdns`) — zero-config discovery on the
-   local link: neighbouring relays on the same network segment
-   find each other with NO seed at all (the zero-config devnet
-   path). **Default: ON for devnet, OFF elsewhere** (a resettable
-   local network is a discovery network by design; a public
-   deployment multicasts nothing). Behaviour: bind of the multicast socket; a bind failure
-   (no multicast on the interface, sandboxed environment)
-   **disables** mDNS with a warning — never fatal (discovery is a
-   convenience, never a lifeline). Every `Discovered` neighbour
-   feeds the Kademlia table (`kad.add_address`), exactly like an
-   explicit bootstrap minus the configuration; `Expired` entries
-   are tracked by libp2p itself (the connection closes on its own
-   timeout). The behaviour's `mdns`/`upnp` members are `Toggle`s
-   (enabled/disabled at construction,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, opt-in) — QUIC listen-port mapping by the
+4. **UPnP** (`--upnp`, opt-in) — QUIC listen-port mapping by the
    home router: the node becomes reachable from the outside
    WITHOUT a circuit relay. On `NewExternalAddr`, the external
    address is registered as the swarm's real external address
@@ -107,12 +92,13 @@ Three complementary mechanisms, in this priority order:
    log, the mapping is skipped — normal cases on a home LAN. An
    expired mapping (failed renewal) is a warning.
 
-mDNS follows the network (an explicit `--mdns`/`SCONE_MDNS`
-always wins): **ON by default on devnet**, OFF on
-testnet/mainnet; UPnP stays **disabled by default**
-(`enable_mdns`/`enable_upnp` = `false` in `config.rs`, the relay
-turns mDNS on for devnet): a public deployment multicasts
-nothing and talks to no router.
+UPnP stays **disabled by default** (`enable_upnp` = `false` in
+`config.rs`): a public deployment talks to no router without
+consent. **mDNS discovery was removed**
+(remove-mdns-discovery, 2026-10-22): peering comes exclusively
+from explicit bootstrap, the builtin seeds and Kademlia — the
+legacy `--mdns`/`SCONE_MDNS` flag is still accepted without
+effect (script compatibility, same treatment as `--rpc`).
 
 ### Local topology optimization (always on)
 
@@ -542,7 +528,7 @@ waiter — see `dns.md`).
 
 ```
 scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp]
+            [--upnp] [--mdns VAL (obsolete, ignored)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
             [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
@@ -595,7 +581,7 @@ never commit a real `.env`). Variables:
 | `SCONE_LISTEN` | `--listen` | P2P listen multiaddr (default: all interfaces, ephemeral port) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds, **repeatable** (one line per value — dotenvy accumulates); replaces the builtin seeds |
 | `SCONE_GENESIS` | `--genesis` | genesis file (founder nodes) |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS discovery (`true` = enabled, `false` = off; default: ON on devnet, OFF elsewhere) |
+| `SCONE_MDNS` | `--mdns` | (obsolete — mDNS discovery removed; accepted, ignored) |
 | `SCONE_UPNP` | `--upnp` | UPnP port mapping (`true` = enabled) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS server bind address |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | recursive fallbacks, **repeatable** |
