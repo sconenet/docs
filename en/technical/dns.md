@@ -337,8 +337,13 @@ active everywhere, automatically.
 - **Relay self-location**: routing follows the **source IP of each
   query** — a LAN relay routes its local clients to the right zone
   automatically.
-- **Precedence**: an explicit operator table
-  (`--geo-ip-table`/geo-config) **overrides** the embedded one.
+- **IMPOSED table** (remove-geo-operator-table, 2026-10-22): the
+  embedded table is the **only source** — no operator import or
+  override exists. The legacy `--geo-ip-table` flag and the
+  geo-config `ip_table` key are accepted **without effect** (same
+  treatment as `--rpc`). An operator with specific needs (ASN,
+  region) waits for an embedded-pipeline evolution, not a local
+  table.
 
 ### Overview
 
@@ -503,12 +508,12 @@ cached.
   use. **No network trust without validation** — an unverified
   DHT GEOROUTE never answers.
 - The client's position comes from the **embedded GeoIP table**
-  (RIR delegations, see above) derived from its source IP — or
-  from the resolver's explicit local configuration
-  (`--geo-ip-table` or
-  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  which takes precedence), never from a network GeoIP API (no
-  query leak, no dependency).
+  (DB-IP Lite, see above — imposed by the build) derived from its
+  source IP — or from the resolver's static self-declaration
+  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
+  for LAN relays without a resolvable public IP), never from a
+  network GeoIP API (no query leak, no dependency). No operator
+  IP-table import exists (the zones are build-imposed).
 - The draw is deterministic and local: no secret, no
   unpredictability required (the security is that of the record
   signature, not of the draw).
@@ -547,7 +552,7 @@ Expected behavior:
 | Option | Default | Role |
 |---|---|---|
 | (none — GeoDNS always on, embedded table) | on | Automatic routing by source IP |
-| `--geo-ip-table <path>` | — | **Local GeoIP table** (see below). Takes PRECEDENCE over all static `--geo-*` options |
+| `--geo-ip-table <path>` | — | (obsolete — the GeoIP table is build-imposed; accepted, ignored) |
 | `--geo-country <u16>` | — | Client country, ISO 3166-1 numeric (840=US…) — static |
 | `--geo-continent <u16>` | — | Client continent, UN M49 (150=EU…); derived from country if omitted — static |
 | `--geo-asn <u32>` | — | Client AS (64500…) — static, new in v2 |
@@ -593,7 +598,7 @@ table.
 
 #### Option precedences
 
-- **Locator**: `--geo-ip-table` **takes precedence** over the
+- **Locator**: the embedded table imposes the geolocation (no operator override — see the imposed table above)
   static options
   (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
   which are ignored when the table is provided. Without a table,

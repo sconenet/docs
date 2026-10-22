@@ -347,8 +347,12 @@ routage géographique est actif partout, automatiquement.
 - **Auto-localisation du relais** : le routage suit l'**IP source de
   chaque requête** — un relais LAN route ses clients locaux vers la
   bonne zone automatiquement.
-- **Précédence** : une table opérateur explicite
-  (`--geo-ip-table`/geo-config) **prime** sur l'embarquée.
+- **Table IMPOSÉE** (remove-geo-operator-table, 2026-10-22) : la
+  table embarquée est la **seule source** — aucun import ni surcharge
+  opérateur n'existe. Le flag hérité `--geo-ip-table` et la clé
+  `ip_table` de geo-config sont acceptés **sans effet** (comme
+  `--rpc`). Un opérateur avec des besoins spécifiques (ASN, région)
+  attend une évolution du pipeline embarqué, pas une table locale.
 
 ### Vue d'ensemble
 
@@ -515,10 +519,12 @@ en cache.
   record_hash) avant tout usage. **Aucune confiance réseau sans
   validation** — un GEOROUTE DHT non vérifié ne répond jamais.
 - La position du client vient de la **table GeoIP embarquée**
-  (délégations RIR, voir ci-dessus) dérivée de son IP source — ou de
-  la configuration locale explicite du résolveur (`--geo-ip-table`
-  ou `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  qui prime), jamais d'une API GeoIP réseau (aucune fuite de
+  (DB-IP Lite, voir ci-dessus — imposée par le build) dérivée de son
+  IP source — ou de la déclaration statique du relais
+  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
+  pour un relais LAN sans IP publique résolvable). Aucun import de
+  table IP opérateur n'existe (les geozones sont imposées par le
+  build), jamais d'une API GeoIP réseau (aucune fuite de
   requête, aucune dépendance).
 - Le tirage est déterministe et local : pas de secret, aucune
   imprévisibilité requise (la sécurité est celle de la signature de
@@ -558,7 +564,7 @@ Comportement attendu :
 | Option | Défaut | Rôle |
 |---|---|---|
 | (aucune — GeoDNS toujours actif, table embarquée) | on | Routage automatique par IP source |
-| `--geo-ip-table <path>` | — | **Table GeoIP locale** (voir ci-dessous). PRIME sur toutes les options statiques `--geo-*` |
+| `--geo-ip-table <path>` | — | (obsolète — table GeoIP imposée par le build ; accepté, ignoré) |
 | `--geo-country <u16>` | — | Pays du client, ISO 3166-1 numérique (840=US…) — statique |
 | `--geo-continent <u16>` | — | Continent du client, ONU M49 (150=EU…) ; dérivé du pays si omis — statique |
 | `--geo-asn <u32>` | — | AS du client (64500…) — statique, nouveau en v2 |
@@ -605,7 +611,8 @@ jamais une table partielle.
 
 #### Précédences des options
 
-- **Localisateur** : `--geo-ip-table` **prime** sur les options
+- **Localisateur** : la table embarquée impose la géolocalisation
+  (aucune surcharge opérateur — cf. la table imposée plus haut)
   statiques (`--geo-country`/`--geo-continent`/`--geo-asn`/
   `--geo-region`), qui sont ignorées quand la table est fournie.
   Sans table, les options statiques s'appliquent.
