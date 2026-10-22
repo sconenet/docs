@@ -539,7 +539,7 @@ voir `dns.md`).
 scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
             [--upnp] [--rpc ADDR (obsolète, ignoré)] [--mdns VAL (obsolète, ignoré)]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH (obsolète, ignoré)] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
+            [--geo-config FILE (obsolète, ignoré)] [--geo-ip-table PATH (obsolète, ignoré)]
             [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
             [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]

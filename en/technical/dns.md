@@ -507,13 +507,13 @@ cached.
   against the chain (owner, sequence, record_hash) before any
   use. **No network trust without validation** — an unverified
   DHT GEOROUTE never answers.
-- The client's position comes from the **embedded GeoIP table**
-  (DB-IP Lite, see above — imposed by the build) derived from its
-  source IP — or from the resolver's static self-declaration
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  for LAN relays without a resolvable public IP), never from a
-  network GeoIP API (no query leak, no dependency). No operator
-  IP-table import exists (the zones are build-imposed).
+- The client's position comes from the **auto-discovered circuit**:
+  the relay self-locates via its external address (STUN/AutoNAT/
+  UPnP) resolved by the build-imposed embedded table — LAN clients
+  (private source IP) inherit that position, Internet clients are
+  resolved by their own IP, the unknown falls back to World. Never
+  from a network GeoIP API (no query leak, no dependency) and never
+  from an operator declaration (the zones are build-imposed).
 - The draw is deterministic and local: no secret, no
   unpredictability required (the security is that of the record
   signature, not of the draw).
@@ -552,57 +552,40 @@ Expected behavior:
 | Option | Default | Role |
 |---|---|---|
 | (none — GeoDNS always on, embedded table) | on | Automatic routing by source IP |
-| `--geo-ip-table <path>` | — | (obsolete — the GeoIP table is build-imposed; accepted, ignored) |
-| `--geo-country <u16>` | — | Client country, ISO 3166-1 numeric (840=US…) — static |
-| `--geo-continent <u16>` | — | Client continent, UN M49 (150=EU…); derived from country if omitted — static |
-| `--geo-asn <u32>` | — | Client AS (64500…) — static, new in v2 |
-| `--geo-region <u32>` | — | Client subdivision (opaque publisher identifier) — static, new in v2 |
+| `--geo-ip-table <path>` | — | (obsolete — accepted, ignored, like `--rpc`) |
+| `--geo-config <json>`, `--geo-country/…` | — | (obsolete — removed; accepted, ignored) |
 | `--health-check` | off | Enables checks (health failover) |
 | `--no-health-check` | off | **Explicitly disables** checks — WINS over `--health-check` (see precedences) |
 | `--health-ttl-secs <u64>` | 5 | TTL of a health entry |
 | `--health-port <u16>` | 443 | TCP port for checks (not derivable from a DNS record) |
 
-#### Local GeoIP table (`--geo-ip-table`)
+#### The embedded table is the only source
 
-Local TEXT file of prefixes, read **once** at startup (100,000
-rules max, `MAX_GEOIP_RULES`). One rule per line, `#` =
-comment, blank lines ignored:
+The GeoIP table is **build-imposed** (DB-IP Lite, quantized, see
+the embedded table section above): no operator table can be
+imported. Resolution: the **source IP of the DNS query**
+(per-client: UDP `recv_from` / TCP `peer_addr`) is compared in 16
+bytes against the embedded table; the rule with the **longest
+matching prefix** wins (on a tie, the first in file order).
 
-```text
-# prefix/mask        country continent asn     region
-10.0.0.0/8           840   3          .       .
-2001:db8::/32        250   150        64500   11
-192.0.2.0/24         158   9
-```
+- **private/unroutable source** (RFC1918, ULA fc00::/7,
+  link-local, loopback): the client is INSIDE the relay's
+  network — it inherits the relay's own discovered position;
+- **public source absent from the table**: World (no geo
+  splitting — never a wrong answer).
 
-- `prefix/mask`: IPv4 (`len ≤ 32`, converted to 16-byte form,
-  zero tail — same convention as the wire) or IPv6 (`len ≤ 128`).
-  **Host bits must be zero** (`10.1.2.3/8` is refused);
-- `country`: **numeric** ISO 3166-1 `u16`, required;
-- `continent`: UN M49 `u16`, optional (`.` or omitted = absent,
-  the continent can then be derived from the country);
-- `asn`: `u32`, optional (`.` = absent);
-- `region`: opaque `u32`, optional (`.` = absent).
-
-Resolution: the **source IP of the DNS query** (per-client:
-UDP `recv_from` / TCP `peer_addr`; unknown → the resolver's
-reference IP) is compared in 16 bytes; the rule with the
-**longest matching prefix** wins (on a tie, the first in
-file order); no match → empty position (World).
-
-**Strictness**: the file is operator-configured — an invalid
-line (malformed prefix, non-numeric country, unknown continent,
-excess field…) is a **startup error** carrying the **offending
-line number**; never a silently ignored line, never a partial
+**Strictness** is preserved for any future table surface: an
+invalid line is a typed startup error carrying the offending
+line number; never a silently ignored line, never a partial
 table.
 
 #### Option precedences
 
-- **Locator**: the embedded table imposes the geolocation (no operator override — see the imposed table above)
-  static options
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
-  which are ignored when the table is provided. Without a table,
-  the static options apply.
+- **Locator**: the embedded table IMPOSES the geolocation — no
+  operator override. The relay discovers its position from its
+  external address (STUN/AutoNAT/UPnP resolved by the table); LAN
+  clients inherit that position; Internet clients are resolved by
+  their source IP; the unknown falls back to World.
 - **Health**: `--no-health-check` is a **dedicated flag that
   wins** over `--health-check` — the combination
   `--health-check --no-health-check` leaves checks disabled, with
@@ -612,20 +595,10 @@ table.
   Healthy — also exists to mount the health structure without
   setting aside any endpoint: tests/paranoia.)
 
-Example:
+Example (geo routing is active with NO geo flag):
 
 ```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-ip-table /etc/scone/geoip.txt \
-            --no-health-check
-```
-
-Static v2 example:
-
-```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-country 250 --geo-asn 64500 --geo-region 11 \
-            --health-check --health-port 443
+scone relay --dns 127.0.0.1:5353 --no-health-check
 ```
 
 

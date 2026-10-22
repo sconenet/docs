@@ -518,14 +518,14 @@ en cache.
   les autres : vérifiés contre la chaîne (owner, sequence,
   record_hash) avant tout usage. **Aucune confiance réseau sans
   validation** — un GEOROUTE DHT non vérifié ne répond jamais.
-- La position du client vient de la **table GeoIP embarquée**
-  (DB-IP Lite, voir ci-dessus — imposée par le build) dérivée de son
-  IP source — ou de la déclaration statique du relais
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  pour un relais LAN sans IP publique résolvable). Aucun import de
-  table IP opérateur n'existe (les geozones sont imposées par le
-  build), jamais d'une API GeoIP réseau (aucune fuite de
-  requête, aucune dépendance).
+- La position du client vient du **circuit auto-découvert** : le
+  relais se localise via son adresse externe (STUN/AutoNAT/UPnP)
+  résolue par la table embarquée imposée au build — les clients LAN
+  (IP source privée) héritent de cette position, les clients
+  Internet sont résolus par leur propre IP, l'inconnu en World.
+  Jamais d'une API GeoIP réseau (aucune fuite de requête, aucune
+  dépendance) et jamais d'une déclaration opérateur (les geozones
+  sont imposées par le build).
 - Le tirage est déterministe et local : pas de secret, aucune
   imprévisibilité requise (la sécurité est celle de la signature de
   l'enregistrement, pas du tirage).
@@ -563,12 +563,9 @@ Comportement attendu :
 
 | Option | Défaut | Rôle |
 |---|---|---|
-| (aucune — GeoDNS toujours actif, table embarquée) | on | Routage automatique par IP source |
-| `--geo-ip-table <path>` | — | (obsolète — table GeoIP imposée par le build ; accepté, ignoré) |
-| `--geo-country <u16>` | — | Pays du client, ISO 3166-1 numérique (840=US…) — statique |
-| `--geo-continent <u16>` | — | Continent du client, ONU M49 (150=EU…) ; dérivé du pays si omis — statique |
-| `--geo-asn <u32>` | — | AS du client (64500…) — statique, nouveau en v2 |
-| `--geo-region <u32>` | — | Subdivision du client (identifiant opaque éditeur) — statique, nouveau en v2 |
+| (aucune — GeoDNS toujours actif, géo imposée par le build) | on | Routage automatique : le relais découvre sa position (STUN → table embarquée), les clients LAN héritent, les clients Internet par leur IP |
+| `--geo-ip-table <path>` | — | (obsolète — accepté, ignoré, comme `--rpc`) |
+| `--geo-config <json>`, `--geo-country/…` | — | (obsolètes — supprimés ; acceptés, ignorés) |
 | `--health-check` | off | Active les vérifications (bascule de santé) |
 | `--no-health-check` | off | **Désactive explicitement** les vérifications — GAGNE sur `--health-check` (voir précédences) |
 | `--health-ttl-secs <u64>` | 5 | TTL d'une entrée de santé |
@@ -611,11 +608,11 @@ jamais une table partielle.
 
 #### Précédences des options
 
-- **Localisateur** : la table embarquée impose la géolocalisation
-  (aucune surcharge opérateur — cf. la table imposée plus haut)
-  statiques (`--geo-country`/`--geo-continent`/`--geo-asn`/
-  `--geo-region`), qui sont ignorées quand la table est fournie.
-  Sans table, les options statiques s'appliquent.
+- **Localisateur** : la table embarquée IMPOSE la géolocalisation —
+  aucune surcharge opérateur. Le relais découvre sa position via son
+  adresse externe (STUN/AutoNAT/UPnP résolus par la table) ; les
+  clients LAN héritent de cette position, les clients Internet sont
+  résolus par leur IP source, l'inconnu en World.
 - **Santé** : `--no-health-check` est un **drapeau dédié qui gagne**
   sur `--health-check` — la combinaison `--health-check
   --no-health-check` laisse les vérifications désactivées, sans
@@ -626,20 +623,10 @@ jamais une table partielle.
   structure de santé sans écarter aucun point de terminaison :
   tests/paranoïa.)
 
-Exemple :
+Exemple (le routage géo est actif sans aucun flag géo) :
 
 ```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-ip-table /etc/scone/geoip.txt \
-            --no-health-check
-```
-
-Exemple statique v2 :
-
-```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-country 250 --geo-asn 64500 --geo-region 11 \
-            --health-check --health-port 443
+scone relay --dns 127.0.0.1:5353 --no-health-check
 ```
 
 
