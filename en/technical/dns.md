@@ -327,8 +327,9 @@ active everywhere, automatically.
   DB-IP Lite CSV, converts — numeric country, continent derived
   ISO→M49, ASN/region absent from the Lite).
 - **Granularity**: country (numeric ISO 3166-1) + continent (UN
-  M49) derived. No ASN nor region (absent from the Lite — operator
-  `--geo-ip-table` tables cover them).
+  M49) derived. No ASN nor region (absent from the Lite — an
+  ASN/region need awaits an embedded-pipeline evolution, never a
+  local table).
 - **Performance**: **binary search** lookup over sorted ranges
   (index built once at first use, per v4/v6 family) — measured
   ~95 ns/lookup hot, ~50 µs random-access on the full table
@@ -339,10 +340,10 @@ active everywhere, automatically.
   automatically.
 - **IMPOSED table** (remove-geo-operator-table, 2026-10-22): the
   embedded table is the **only source** — no operator import or
-  override exists. The legacy `--geo-ip-table` flag and the
-  geo-config `ip_table` key are accepted **without effect** (same
-  treatment as `--rpc`). An operator with specific needs (ASN,
-  region) waits for an embedded-pipeline evolution, not a local
+  override exists. **No runtime geo option exists**: every
+  `--geo-*` flag is a hard clap rejection (the geozone is
+  build-imposed). An operator with specific needs (ASN, region)
+  waits for an embedded-pipeline evolution, not a local
   table.
 
 ### Overview
@@ -447,11 +448,13 @@ decoder meeting a discriminant ≥ `0x03` already failed strictly
    increasing nonces distribute proportionally to the weights.
    `weight = 0` = inactive, never elected (even alone — move to
    the next level).
-4. **Health failover** — an **Unhealthy** endpoint is set aside;
-   if the whole minimal level is unavailable, move to the next
-   priority level. **Unknown counts as available** (the unknown
-   is not penalized). Everything unavailable → classic DNS
-   behavior.
+4. **Signed order, zero probing** — the resolver NEVER judges an
+   endpoint's availability: every active endpoint (weight > 0) of
+   the elected scope is a candidate, the head of the minimal level
+   is elected by the weighted draw, and the following ones act as
+   failovers **in signed record-set order** (the order IS the
+   failover mechanism). Endpoint reachability is the endpoint
+   operator's concern, never the resolver's.
 
 ### Response
 
@@ -463,7 +466,7 @@ decoder meeting a discriminant ≥ `0x03` already failed strictly
 - AA set (authoritative response — the GEOROUTE is a verified
   signed record like any other).
 - Empty response after filtering (no candidate of the right
-  family, everything Unhealthy, no matching route) → the resolver
+  family, no route for the zone) → the resolver
   continues on its classic path (typically NODATA: NOERROR, 0
   answers); error rcodes follow the general rules (never cached).
 - A classic A/AAAA record coexisting in the set takes
@@ -536,13 +539,12 @@ set serves every subname):
 
 Expected behavior:
 
-- **US** client → 10.1.0.1 (≈70%) or 10.1.0.2 (≈30%); if both
-  are Unhealthy → failover p20 → **10.2.0.1**;
+- **US** client → 10.1.0.1 (≈70%) or 10.1.0.2 (≈30%); the p20
+  level is only reached if no p10 endpoint is active (weight = 0
+  everywhere) → then **10.2.0.1**;
 - **TW** client → 10.3.0.1 (≈80%) or 10.4.0.1 (≈20%);
 - **FR** client (250) → no FR or EU route in the set → WORLD →
   **10.0.0.1**;
-- everything Unhealthy → no geo decision → NODATA (NOERROR, 0
-  answers);
 - **A** question on an IPv6-only route → empty answer (never an
   IPv6 in A);
 - domain without an applicable rule → same question, classic behavior (NODATA:
@@ -553,12 +555,7 @@ Expected behavior:
 | Option | Default | Role |
 |---|---|---|
 | (none — GeoDNS always on, embedded table) | on | Automatic routing by source IP |
-| `--geo-ip-table <path>` | — | (obsolete — accepted, ignored, like `--rpc`) |
-| `--geo-config <json>`, `--geo-country/…` | — | (obsolete — removed; accepted, ignored) |
-| `--health-check` | off | Enables checks (health failover) |
-| `--no-health-check` | off | **Explicitly disables** checks — WINS over `--health-check` (see precedences) |
-| `--health-ttl-secs <u64>` | 5 | TTL of a health entry |
-| `--health-port <u16>` | 443 | TCP port for checks (not derivable from a DNS record) |
+| `--geo-ip-table`, `--geo-config`, `--geo-country/…`, `--health-*` | — | (REMOVED — hard breakage: the geozone is build-imposed and the resolver performs no health checking; no runtime flag exists) |
 
 #### The embedded table is the only source
 
@@ -587,19 +584,11 @@ table.
   external address (STUN/AutoNAT/UPnP resolved by the table); LAN
   clients inherit that position; Internet clients are resolved by
   their source IP; the unknown falls back to World.
-- **Health**: `--no-health-check` is a **dedicated flag that
-  wins** over `--health-check` — the combination
-  `--health-check --no-health-check` leaves checks disabled, with
-  no input-order ambiguity. Without `--health-check`, checks are
-  off by default: **Unknown = available**, the geo answer goes
-  out even if the target is dead. (A `NoopChecker` — always
-  Healthy — also exists to mount the health structure without
-  setting aside any endpoint: tests/paranoia.)
 
 Example (geo routing is active with NO geo flag):
 
 ```bash
-scone relay --dns 127.0.0.1:5353 --no-health-check
+scone relay --dns 127.0.0.1:5353
 ```
 
 

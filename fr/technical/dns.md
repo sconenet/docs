@@ -337,8 +337,8 @@ routage géographique est actif partout, automatiquement.
   DB-IP Lite du mois, convertit — pays numérique, continent dérivé
   ISO→M49, ASN/région absents de la Lite).
 - **Granularité** : pays (ISO 3166-1 numérique) + continent (ONU
-  M49) dérivé. Pas d'ASN ni de région (absents de la Lite — les
-  tables opérateur `--geo-ip-table` les couvrent).
+  M49) dérivé. Pas d'ASN ni de région (absents de la Lite — un besoin ASN/région attend une évolution du
+  pipeline embarqué, jamais une table locale).
 - **Performance** : recherche par **dichotomie** sur des plages
   triées (index construit une fois à la première utilisation, par
   famille v4/v6) — mesuré ~95 ns/recherche à chaud, ~50 µs en accès
@@ -349,10 +349,11 @@ routage géographique est actif partout, automatiquement.
   bonne zone automatiquement.
 - **Table IMPOSÉE** (remove-geo-operator-table, 2026-10-22) : la
   table embarquée est la **seule source** — aucun import ni surcharge
-  opérateur n'existe. Le flag hérité `--geo-ip-table` et la clé
-  `ip_table` de geo-config sont acceptés **sans effet** (comme
-  `--rpc`). Un opérateur avec des besoins spécifiques (ASN, région)
-  attend une évolution du pipeline embarqué, pas une table locale.
+  opérateur n'existe. **Aucune option géo d'exécution n'existe** :
+  tout flag `--geo-*` est un rejet clap sec (la geozone est imposée
+  par le build). Un opérateur avec des besoins spécifiques (ASN,
+  région) attend une évolution du pipeline embarqué, pas une table
+  locale.
 
 ### Vue d'ensemble
 
@@ -457,11 +458,13 @@ l'identique (voir le test `geo_known_bytes`, gelé).
    avec le même nonce donnent le même résultat, des nonces croissants
    répartissent proportionnellement aux poids. `weight = 0` =
    inactif, jamais élu (même seul — passage au niveau suivant).
-4. **Bascule de santé** — un point de terminaison **Unhealthy** est
-   mis de côté ; si tout le niveau minimal est indisponible, passage
-   au niveau de priorité suivant. **Inconnu compte comme disponible**
-   (l'inconnu n'est pas pénalisé). Tout indisponible → comportement
-   DNS classique.
+4. **Ordre signé, zéro vérification** — le résolveur ne juge
+   JAMAIS la disponibilité d'un endpoint : tous les endpoints
+   actifs (weight > 0) du scope élu sont candidats, la tête du
+   niveau minimal est élue par le tirage pondéré, puis les suivants
+   servent de bascule **dans l'ordre du record set signé** (l'ordre
+   EST la mécanique de bascule). La joignabilité d'un endpoint est
+   l'affaire de son opérateur, jamais du résolveur.
 
 ### Réponse
 
@@ -473,7 +476,7 @@ l'identique (voir le test `geo_known_bytes`, gelé).
 - AA positionné (réponse autoritaire — le GEOROUTE est un
   enregistrement signé vérifié comme les autres).
 - Réponse vide après filtrage (aucun candidat de la bonne famille,
-  tout Unhealthy, aucune route correspondante) → le résolveur
+  aucune route pour la zone) → le résolveur
   poursuit sur son chemin classique (typiquement NODATA : NOERROR, 0
   réponses) ; les rcodes d'erreur suivent les règles générales
   (jamais mis en cache).
@@ -547,13 +550,12 @@ sert chaque sous-nom) :
 
 Comportement attendu :
 
-- client **US** → 10.1.0.1 (≈70 %) ou 10.1.0.2 (≈30 %) ; si les deux
-  sont Unhealthy → bascule p20 → **10.2.0.1** ;
+- client **US** → 10.1.0.1 (≈70 %) ou 10.1.0.2 (≈30 %) ; le niveau
+  p20 n'est atteint que si aucun endpoint p10 n'est actif
+  (weight = 0 partout) → alors **10.2.0.1** ;
 - client **TW** → 10.3.0.1 (≈80 %) ou 10.4.0.1 (≈20 %) ;
 - client **FR** (250) → aucune route FR ni EU dans l'ensemble →
   WORLD → **10.0.0.1** ;
-- tout Unhealthy → aucune décision geo → NODATA (NOERROR, 0
-  réponses) ;
 - question **A** sur une route IPv6 uniquement → réponse vide
   (jamais d'IPv6 dans A) ;
 - domaine sans règle applicable → même question, comportement
@@ -586,47 +588,28 @@ restaure le mode DHT.
 | Option | Défaut | Rôle |
 |---|---|---|
 | (aucune — GeoDNS toujours actif, géo imposée par le build) | on | Routage automatique : le relais découvre sa position (STUN → table embarquée), les clients LAN héritent, les clients Internet par leur IP |
-| `--geo-ip-table <path>` | — | (obsolète — accepté, ignoré, comme `--rpc`) |
-| `--geo-config <json>`, `--geo-country/…` | — | (obsolètes — supprimés ; acceptés, ignorés) |
-| `--health-check` | off | Active les vérifications (bascule de santé) |
-| `--no-health-check` | off | **Désactive explicitement** les vérifications — GAGNE sur `--health-check` (voir précédences) |
-| `--health-ttl-secs <u64>` | 5 | TTL d'une entrée de santé |
-| `--health-port <u16>` | 443 | Port TCP des vérifications (non dérivable d'un enregistrement DNS) |
+| `--geo-ip-table`, `--geo-config`, `--geo-country/…`, `--health-*` | — | (SUPPRIMÉS — cassage sec : la geozone est imposée par le build et le résolveur ne vérifie aucune santé ; aucun flag d'exécution n'existe) |
 
-#### Table GeoIP locale (`--geo-ip-table`)
+#### La table embarquée est la seule source
 
-Fichier TEXTE local de préfixes, lu **une fois** au démarrage
-(100 000 règles max, `MAX_GEOIP_RULES`). Une règle par ligne, `#` =
-commentaire, lignes vides ignorées :
+La table GeoIP est **imposée par le build** (DB-IP Lite,
+quantizée — voir la section table embarquée ci-dessus) : aucun
+import ni surcharge opérateur n'existe. Résolution : l'**IP source
+de la requête DNS** (par client : UDP `recv_from` / TCP
+`peer_addr`) est comparée sur 16 octets contre la table embarquée ;
+la règle au **plus long préfixe correspondant** gagne (à égalité,
+la première de la table triée).
 
-```text
-# prefix/mask        country continent asn     region
-10.0.0.0/8           840   3          .       .
-2001:db8::/32        250   150        64500   11
-192.0.2.0/24         158   9
-```
+- **source privée/non routable** (RFC1918, ULA fc00::/7,
+  link-local, loopback) : le client est DANS le réseau du relais —
+  il hérite de la position auto-découverte du relais ;
+- **source publique absente de la table** : World (pas de
+  découpage géo — jamais une mauvaise réponse).
 
-- `prefix/mask` : IPv4 (`len ≤ 32`, converti en forme 16 octets,
-  queue à zéro — même convention que le wire) ou IPv6
-  (`len ≤ 128`). **Les bits d'hôte doivent être à zéro**
-  (`10.1.2.3/8` est refusé) ;
-- `country` : ISO 3166-1 **numérique** `u16`, requis ;
-- `continent` : ONU M49 `u16`, optionnel (`.` ou omis = absent, le
-  continent peut alors se dériver du pays) ;
-- `asn` : `u32`, optionnel (`.` = absent) ;
-- `region` : `u32` opaque, optionnel (`.` = absent).
-
-Résolution : l'**IP source de la requête DNS** (par client :
-UDP `recv_from` / TCP `peer_addr` ; inconnue → IP de référence du
-résolveur) est comparée sur 16 octets ; la règle au **plus long
-préfixe correspondant** gagne (à égalité, la première dans l'ordre du
-fichier) ; aucune correspondance → position vide (World).
-
-**Strictesse** : le fichier est configuré par l'opérateur — une ligne
-invalide (préfixe malformé, pays non numérique, continent inconnu,
-champ en trop…) est une **erreur de démarrage** portant le **numéro
-de la ligne fautive** ; jamais une ligne silencieusement ignorée,
-jamais une table partielle.
+**Strictesse** : conservée pour toute future surface de table —
+une donnée invalide est une erreur de démarrage typée portant sa
+source ; jamais une ligne silencieusement ignorée, jamais une
+table partielle.
 
 #### Précédences des options
 
@@ -635,20 +618,11 @@ jamais une table partielle.
   adresse externe (STUN/AutoNAT/UPnP résolus par la table) ; les
   clients LAN héritent de cette position, les clients Internet sont
   résolus par leur IP source, l'inconnu en World.
-- **Santé** : `--no-health-check` est un **drapeau dédié qui gagne**
-  sur `--health-check` — la combinaison `--health-check
-  --no-health-check` laisse les vérifications désactivées, sans
-  ambiguïté d'ordre de saisie. Sans `--health-check`, les
-  vérifications sont désactivées par défaut : **Inconnu =
-  disponible**, la réponse geo sort même si la cible est morte. (Un
-  `NoopChecker` — toujours Healthy — existe aussi pour monter la
-  structure de santé sans écarter aucun point de terminaison :
-  tests/paranoïa.)
 
 Exemple (le routage géo est actif sans aucun flag géo) :
 
 ```bash
-scone relay --dns 127.0.0.1:5353 --no-health-check
+scone relay --dns 127.0.0.1:5353
 ```
 
 

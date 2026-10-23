@@ -527,13 +527,11 @@ waiter — see `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--upnp] [--mdns VAL (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE (obsolete, ignored)] [--geo-ip-table PATH (obsolete, ignored)]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -627,12 +625,13 @@ family as first-class commands: `tld open`, `tld transfer`,
 `register` claims mine their PoW at the network difficulty
 (milliseconds on devnet).
 
-The `--geo-*`/`--health-*` options configure GeoDNS and health
-checking **of the embedded DNS resolver**: full semantics,
-precedence order, and the local GeoIP table are documented in
-[`dns.md`](dns.md#geodns-geographic-routing) — geographic routing
-is **always on** (embedded GeoIP table, no option required);
-`--health-check` is off by default, classic path unchanged.
+**No geo or health option exists**: the geozone is
+**build-imposed** (embedded DB-IP Lite table — full semantics in
+[`dns.md`](dns.md#geodns-geographic-routing)); geographic routing
+is **always on** with no option, and the resolver performs no
+health checking — it serves the signed record set as-is (endpoint
+availability is the endpoint operators' concern). Any
+`--geo-*`/`--health-*` flag is a hard clap rejection.
 
 ### `domain register|update` (M5) — signed transactions in one command
 

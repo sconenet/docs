@@ -4,6 +4,8 @@ The documentation is **multilingual** and **normative**: it must enable an
 independent implementation without reading the Rust code. Any
 doc/code divergence is a bug (identify the source of truth, fix it).
 
+![Scone network overview](assets/network.png)
+
 - [`en/`](en/README.md)
 - [`zh-hans/`](zh-hans/README.md)
 - [`zh-hant/`](zh-hant/README.md)

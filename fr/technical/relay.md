@@ -536,13 +536,11 @@ voir `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--upnp] [--rpc ADDR (obsolète, ignoré)] [--mdns VAL (obsolète, ignoré)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE (obsolète, ignoré)] [--geo-ip-table PATH (obsolète, ignoré)]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -634,12 +632,15 @@ comme commandes de premier rang : `tld open`, `tld transfer`,
 `register` minent leur PoW à la difficulté du réseau (millisecondes
 sur devnet).
 
-Les options `--geo-*`/`--health-*` configurent le GeoDNS et la
-vérification de santé **du résolveur DNS embarqué** : sémantique
-complète, ordre de précédence et table GeoIP locale documentés dans
-[`dns.md`](dns.md#geodns-geographic-routing) — le routage géographique
-est **toujours actif** (table GeoIP embarquée, aucune option requise) ;
-`--health-check` est coupé par défaut, chemin classique inchangé.
+**Aucune option géo ou de santé n'existe** : la geozone est
+**imposée par le build** (table DB-IP Lite embarquée — sémantique
+complète documentée dans
+[`dns.md`](dns.md#geodns-geographic-routing)) ; le routage
+géographique est **toujours actif** sans aucune option, et le
+résolveur ne vérifie aucune santé — il sert l'ensemble signé tel
+quel (la disponibilité des endpoints est l'affaire de leurs
+opérateurs). Tout flag `--geo-*`/`--health-*` est un rejet clap
+sec.
 
 ### `domain register|update` (M5) — transactions signées en une commande
 

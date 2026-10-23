@@ -1,0 +1,18 @@
+---
+title: Scone network
+---
+
+flowchart LR
+  user["Users"]
+
+  subgraph net["Scone network — relays, anyone can run one"]
+    direction LR
+    r1["Relay"] <--> r2["Relay"] <--> r3["Relay"]
+  end
+
+  chain[("Blockchain — who owns what, a full copy in every relay")]
+  dht[("DHT — DNS records")]
+
+  user <--> net
+  net --> chain
+  net <--> dht
