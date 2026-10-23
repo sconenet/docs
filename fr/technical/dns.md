@@ -492,25 +492,25 @@ qtype) reste inchangé pour tout le reste — y compris le NODATA produit
 quand le geo ne décide rien. Les rcodes d'erreur restent jamais mis
 en cache.
 
-### Vérifications de santé (`--health-check`)
+### Délégation NS (enregistrements `ns`) — le owner choisit qui sert
 
-- `HealthCache` par cible (`GeoTarget`) : `probe` = lecture non
-  bloquante (statut frais, ou Unknown), **jamais** une vérification
-  déclenchée depuis le chemin de résolution.
-- Rafraîchissement : si un candidat élu est Unknown/absent du cache,
-  UN rafraîchissement est planifié en tâche de fond
-  (`tokio::spawn_blocking` : le connect TCP est bloquant, interdit
-  dans la boucle UDP). Anti-spam : un rafraîchissement à la fois par
-  cible (HashSet), redémarrable après la fin du rafraîchissement
-  précédent.
-- `TcpChecker` : connect TCP borné (délai 2 s) vers `target:port`.
-  Le **port ne peut pas se déduire d'un enregistrement DNS** :
-  `--health-port` le définit (défaut 443). Le vérificateur est
-  **délibérément naïf** (un connect réussi ≠ service sain) —
-  améliorable (HTTP, TLS, niveau applicatif) sans changement de
-  format.
-- TTL d'entrée : `--health-ttl-secs` (défaut 5 s) ; entrée expirée =
-  Unknown = disponible.
+Le owner d'un domaine choisit le mode de serving par domaine :
+
+- **DHT (défaut)** — sans enregistrement NS, le réseau Scone sert les
+  A/AAAA on-chain (relais `--dns`, ou le pont NSD via l'export) ;
+- **NS indépendant** — le owner pose des enregistrements
+  `ns <ip-ou-nom>` (SES nameservers, IP directe ou nom) : le domaine
+  est DÉLÉGUÉ — le réseau cesse de servir son contenu (A/AAAA →
+  NODATA + autorité NS), et quiconque résout suit les NS du owner.
+  La borne : **12 NS distincts par domaine** (toutes formes,
+  dédupliquées par valeur — le miroir des caps des registres
+  réels). Le retrait d'un NS libère le slot ; le retrait de tous
+  restaure le mode DHT.
+
+**Aucun health checking n'existe** : la disponibilité des endpoints
+est l'affaire de leurs opérateurs — le résolveur sert l'ensemble
+signé tel quel, dans l'ordre des enregistrements (l'ordre est la
+mécanique de bascule).
 
 ### Sécurité
 

@@ -481,25 +481,26 @@ remains unchanged for everything else — including the NODATA
 produced when geo decides nothing. Error rcodes remain never
 cached.
 
-### Health checks (`--health-check`)
+### NS delegation (`ns` records) — the owner chooses who serves
 
-- `HealthCache` per target (`GeoTarget`): `probe` = non-blocking
-  read (fresh status, or Unknown), **never** a check triggered
-  from the resolution path.
-- Refresh: if an elected candidate is Unknown/absent from the
-  cache, ONE refresh is scheduled as a background task
-  (`tokio::spawn_blocking`: the TCP connect is blocking,
-  forbidden in the UDP loop). Anti-spam: one refresh at a time
-  per target (HashSet), restartable after the previous refresh
-  finishes.
-- `TcpChecker`: bounded TCP connect (2 s timeout) to
-  `target:port`. The **port cannot be derived from a DNS
-  record**: `--health-port` sets it (default 443). The checker is
-  **deliberately naive** (a successful connect ≠ healthy
-  service) — improvable (HTTP, TLS, application-level) without
-  format change.
-- Entry TTL: `--health-ttl-secs` (default 5 s); expired entry =
-  Unknown = available.
+The owner of a domain chooses the serving mode per domain:
+
+- **DHT (default)** — with no NS record, the Scone network serves
+  the on-chain A/AAAA (relay `--dns`, or the NSD bridge via
+  export);
+- **independent NS** — the owner adds `ns <ip-or-name>` records
+  (THEIR nameservers, direct IP or hostname): the domain is
+  DELEGATED — the network stops serving its content (A/AAAA →
+  NODATA + NS authority), and anyone resolving follows the
+  owner's NS. The bound: **12 distinct NS per domain** (all
+  forms, deduplicated by value — mirroring real-world registry
+  caps). Removing an NS frees the slot; removing all restores
+  DHT mode.
+
+**No health checking exists**: endpoint availability is the
+endpoint operators' concern — the resolver serves the signed
+record set as-is, in record order (the record order is the
+failover mechanism).
 
 ### Security
 
