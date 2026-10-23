@@ -539,6 +539,71 @@ bénéficiaire n'est jamais consulté. Choix assumé (dons, dead-drops,
 legs), sans dette PoS imposable : voir `security-model.md`
 (acquisition passive et éligibilité).
 
+## POW-TO-OWNER — quatre formes sans signature (0x2A, 0x57, 0x84, 0xC3)
+
+Quatre variantes ADDITIVES aux formes signées (jamais substitutives —
+D1) : `REGISTER_TLD_POW` (0x2A), `RENEW_TLD_POW` (0x57),
+`REGISTER_DOMAIN_POW` (0x84), `RENEW_DOMAIN_POW` (0xC3). Aucune ne
+porte NI clé de signataire NI signature : **la preuve de travail minée
+est l'intégralité de l'autorisation**.
+
+### Le challenge lie le bénéficiaire et le réseau (D2)
+
+```
+challenge = tag_kind ‖ nom ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `tag_kind` : le tag de la famille (SCONE-TLD-V1 pour les TLD,
+  SCONE-DOMAIN-V1 pour les domaines) — pas de replay croisé entre
+  kinds ;
+- `pubkey_dest` : la clé du BÉNÉFICIAIRE — une preuve rendue n'est
+  consommable que par elle (vol de preuve impossible, minage délégué
+  sûr) ;
+- `network_id` : une preuve devnet ne rejoue jamais sur testnet ni
+  mainnet.
+
+Les formes de RENOUVELLEMENT ajoutent le suffixe anti-réutilisation
+de la famille signée : `‖ valid_until_courant` (BE, 8 octets) — une
+preuve minée paie exactement un terme.
+
+### Structure des corps
+
+Miroirs exacts des corps signés, `pubkey_dest` à la place de la clé
+de signataire, AUCUNE signature finale :
+
+- `REGISTER_TLD_POW` : name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖
+  open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest),
+  recalculé, jamais cru (D4) ; open = naissance OPEN (tarif réduit) ;
+  privé = terme 3 ans strict, le bénéficiaire devient un siège PoS ;
+- `REGISTER_DOMAIN_POW` : name ‖ domain_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ pubkey_dest — TLD OUVERT uniquement (privé → TldClosed :
+  l'espace privé reste le chemin signé du owner) ;
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW` : name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Gardes d'application (D3)
+
+- Le propriétaire en chaîne SHALL ÉGALEMENT être le destinataire du
+  challenge : un renouvellement ne peut JAMAIS changer de mains —
+  seul un register crée une propriété nouvelle ;
+- les difficultés, fenêtre d'époque, grâce et termes sont CEUX des
+  formes signées (D5 : le coût d'entrée ne change pas) ;
+- la clé du bénéficiaire est apprise (résolution du pool PoS) au
+  même titre que la clé d'un signataire.
+
+### txid et coexistence
+
+Le txid reste le hash canonique du contenu (aucune signature
+contenu) ; les discriminants 0x2A/0x57/0x84/0xC3 sont le marqueur de
+fork — un nœud ancien les refuse en UnknownDiscriminant, un nœud
+nouveau décode les formes v1 sans changement. `signing_payload` est
+N/A pour les quatre formes (erreur typée `PowNotSignable`) : elles
+ne sont jamais signées.
+
+CLI : `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew --to`.
+
 ## Règles de validation
 
 Une transaction est valide si et seulement si :

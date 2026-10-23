@@ -299,6 +299,67 @@ already registered, the id suffices.
 - `name`: length-varint + UTF-8 bytes, capped at 253
   (`MAX_NAME_LEN`), revalidated by the `scone-core` naming rules.
 
+## POW-TO-OWNER — four signature-less forms (0x2A, 0x57, 0x84, 0xC3)
+
+Four ADDITIVE variants alongside the signed forms (never a
+replacement — D1): `REGISTER_TLD_POW` (0x2A), `RENEW_TLD_POW`
+(0x57), `REGISTER_DOMAIN_POW` (0x84), `RENEW_DOMAIN_POW` (0xC3).
+None carries a signer key NOR a signature: **the mined proof of work
+is the whole authorization**.
+
+### The challenge binds the beneficiary and the network (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: the family tag (SCONE-TLD-V1 for TLDs, SCONE-DOMAIN-V1
+  for domains) — no cross-kind replay;
+- `pubkey_dest`: the BENEFICIARY's key — a handed-over proof is
+  consumable only by that key (no proof theft, safe delegated mining);
+- `network_id`: a devnet proof never replays on testnet or mainnet.
+
+The RENEWAL forms append the signed family's anti-reuse suffix:
+`‖ current_valid_until` (BE, 8 bytes) — one mined proof pays exactly
+one term.
+
+### Body structure
+
+Exact mirrors of the signed bodies, `pubkey_dest` in place of the
+signer key, NO trailing signature:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖
+  open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest),
+  recomputed, never trusted (D4); open = OPEN birth (lesser rate);
+  private = strict 3-year term, the beneficiary becomes a PoS seat;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ pubkey_dest — OPEN TLD only (private → TldClosed: the
+  private namespace keeps the owner-signature path);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Application guards (D3)
+
+- The on-chain owner SHALL ALSO be the challenge's beneficiary: a
+  renewal can NEVER change hands — only a register creates new
+  property;
+- difficulties, epoch window, grace and terms are the SIGNED forms'
+  own (D5: the entry cost does not change);
+- the beneficiary's key is learned (PoS pool resolution) exactly like
+  a signer's.
+
+### txid and coexistence
+
+The txid stays the canonical hash of the content; the 0x2A/0x57/
+0x84/0xC3 discriminants are the fork marker — an old node rejects
+them as UnknownDiscriminant, a new node decodes the v1 forms
+unchanged. `signing_payload` is N/A for all four (typed
+`PowNotSignable` error): they are never signed.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew --to`.
+
 ## Owner derivation
 
 Hard rule: **the owner is always recomputed, never trusted**.
