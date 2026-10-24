@@ -82,6 +82,37 @@ puede ser demostrado por cualquiera que posea ambas firmas
 (journaled, reversible en reorg). Los dominios/TLDs del acusado no
 se confiscan (sanción mínima — decisión M9).
 
+## Adquisición pasiva y elegibilidad PoS
+
+**Pregunta**: ¿puede un tercero imponerme una posesión — y por tanto
+una obligación PoS — sin mi consentimiento?
+
+**Sí para la posesión, no para la deuda.** Un nombre puede
+adquirirse pasivamente: las transacciones de cesión
+(`TransferTld`, `TransferDomain`) las firma solo el **cedente**
+(el destinatario es solo un `OwnerId` opaco, nunca consultado),
+`AssignDomain` lo firma el propietario del TLD, y las asignaciones
+de la génesis aterrizan en la clave del manifiesto. Es una
+característica asumida: regalos, dead drops, legados. La propiedad
+anti-Sybil no depende de ello: un asiento por **propietario
+distinto de un nombre vivo** (`owner_refcounts`), y cada posesión
+le cuesta trabajo a alguien.
+
+**Ninguna deuda imponible**: el slashing castiga solo la
+**equivocación probada** (dos firmas conflictivas, `SlashTx`,
+expulsión); una clave pasiva no firma nada y por tanto nunca puede
+ser slasheada. La ausencia de un miembro sorteado va a
+**recuperación** (nuevo sorteo), sin sanción. Un asiento recibido
+sin desearlo queda desechable: expiración + GC, `SetTldOpen` (el
+asiento se libera al abrir), `RevokeTld`, o retransferencia.
+
+**Decisión rastreada — sin consentimiento de adquisición**: una
+reclamación en dos fases (transferencia pendiente, aceptación
+firmada por el destinatario) se consideró y se rechazó — rompe los
+dead drops y el «primero aplicado gana», añade una máquina de
+estados sobre los nombres, y protege contra un riesgo
+demostrablemente inexistente (ninguna deuda imponible, ver arriba).
+
 ## Propiedades verificadas por tests
 
 - `checkpoint_hash_engages_signatures`: el hash del checkpoint

@@ -316,17 +316,27 @@ Todo binário embute uma **tabela de mapeamento IP → país** compilada
 no relay: **nenhuma configuração necessária**, o roteamento geográfico
 está ativo em todo lugar, automaticamente.
 
-- **Fonte de dados**: os **arquivos de delegação dos RIR**
-  (RIPE NCC, ARIN,
-  APNIC, LACNIC, AFRINIC), livremente baixáveis e redistribuíveis:
-  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
-  (país de registro de cada bloco IPv4/IPv6 delegado). A data de
-  geração está no header da tabela
+- **Fonte de dados**: **DB-IP Lite** ("IP to Country Lite"),
+  licenciado sob **CC BY 4.0** — redistribuível com atribuição:
+  `https://db-ip.com` (curado mensalmente; antes: as delegações
+  dos RIR via `scripts/gen-geo-table.py`, removido). Células
+  quantizadas **/20 v4 e /24 v6** (a granularidade nativa do
+  DB-IP, ~1.3 M de faixas, excede o limite de memória do parser)
+  — ~96.500 regras. A data de geração está no header da tabela
   (`assets/embedded-geo.table`).
-- **Regeneração**: `scripts/gen-geo-table.py` (baixa os 5
-  arquivos, converte, normaliza prefixos — ~176.000 regras).
+- **Checksum**: o SHA-256 da tabela é calculado em tempo de
+  compilação (`build.rs`), **reverificado na partida**
+  (mismatch = recusa tipada — um binário alterado nunca serve
+  respostas geográficas) e logado na partida com a atribuição. O
+  hash garante que "todos os nós de um mesmo build compartilham a
+  mesma tabela" é VERIFICÁVEL, não presumido.
+- **Regeneração**: `scripts/geo-convert.py` (baixa o CSV de
+  DB-IP Lite do mês, converte — país numérico, continente derivado
+  ISO→M49, ASN/região ausentes da Lite).
 - **Granularidade**: país (ISO 3166-1 numérico) + continente (ONU
-  M49) derivado. Sem ASN nem região (ausentes das delegações).
+  M49) derivado. Sem ASN nem região (ausentes da Lite — uma
+  necessidade de ASN/região aguarda uma evolução do pipeline
+  embutido, nunca uma tabela local).
 - **Desempenho**: consulta por **busca binária** sobre faixas
   ordenadas (índice construído uma vez no primeiro uso, por família
   v4/v6) — medido ~95 ns/consulta a quente, ~50 µs em acesso
@@ -336,8 +346,13 @@ está ativo em todo lugar, automaticamente.
 - **Autolocalização do relay**: o roteamento segue o **IP de origem
   de cada consulta** — um relay de LAN encaminha seus clientes
   locais à zona certa automaticamente.
-- **Precedência**: uma tabela explícita de operador
-  (`--geo-ip-table`/geo-config) **sobrepõe** a embutida.
+- **Tabela IMPOSTA** (remove-geo-operator-table, 2026-10-22): a
+  tabela embutida é a **única fonte** — não existe import nem
+  sobreposição do operador. **Não existe opção geo em runtime**:
+  toda flag `--geo-*` é uma recusa clap seca (a geozone é imposta
+  pelo build). Um operador com necessidades específicas (ASN,
+  região) aguarda uma evolução do pipeline embutido, não uma
+  tabela local.
 
 ### Visão geral
 
@@ -443,11 +458,13 @@ congelado).
    nonces crescentes distribuem proporcionalmente aos pesos.
    `weight = 0` = inativo, nunca eleito (mesmo sozinho — passar ao
    nível seguinte).
-4. **Failover de saúde** — um endpoint **Unhealthy** é posto de lado;
-   se todo o nível mínimo estiver indisponível, passar ao nível de
-   prioridade seguinte. **Desconhecido conta como disponível** (o
-   desconhecido não é penalizado). Tudo indisponível →
-   comportamento DNS clássico.
+4. **Ordem assinada, zero sondagem** — o resolvedor NUNCA julga a
+   disponibilidade de um endpoint: todo endpoint ativo (weight > 0)
+   do escopo eleito é candidato, a cabeça do nível mínimo é eleita
+   pelo sorteio ponderado, e os seguintes atuam como failovers
+   **na ordem do conjunto de registros assinado** (a ordem É o
+   mecanismo de failover). A alcançabilidade de um endpoint é
+   assunto do operador desse endpoint, nunca do resolvedor.
 
 ### Resposta
 
@@ -459,7 +476,7 @@ congelado).
 - AA posto (resposta autoritativa — o GEOROUTE é um registro assinado
   verificado como qualquer outro).
 - Resposta vazia após filtragem (nenhum candidato da família certa,
-  tudo Unhealthy, nenhuma rota correspondente) → o resolvedor
+  nenhuma rota para a zona) → o resolvedor
   continua no seu caminho clássico (tipicamente NODATA: NOERROR, 0
   respostas); rcodes de erro seguem as regras gerais (nunca cacheados).
 - Um registro A/AAAA clássico coexistindo no conjunto leva
@@ -477,25 +494,25 @@ permanece inalterado para todo o resto — incluindo o NODATA
 produzido quando o geo não decide nada. Os rcodes de erro permanecem
 nunca cacheados.
 
-### Health checks (`--health-check`)
+### Delegação NS (registros `ns`) — o owner escolhe quem serve
 
-- `HealthCache` por alvo (`GeoTarget`): `probe` = leitura não
-  bloqueante (status fresco, ou Unknown), **nunca** uma verificação
-  disparada do caminho de resolução.
-- Refresh: se um candidato eleito está Unknown/ausente do
-  cache, UM refresh é agendado como task de fundo
-  (`tokio::spawn_blocking`: o connect TCP é bloqueante,
-  proibido no loop UDP). Anti-spam: um refresh por vez por
-  alvo (HashSet), reiniciável após o refresh anterior
-  terminar.
-- `TcpChecker`: connect TCP limitado (timeout de 2 s) a
-  `target:port`. **A porta não pode ser derivada de um registro
-  DNS**: `--health-port` a define (padrão 443). O checker é
-  **deliberadamente ingênuo** (um connect bem-sucedido ≠ serviço
-  saudável) — melhorável (HTTP, TLS, nível de aplicação) sem
-  mudança de formato.
-- TTL da entrada: `--health-ttl-secs` (padrão 5 s); entrada expirada =
-  Unknown = disponível.
+O owner de um domínio escolhe o modo de serviço por domínio:
+
+- **DHT (padrão)** — sem registro NS, a rede Scone serve os
+  A/AAAA on-chain (relay `--dns`, ou a ponte NSD via export);
+- **NS independente** — o owner adiciona registros
+  `ns <ip-ou-nome>` (SEUS nameservers, IP direta ou hostname): o
+  domínio fica DELEGADO — a rede deixa de servir seu conteúdo
+  (A/AAAA → NODATA + autoridade NS), e quem resolve segue os NS do
+  owner. O limite: **12 NS distintos por domínio** (todas as
+  formas, deduplicados por valor — espelho dos caps dos registros
+  reais). Remover um NS libera o slot; remover todos restaura o
+  modo DHT.
+
+**Não existe verificação de saúde**: a disponibilidade dos
+endpoints é assunto dos operadores dos endpoints — o resolvedor
+serve o conjunto assinado como está, na ordem dos registros (a
+ordem dos registros é o mecanismo de failover).
 
 ### Segurança
 
@@ -503,13 +520,14 @@ nunca cacheados.
   verificados contra a chain (owner, sequence, record_hash) antes de
   qualquer uso. **Nenhuma confiança de rede sem validação** — um
   GEOROUTE DHT não verificado nunca responde.
-- A posição do cliente vem da **tabela GeoIP embutida**
-  (delegações RIR, ver acima) derivada do seu IP de origem — ou
-  da configuração local explícita do resolvedor
-  (`--geo-ip-table` ou
-  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  que tem precedência), nunca de uma API GeoIP de rede (nenhum
-  vazamento de consulta, nenhuma dependência).
+- A posição do cliente vem do **circuito autodescoberto**: o
+  relay se autolocaliza via seu endereço externo (STUN/AutoNAT/
+  UPnP) resolvido pela tabela embutida imposta pelo build —
+  clientes LAN (IP de origem privada) herdam essa posição,
+  clientes da Internet são resolvidos pelo próprio IP, o
+  desconhecido cai no World. Nunca de uma API GeoIP de rede
+  (nenhum vazamento de consulta, nenhuma dependência) e nunca de
+  uma declaração do operador (a geozone é imposta pelo build).
 - O sorteio é determinístico e local: nenhum segredo, nenhuma
   imprevisibilidade exigida (a segurança é a da assinatura do
   registro, não a do sorteio).
@@ -531,13 +549,12 @@ inteiro serve todos os subnomes):
 
 Comportamento esperado:
 
-- cliente **US** → 10.1.0.1 (≈70%) ou 10.1.0.2 (≈30%); se ambos
-  estiverem Unhealthy → failover p20 → **10.2.0.1**;
+- cliente **US** → 10.1.0.1 (≈70%) ou 10.1.0.2 (≈30%); o nível p20
+  só é alcançado se nenhum endpoint p10 estiver ativo (weight = 0
+  em todos) → então **10.2.0.1**;
 - cliente **TW** → 10.3.0.1 (≈80%) ou 10.4.0.1 (≈20%);
 - cliente **FR** (250) → nenhuma rota FR ou EU no conjunto → WORLD →
   **10.0.0.1**;
-- tudo Unhealthy → nenhuma decisão geo → NODATA (NOERROR, 0
-  respostas);
 - pergunta **A** numa rota somente IPv6 → resposta vazia (nunca um
   IPv6 em A);
 - domínio sem regra aplicável → mesma pergunta, comportamento clássico (NODATA:
@@ -548,81 +565,42 @@ Comportamento esperado:
 | Opção | Padrão | Papel |
 |---|---|---|
 | (nenhuma — GeoDNS sempre ativo, tabela embutida) | on | Roteamento automático por IP de origem |
-| `--geo-ip-table <path>` | — | **Tabela GeoIP local** (ver abaixo). Tem PRECEDÊNCIA sobre todas as opções estáticas `--geo-*` |
-| `--geo-country <u16>` | — | País do cliente, ISO 3166-1 numérico (840=US…) — estático |
-| `--geo-continent <u16>` | — | Continente do cliente, ONU M49 (150=EU…); derivado do país se omitido — estático |
-| `--geo-asn <u32>` | — | AS do cliente (64500…) — estático, novo na v2 |
-| `--geo-region <u32>` | — | Subdivisão do cliente (identificador opaco do publicador) — estático, novo na v2 |
-| `--health-check` | off | Ativa as verificações (failover de saúde) |
-| `--no-health-check` | off | **Desativa explicitamente** as verificações — VENCE sobre `--health-check` (ver precedências) |
-| `--health-ttl-secs <u64>` | 5 | TTL de uma entrada de saúde |
-| `--health-port <u16>` | 443 | Porta TCP das verificações (não derivável de um registro DNS) |
+| `--geo-ip-table`, `--geo-config`, `--geo-country/…`, `--health-*` | — | (REMOVIDAS — quebra seca: a geozone é imposta pelo build e o resolvedor não faz nenhuma verificação de saúde; não existe nenhuma flag em runtime) |
 
-#### Tabela GeoIP local (`--geo-ip-table`)
+#### A tabela embutida é a única fonte
 
-Arquivo TEXTO local de prefixos, lido **uma vez** na partida (100.000
-regras no máximo, `MAX_GEOIP_RULES`). Uma regra por linha, `#` =
-comentário, linhas vazias ignoradas:
-
-```text
-# prefix/mask        country continent asn     region
-10.0.0.0/8           840   3          .       .
-2001:db8::/32        250   150        64500   11
-192.0.2.0/24         158   9
-```
-
-- `prefix/mask`: IPv4 (`len ≤ 32`, convertido à forma de 16 bytes,
-  cauda zero — mesma convenção que o wire) ou IPv6 (`len ≤ 128`).
-  **Os bits de host devem ser zero** (`10.1.2.3/8` é recusado);
-- `country`: ISO 3166-1 **numérico** `u16`, obrigatório;
-- `continent`: ONU M49 `u16`, opcional (`.` ou omitido = ausente,
-  o continente pode então ser derivado do país);
-- `asn`: `u32`, opcional (`.` = ausente);
-- `region`: `u32` opaco, opcional (`.` = ausente).
-
-Resolução: o **IP de origem da consulta DNS** (por cliente:
-UDP `recv_from` / TCP `peer_addr`; desconhecido → IP de referência do
-resolvedor) é comparado em 16 bytes; a regra com o **prefixo
+A tabela GeoIP é **imposta pelo build** (DB-IP Lite, quantizada,
+veja a seção da tabela embutida acima): nenhuma tabela de operador
+pode ser importada. Resolução: o **IP de origem da consulta DNS**
+(por cliente: UDP `recv_from` / TCP `peer_addr`) é comparado em 16
+bytes contra a tabela embutida; a regra com o **prefixo
 correspondente mais longo** vence (empate: a primeira na ordem do
-arquivo); nenhuma correspondência → posição vazia (World).
+arquivo).
 
-**Rigor**: o arquivo é configurado pelo operador — uma linha
-inválida (prefixo malformado, país não numérico, continente
-desconhecido, campo em excesso…) é um **erro de partida** carregando o
-**número da linha ofensiva**; nunca uma linha silenciosamente ignorada,
-nunca uma tabela parcial.
+- **origem privada/irroteável** (RFC1918, ULA fc00::/7,
+  link-local, loopback): o cliente está DENTRO da rede do relay —
+  ele herda a posição autodescoberta do próprio relay;
+- **origem pública ausente da tabela**: World (sem divisão geo —
+  nunca uma resposta errada).
+
+**O rigor** é preservado para qualquer futura superfície de
+tabela: uma linha inválida é um erro de partida tipado carregando
+o número da linha ofensiva; nunca uma linha silenciosamente
+ignorada, nunca uma tabela parcial.
 
 #### Precedências das opções
 
-- **Localizador**: `--geo-ip-table` **tem precedência** sobre as
-  opções estáticas
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
-  que são ignoradas quando a tabela é fornecida. Sem tabela,
-  aplicam-se as opções estáticas.
-- **Saúde**: `--no-health-check` é uma **flag dedicada que
-  vence** sobre `--health-check` — a combinação
-  `--health-check --no-health-check` deixa as verificações
-  desativadas, sem ambiguidade de ordem de entrada. Sem
-  `--health-check`, as verificações estão
-  desativadas por padrão: **Unknown = disponível**, a resposta geo
-  sai mesmo que o alvo esteja morto. (Um `NoopChecker` — sempre
-  Healthy — também existe para montar a estrutura de saúde sem
-  pôr de lado nenhum endpoint: testes/paranoia.)
+- **Localizador**: a tabela embutida IMPÕE a geolocalização —
+  nenhuma sobreposição do operador. O relay descobre sua posição
+  a partir do seu endereço externo (STUN/AutoNAT/UPnP resolvidos
+  pela tabela); clientes LAN herdam essa posição; clientes da
+  Internet são resolvidos pelo seu IP de origem; o desconhecido
+  cai no World.
 
-Exemplo:
+Exemplo (o roteamento geo está ativo sem NENHUMA flag geo):
 
 ```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-ip-table /etc/scone/geoip.txt \
-            --no-health-check
-```
-
-Exemplo estático v2:
-
-```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-country 250 --geo-asn 64500 --geo-region 11 \
-            --health-check --health-port 443
+scone relay --dns 127.0.0.1:5353
 ```
 
 

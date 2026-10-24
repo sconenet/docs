@@ -145,8 +145,8 @@ tabela GeoIP embutida, fallback recursivo), o loop de
 checkpoint/heartbeat das âncoras (a CLI fala p2p QUIC direto com o
 relay, sem RPC local). Alcançabilidade e descoberta: AutoNAT
 v2 (veredito alcançável/NATed), circuit-relay v2 + DCUtR para nós
-atrás de NAT, mDNS (descoberta LAN zero-config, LIGADA por padrão na devnet)
-e UPnP (mapeamento da porta QUIC pelo roteador, opt-in). Configuração via arquivo `.env` (ver `.env.example`).
+atrás de NAT e UPnP (mapeamento da porta QUIC pelo roteador,
+opt-in). Configuração via arquivo `.env` (ver `.env.example`).
 Referência: `/docs/en/technical/relay.md`.
 
 **scone-keystore** — armazenamento criptografado das chaves de assinatura Ed25519
@@ -161,7 +161,9 @@ conexões) e recebe decisões de gerenciamento de vizinhança.
 
 **scone-genesis** — binário de ferramenta one-shot (kickstarter) para o
 preparo da gênese da mainnet: manifesto JSON versionado, alocações,
-bloco determinístico.
+bloco determinístico. A ferramenta produz os artefatos, o repositório
+nunca os versiona (recusa escritas dentro de um workspace Rust;
+distribuição reservada ao lançamento, ver `blockchain.md`).
 
 **scone** — binário/CLI. Depende de uma crate apenas quando realmente
 a usa (hoje: scone-network para o relay, scone-blockchain,

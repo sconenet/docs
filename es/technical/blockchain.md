@@ -164,8 +164,20 @@ caracteres = piso de 22 bits ≈ 11,5 h. **Máquina de referencia de
 (`SetTldOpen`) se queda en dificultad plana
 (`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): la tx
 lleva solo el `tld_id`, el nombre ya pagó su longitud en la
-creación. Función pura (determinismo: dos nodos computan la misma
-dificultad para el mismo nombre).
+creación. **Dos pruebas planas más** completan la familia (antispam
+a nivel de consenso, misma sal de época y ventana que los
+registros): `transfer_pow_difficulty` para las cesiones
+(`TransferTld`/`TransferDomain`, retos `SCONE-TLD-XFER-V1 ‖ tld_id`
+/ `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) y `assign_pow_difficulty`
+para la creación bajo un TLD privativo (`AssignDomain`, reto
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — plana por decisión: la
+exclusividad del espacio de nombres se pagó en la creación del
+TLD, sin doble tasación por longitud). Valores indicativos: 16 bits
+mainnet (calibración bench-pow 2026-10-23: ≈ 1,7 h por
+cesión/assign en UN núcleo a los 10,6 H/s medidos, referencia
+11,4 H/s; ≈ 25 min a 4 núcleos — costoso de industrializar,
+trabajo ordinario para un propietario honesto), 4 bits testnet,
+1 bit devnet. Función pura (determinismo).
 
 El génesis es una constante de protocolo **por red**, reproducible
 a partir de las constantes solas (sin aleatoriedad, sin reloj
@@ -187,6 +199,20 @@ count.v ‖ entries` (dominios/TLDs prepagados, orden canónico por
 nombre, manifiesto ≤ 60 KiB, ≤ 2048 asignaciones) — este formato
 ampliado es lo que justifica `MAX_CONSENSUS_LEN` = 64 KiB (ver
 `scone-blockchain::genesis_alloc`).
+
+**Distribución de la génesis de asignación**: ningún artefacto de
+génesis (`genesis.bin`, manifiesto) vive jamás en el repositorio
+fuente ni en las releases de código, sea cual sea la red o la fase
+del proyecto — dos archivos de génesis son dos redes. La génesis de
+asignación de la mainnet nace solo en el lanzamiento (el paso a la
+feature `mainnet` activada por defecto): producida por
+`scone-genesis` a partir de un manifiesto firmado publicado fuera
+del repositorio, su hash queda fijado en el anuncio de lanzamiento,
+y solo los nodos fundadores la consumen (`--genesis`, nacimiento de
+la cadena); todos los demás nodos se unen a la red por sync. La
+herramienta rechaza cualquier escritura dentro de un directorio de
+workspace Rust (presencia de `Cargo.toml`): una génesis no debe
+poder aterrizar jamás en el árbol fuente.
 
 El `network_id` en el payload de consenso hace que los hashes del
 génesis — y por tanto toda la blockchain — sean **disjuntos entre
@@ -807,11 +833,19 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`:
 
-1. **Bootstrap** (sin checkpoint finalizado): firma el pool ENTERO
-   — un comité sorteado desde una vista local divergiría entre
-   nodos rezagados (la causa raíz de las congelaciones de
-   finalidad); el pool entero es determinista por la cadena. La
-   selección estricta se reanuda con la primera finalidad.
+1. **Bootstrap** (sin checkpoint finalizado): firman los
+   **operadores FRESCOS** del pool (`fresh_operators` — un
+   heartbeat reciente, la misma ventana que el régimen finalizado).
+   El filtro es estado de la cadena (los heartbeats están
+   on-chain), así que es determinista por tip: dos nodos en el
+   mismo tip computan el mismo conjunto. Por debajo de
+   `MIN_FINALITY_COMMITTEE_SIZE` operadores frescos, degradación
+   segura al pool ENTERO (bootstrap en frío, caída general de
+   operadores — la finalidad nunca se pierde por construcción). El
+   pool bruto no puede servir como conjunto de firma: cada
+   registro en autoservicio aumenta el denominador del quórum
+   mientras esos propietarios nunca firman — la finalidad se
+   volvió inalcanzable tras ~10 registros (testnet, 2026-10-21).
 2. **Régimen finalizado**: sorteo desde el subconjunto **fresco**
    del pool congelado (RFC proof-of-service §5.2) — cada asiento
    (clave del propietario) se resuelve a su operador EFECTIVO por
@@ -826,10 +860,23 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    en frío, caída general de operadores — la finalidad nunca se
    pierde por construcción).
 
-`allowed_producers(block_ts)` (producción de bloques) sigue el
-mismo esquema: pool entero en bootstrap; comité elegido + sorteos
-de recuperación (sorteo k desbloqueado tras k × `epoch_secs` de
-tiempo de consenso) en el régimen finalizado.
+`allowed_producers(block_ts)` (producción de bloques) sigue una
+regla deliberadamente más ancha: pool entero en bootstrap; **pool
+CONGELADO entero** en el régimen finalizado. El comité elegido (+
+sorteos de recuperación) sigue siendo solo el conjunto de FIRMA de
+checkpoints. Restringir la producción al comité se especificó e
+implementó primero, y luego se retiró: un productor cuya vista va
+un checkpoint por detrás evalúa los candidatos con las reglas de
+bootstrap y emite bloques que todo par finalizado rechaza
+(`InvalidProducer`), y cualquier historial de cadena ensamblado a
+través de la transición no puede pasar nunca el replay
+`pool_at_height` — la finalidad se congela en el primer checkpoint
+para siempre (reproductor sim `duplicate_and_delay`,
+2026-10-21). La congelación del pool sola carga el peso de la
+seguridad: los cambios de membresía (registro, transferencia,
+expulsión, expiración) solo surten efecto en el SIGUIENTE
+checkpoint, así que el conjunto de productores sigue siendo una
+función pura de la cadena finalizada.
 
 El quórum del checkpoint es `quorum_for(tamaño del comité)`
 (floor(2n/3)+1); un comité por debajo de

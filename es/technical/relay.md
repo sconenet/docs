@@ -86,24 +86,7 @@ Tres mecanismos complementarios, en este orden de prioridad:
    recompone: el relay encuentra a sus pares habituales sin
    configuración. Es una caché: archivo ausente/corrupto =
    directorio vacío, nunca un error.
-4. **mDNS LAN** (`--mdns`) — descubrimiento sin configuración en el
-   enlace local: los relays vecinos del mismo segmento de red se
-   encuentran SIN ningún seed (la ruta devnet sin configuración).
-   **Por defecto: ACTIVADO en devnet, APAGADO en las demás** (una
-   red local reiniciable es por diseño una red de descubrimiento;
-   un despliegue público no multidifunde nada). Comportamiento:
-   bind del socket de multidifusión; un fallo de bind (sin
-   multidifusión en la interfaz, entorno aislado/sandbox)
-   **desactiva** mDNS con una advertencia — nunca fatal (el
-   descubrimiento es una comodidad, nunca un salvavidas). Cada
-   vecino `Discovered` alimenta la tabla Kademlia
-   (`kad.add_address`), exactamente igual que un bootstrap
-   explícito menos la configuración; las entradas `Expired` las
-   sigue libp2p mismo (la conexión se cierra por su propio
-   timeout). Los miembros `mdns`/`upnp` del behaviour son
-   `Toggle`s (activados/desactivados en construcción,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, opt-in) — mapeo del puerto de escucha QUIC
+4. **UPnP** (`--upnp`, opt-in) — mapeo del puerto de escucha QUIC
    por el router doméstico: el nodo se vuelve alcanzable desde
    fuera SIN circuit relay. En `NewExternalAddr`, la dirección
    externa se registra como dirección externa real del swarm
@@ -114,12 +97,14 @@ Tres mecanismos complementarios, en este orden de prioridad:
    casos normales en una LAN doméstica. Un mapeo caducado
    (renovación fallida) es una advertencia.
 
-mDNS sigue a la red (un `--mdns`/`SCONE_MDNS` explícito siempre
-gana): **ACTIVADO por defecto en devnet**, APAGADO en
-testnet/mainnet; UPnP queda **desactivado por defecto**
-(`enable_mdns`/`enable_upnp` = `false` en `config.rs`, el relay
-activa mDNS para devnet): un despliegue público no multidifunde
-nada ni habla con ningún router.
+UPnP queda **desactivado por defecto** (`enable_upnp` = `false` en
+`config.rs`): un despliegue público no habla con ningún router sin
+consentimiento. **El descubrimiento mDNS fue eliminado**
+(remove-mdns-discovery, 2026-10-22): el peering viene
+exclusivamente del bootstrap explícito, de los seeds integrados y
+de Kademlia — el flag heredado `--mdns`/`SCONE_MDNS` sigue
+aceptándose sin efecto (compatibilidad de scripts, mismo trato que
+`--rpc`).
 
 ### Optimización de topología local (siempre activa)
 
@@ -368,17 +353,39 @@ valor por defecto de la biblioteca `scone-network`
 `SCONE_ANCHOR_PASSPHRASE` nunca se alcanza a través del binario,
 clap siempre lo sobreescribe):
 
+- **rotación del proponente**: exactamente UN miembro designado
+  del comité se autopropone por época (`committee[epoch % size]`,
+  determinista); los demás miembros nunca firman su propio tip —
+  el contenido de un checkpoint depende del tip del proponente, y
+  las autopropuestas sin filtro fragmentaban la época en
+  contenidos rivales que cada guardia rechaza con razón como
+  equivocación (testnet, 2026-10-21);
 - tras cada bloque aceptado/producido, si este nodo es miembro del
   comité actual **y** el comité alcanza
   `MIN_FINALITY_COMMITTEE_SIZE`, el relay firma el checkpoint
   propuesto vía su `SignerGuard` (`signer-state.dat` en el
   data-dir — una clave = un voto/época, fail-closed a prueba de
   caídas) y lo glosipea;
+- **voto al recibir**: una propuesta cuyo contenido es válido
+  sobre NUESTRA cadena (el bloque referenciado está presente, con
+  el mismo hash) y lleva una firma del comité recibe TAMBIÉN
+  nuestra firma — sin ella, cada anchor firmaba solo el contenido
+  de su propio tip y nunca se reunía ningún quorum;
 - las firmas recibidas (`Message::Checkpoint`) se acumulan por
   hash de `CheckpointData` (acotado a 256 entradas); a
   `quorum_for(tamaño del comité)` firmas de miembro sobre los
   MISMOS datos → `accept_checkpoint` + difusión del checkpoint
   finalizado;
+- **persistencia de la finalidad**: la ventana de checkpoints y la
+  base congelada se escriben en el store en cada finalización y se
+  recargan en el arranque. Los checkpoints son estado de gossip
+  (nunca los portan los bloques) — un reinicio sin esta
+  persistencia partía de una base vacía y nunca podía volver a
+  encadenar una ventana servida por pares (las épocas anchor por
+  debajo de la ventana de la red han desaparecido);
+- **puesta al día de la finalidad**: un relay cuya base está vacía
+  (el arranque de un nodo fresco) pide `GetCheckpoints` a un par
+  en cada tick hasta que la base se restaura;
 - un relay sin clave anchor queda **pasivo**: acumula, finaliza y
   reenvía, pero nunca firma;
 - `GetCheckpoints` → se sirve la ventana `checkpoint_window()`;
@@ -551,13 +558,11 @@ waiter DHT — ver `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsoleto, ignorado)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -606,7 +611,7 @@ cada variable (copiar a `.env` y ajustar; `.env` está
 | `SCONE_LISTEN` | `--listen` | multiaddr de escucha P2P (por defecto: todas las interfaces, puerto efímero) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | seeds de bootstrap, **repetible** (una línea por valor — dotenvy acumula); reemplaza los seeds integrados |
 | `SCONE_GENESIS` | `--genesis` | archivo de génesis (nodos fundadores) |
-| `SCONE_MDNS` | `--mdns` | descubrimiento mDNS LAN (`true` = activado, `false` = apagado; por defecto: ACTIVADO en devnet, APAGADO en las demás) |
+| `SCONE_MDNS` | `--mdns` | (obsoleto — descubrimiento mDNS eliminado; aceptado, ignorado) |
 | `SCONE_UPNP` | `--upnp` | mapeo de puertos UPnP (`true` = activado) |
 | `SCONE_DNS_ADDR` | `--dns` | dirección de bind del servidor DNS UDP |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallbacks recursivos, **repetible** |
@@ -650,13 +655,14 @@ transfer`, `tld revoke`, `domain assign`, `domain transfer`. Las
 reclamaciones `register` minan su PoW a la dificultad de la red
 (milisegundos en devnet).
 
-Las opciones `--geo-*`/`--health-*` configuran el GeoDNS y la
-comprobación de salud **del resolvedor DNS embebido**: semántica
-completa, orden de precedencia y tabla GeoIP local documentados en
-[`dns.md`](dns.md#geodns-geographic-routing) — el enrutado
-geográfico está **siempre activo** (tabla GeoIP embebida, sin
-opción requerida); `--health-check` está apagado por defecto, ruta
-clásica sin cambios.
+**No existe ninguna opción geo ni de salud**: la geozona está
+**impuesta por el build** (tabla DB-IP Lite embebida — semántica
+completa en [`dns.md`](dns.md#geodns-geographic-routing)); el
+enrutado geográfico está **siempre activo** sin opción, y el
+resolvedor no hace ninguna comprobación de salud — sirve el
+conjunto de registros firmado tal cual (la disponibilidad de los
+endpoints es asunto de los operadores de los endpoints). Todo flag
+`--geo-*`/`--health-*` es un rechazo clap seco.
 
 ### `domain register|update` (M5) — transacciones firmadas en un comando
 

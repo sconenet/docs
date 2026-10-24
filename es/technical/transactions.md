@@ -158,7 +158,7 @@ solo en el payload de firma).
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Campo | Tipo | Restricciones |
@@ -166,6 +166,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 bytes crudos | el TLD transferido |
 | `owner` | 32 bytes crudos | derivación de `public_key` (propietario actual / firmante) |
 | `new_owner` | 32 bytes crudos | identidad del destinatario (opaca: cualquier valor es sintácticamente válido; el enlace a las claves que pueden gastarlo es una regla de estado M8b) |
+| `proof` | acotado (varint ‖ bytes) | prueba de cesión anti-churn, reto `SCONE-TLD-XFER-V1 ‖ tld_id`, dificultad plana `transfer_pow_difficulty`, sal de época |
 | `public_key` | 32 bytes crudos | clave pública Ed25519 del firmante |
 | `signature` | **exactamente 64 bytes** | firma Ed25519 del payload firmado |
 
@@ -207,7 +208,7 @@ propietario en `SetTldOpen` — la prueba viaja en el campo firmado
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Espejo de `RegisterDomain`: el nombre canónico viaja en claro y
@@ -215,7 +216,10 @@ Espejo de `RegisterDomain`: el nombre canónico viaja en claro y
 decodificación, codificación y validación). Firmado por el
 **propietario del TLD del nombre** (comprobado en aplicación,
 M8b); `assignee` se convierte en el primer propietario del dominio
-(opaco, como `new_owner`).
+(opaco, como `new_owner`). Lleva su propia prueba plana antispam
+(`assign_pow_difficulty`, reto `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —
+plana por decisión: la exclusividad del espacio de nombres se
+pagó en la creación del TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -311,6 +315,73 @@ el id basta.
   (`MAX_NAME_LEN`), revalidado por las reglas de nomenclatura de
   `scone-core`.
 
+## POW-TO-OWNER — cuatro formas sin firma (0x2A, 0x57, 0x84, 0xC3)
+
+Cuatro variantes ADITIVAS junto a las formas firmadas (nunca un
+reemplazo — D1): `REGISTER_TLD_POW` (0x2A), `RENEW_TLD_POW` (0x57),
+`REGISTER_DOMAIN_POW` (0x84), `RENEW_DOMAIN_POW` (0xC3). Ninguna
+lleva clave de firmante NI firma: **la prueba de trabajo minada es
+toda la autorización**.
+
+### El reto liga al beneficiario y a la red (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: el tag de la familia (SCONE-TLD-V1 para los TLD,
+  SCONE-DOMAIN-V1 para los dominios) — sin replay cruzado entre
+  kinds;
+- `pubkey_dest`: la clave del BENEFICIARIO — una prueba entregada
+  solo es consumible por esa clave (sin robo de pruebas, minado
+  delegado seguro);
+- `network_id`: una prueba de devnet nunca hace replay en testnet
+  ni en mainnet.
+
+Las formas de RENOVACIÓN añaden el sufijo anti-reutilización de la
+familia firmada: `‖ current_valid_until` (BE, 8 bytes) — una
+prueba minada paga exactamente un período.
+
+### Estructura del cuerpo
+
+Espejos exactos de los cuerpos firmados, `pubkey_dest` en lugar de
+la clave del firmante, SIN firma final:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖
+  open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest),
+  recomputado, nunca confiado (D4); open = nacimiento OPEN (tarifa
+  reducida); privativo = período estricto de 3 años, el
+  beneficiario se convierte en un asiento PoS;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ pubkey_dest — solo TLD ABIERTO (privativo → TldClosed:
+  el espacio de nombres privativo conserva la ruta de firma del
+  propietario);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Guardas de aplicación (D3)
+
+- El propietario on-chain DEBE SER TAMBIÉN el beneficiario del
+  reto: una renovación NUNCA puede cambiar de manos — solo un
+  register crea propiedad nueva;
+- las dificultades, la ventana de época, la gracia y los períodos
+  son los de las propias formas firmadas (D5: el coste de entrada
+  no cambia);
+- la clave del beneficiario se aprende (resolución del pool PoS)
+  exactamente como la de un firmante.
+
+### txid y coexistencia
+
+El txid sigue siendo el hash canónico del contenido; los
+discriminantes 0x2A/0x57/0x84/0xC3 son el marcador de fork — un
+nodo antiguo los rechaza como UnknownDiscriminant, un nodo nuevo
+decodifica las formas v1 sin cambios. `signing_payload` es N/A
+para las cuatro (error tipado `PowNotSignable`): nunca se firman.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew --to`.
+
 ## Derivación del propietario
 
 Regla dura: **el propietario siempre se recomputa, nunca se
@@ -356,17 +427,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Propiedades:
@@ -521,8 +592,28 @@ más lento).
 
 Ramas de estado (M8b, entregado): `RegisterTld` SIEMPRE exige su
 PoW; `RegisterDomain` lo exige sobre un TLD **abierto** (la ruta
-cerrada es solo asignación — `AssignDomain`, sin PoW, firmado por
-el propietario del TLD).
+cerrada es solo asignación — `AssignDomain`, firmado por el
+propietario del TLD, con su propia prueba plana antispam).
+
+**Pruebas de cesión y asignación (antispam a nivel de consenso)**:
+`TransferTld`, `TransferDomain` y `AssignDomain` llevan cada una
+una prueba de trabajo **plana** — `transfer_pow_difficulty` para
+las dos cesiones (retos `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` para
+la asignación (reto `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Misma sal de
+época y ventana anti pre-mining que los registros; verificadas en
+la admisión al mempool (época estimada, best-effort) y luego en la
+aplicación (estricta). Objetivo: el churn de transferencias y la
+creación masiva bajo un TLD privativo cuestan trabajo a nivel de
+consenso, no política. Sin tasación por longitud: para las
+asignaciones, la exclusividad del espacio de nombres ya se pagó
+cuando se creó el TLD privativo.
+
+**Cesión pasiva**: estas rutas de adquisición (`TransferTld`,
+`TransferDomain`, `AssignDomain`) las firma solo el cedente —
+el destinatario nunca es consultado. Una elección asumida
+(regalos, dead drops, legados), sin deuda PoS imponible: ver
+`security-model.md` (adquisición pasiva y elegibilidad).
 
 ## Reglas de validación
 

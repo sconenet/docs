@@ -95,8 +95,12 @@ Transaction = disc u8 || version u8 || payload
 | Discriminante | Tipo |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Cada discriminante é uma constante opaca arbitrária (sem sequência
 lógica; `0x00` nunca válido) — tabela normativa completa em
@@ -104,14 +108,18 @@ lógica; `0x00` nunca válido) — tabela normativa completa em
 
 O byte de `version` (valor atual `0x01`) segue o discriminante:
 qualquer outro valor é explicitamente rejeitado
-(`UnsupportedVersion(value)`). **Todas as transações são assinadas**
-(Ed25519): especificação completa, payload assinado e regras de validação em
+(`UnsupportedVersion(value)`). A maioria das transações é assinada
+(Ed25519) — EXCETO as quatro formas sem assinatura pow-to-owner
+(`0x2A`, `0x57`, `0x84`, `0xC3`): a prova minerada É a
+autorização, e seu desafio liga a chave do beneficiário e a rede.
+Especificação completa, payload assinado e regras de validação em
 **`/docs/en/technical/transactions.md`** (normativo).
 
 Desde a mudança de wire de 2026-09, **as transações não carregam mais um
-campo `network`**: o `network_id` (`str` ≤ 16) é injetado **apenas no
-payload de assinatura** — uma tx assinada para uma rede nunca
-verifica em outra (ver `/docs/en/technical/blockchain.md`).
+campo `network`**: o `network_id` (`str` ≤ 16) é injetado no
+**payload de assinatura** (formas assinadas) ou no **desafio PoW**
+(formas pow-to-owner) — uma tx feita para uma rede nunca se
+transporta para outra (ver `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 
