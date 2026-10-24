@@ -169,9 +169,11 @@ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) et
 (`AssignDomain`, challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ nom` — plate par
 décision : l'exclusivité du namespace a été payée à la création du
 TLD, pas de taxation par longueur). Valeurs indicatives : 16 bits
-mainnet (~1.6 h mono-cœur à 11.1 H/s mesurés, ~12 min en minage
-multi-cœur), 4 bits testnet, 1 bit devnet —
-calibration à affiner. Fonction pure (déterminisme).
+mainnet (calibration bench-pow 2026-10-23 : ≈ 1.7 h par
+cession/assign sur UN cœur à 10.6 H/s mesurés, référence
+11.4 H/s ; ≈ 25 min à 4 cœurs — coûteux à industrialiser,
+travail ordinaire pour un owner honnête), 4 bits testnet,
+1 bit devnet. Fonction pure (déterminisme).
 
 La genèse est une constante de protocole **par réseau**, reproductible
 à partir des seules constantes (pas d'aléa, pas d'horloge locale, pas

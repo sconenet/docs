@@ -102,8 +102,12 @@ Transaction = disc u8 || version u8 || payload
 | Discriminant | Type |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Chaque discriminant est une constante arbitraire opaque (aucune
 logique de séquence ; `0x00` jamais valide) — table normative
@@ -111,16 +115,19 @@ complète dans `/docs/en/technical/transactions.md`.
 
 L'octet `version` (valeur courante `0x01`) suit le
 discriminant : toute autre valeur est explicitement rejetée
-(`UnsupportedVersion(value)`). **Toutes les transactions sont
-signées** (Ed25519) : spécification complète, charge signée et
-règles de validation dans
-**`/docs/en/technical/transactions.md`** (normatif).
+(`UnsupportedVersion(value)`). La plupart des transactions sont
+signées (Ed25519) — SAUF les quatre formes pow-to-owner sans
+signature (`0x2A`, `0x57`, `0x84`, `0xC3`) : la preuve minée EST
+l'autorisation, et son challenge lie la clé du bénéficiaire et le
+réseau. Spécification complète, charge signée et règles de
+validation dans **`/docs/en/technical/transactions.md`** (normatif).
 
 Depuis le changement filaire de 2026-09, **les transactions ne
 portent plus de champ `network`** : le `network_id` (`str`
-≤ 16) est injecté **uniquement dans la charge de signature** —
-une transaction signée pour un réseau ne se vérifie jamais sur
-un autre (voir `/docs/en/technical/blockchain.md`).
+≤ 16) est injecté dans la **charge de signature** (formes
+signées) ou le **challenge PoW** (formes pow-to-owner) — une
+transaction préparée pour un réseau ne transite jamais vers un
+autre (voir `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 

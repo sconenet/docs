@@ -172,7 +172,24 @@ editing goes through `domain set` / `domain update`.
   `scone domain mine n.tld | scone domain register n.tld
   --proof -` (or `--proof FILE`). The proof is name- and
   network-bound; freshness is enforced by the node at apply
-  time (epoch validity window).
+  time (epoch validity window). With `--mine-for <pubkey>` it
+  instead mines a POW-TO-OWNER proof for that beneficiary and
+  prints the `scone-domain-pow-to-v1` JSON `{type, name,
+  network_id, epoch, pow_to, proof}` — consumable ONLY by
+  `register --to` / `renew --to` for that exact key (the
+  challenge embeds it; case-insensitive check at submission).
+- Pow-to-owner submission (no keystore needed — `--to` is
+  exclusive with `--identity`): `scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to <pubkey>`
+  and `scone tld register <tld> --to <pubkey>` / `scone tld
+  renew <tld> --to <pubkey>` submit a proof whose challenge
+  binds the BENEFICIARY key; the on-chain `owner` is recomputed
+  as `hash(pubkey_dest)` (a renew NEVER changes hands). Without
+  `--proof`, the command mines the proof itself; with `--proof
+  -`/FILE it consumes a `scone-domain-pow-to-v1` payload and
+  refuses a proof mined for ANOTHER beneficiary. Pipe style:
+  `scone domain mine n.tld --mine-for <pubkey> | scone domain
+  register n.tld --to <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — writes the
   chain-verified record set in the exact `update --file` format
   (round-trip guaranteed: export → edit → update re-submits the

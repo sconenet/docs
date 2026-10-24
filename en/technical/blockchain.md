@@ -167,9 +167,11 @@ anti-spam, same epoch salt and window as registrations):
 creation under a private TLD (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flat by decision: the namespace's
 exclusivity was paid at TLD creation, no per-length double taxation).
-Indicative values: 16-bit mainnet (~1.2 h at 11.4 H/s), 4-bit
-testnet, 1-bit devnet — calibration to refine. Pure function
-(determinism).
+Indicative values: 16-bit mainnet (bench-pow 2026-10-23
+calibration: ≈ 1.7 h per cession/assign on ONE core at the
+measured 10.6 H/s, reference 11.4 H/s; ≈ 25 min at 4 cores —
+costly to industrialize, ordinary work for an honest owner),
+4-bit testnet, 1-bit devnet. Pure function (determinism).
 
 Genesis is a protocol constant **per network**, reproducible from the
 constants alone (no randomness, no local clock, no network):

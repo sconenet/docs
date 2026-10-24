@@ -25,7 +25,7 @@ Deux parties :
 | Document | Contenu |
 |---|---|
 | [protocol.md](technical/protocol.md) | Format binaire canonique du wire : varints LEB128, identifiants, enregistrements DNS, blocs, messages P2P, limites, versionnage |
-| [transactions.md](technical/transactions.md) | Format de transaction signée v1 : champs, ordre du wire (RegisterDomain porte le nom, discriminants arbitraires), dérivation du propriétaire, charge signée `SCONE-TX-SIG-V1`, règles de validation |
+| [transactions.md](technical/transactions.md) | Formats de transaction v1 : formes signées (champs, ordre du wire — RegisterDomain porte le nom, discriminants arbitraires, dérivation du propriétaire, charge signée `SCONE-TX-SIG-V1`) et les quatre formes pow-to-owner sans signature (la preuve minée EST l'autorisation), règles de validation |
 | [blockchain.md](technical/blockchain.md) | Couche blockchain : `TxId`, arbre de Merkle, `BlockHash`, genèse, état canonique, validation des blocs, abstraction de consensus |
 | [keystore.md](technical/keystore.md) | Format de fichier de clés `.sconekey` (Argon2id + XChaCha20-Poly1305), API `scone-keystore`, commandes `identity` |
 | [storage.md](technical/storage.md) | Persistance locale redb : schéma des tables, deltas atomiques, politique mémoire, modèle de confiance, bornes DoS |

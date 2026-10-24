@@ -94,8 +94,12 @@ Transaction = disc u8 || version u8 || payload
 | Discriminant | Type |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Each discriminant is an arbitrary opaque constant (no logical
 sequence; `0x00` never valid) — full normative table in
@@ -103,14 +107,18 @@ sequence; `0x00` never valid) — full normative table in
 
 The `version` byte (current value `0x01`) follows the discriminant:
 any other value is explicitly rejected
-(`UnsupportedVersion(value)`). **All transactions are signed**
-(Ed25519): full specification, signed payload and validation rules in
+(`UnsupportedVersion(value)`). Most transactions are signed
+(Ed25519) — EXCEPT the four signature-less pow-to-owner forms
+(`0x2A`, `0x57`, `0x84`, `0xC3`): the mined proof IS the
+authorization, and its challenge binds the beneficiary key and the
+network. Full specification, signed payload and validation rules in
 **`/docs/en/technical/transactions.md`** (normative).
 
 Since the 2026-09 wire change, **transactions no longer carry a
-`network` field**: the `network_id` (`str` ≤ 16) is injected **only
-into the signing payload** — a tx signed for one network never
-verifies on another (see `/docs/en/technical/blockchain.md`).
+`network` field**: the `network_id` (`str` ≤ 16) is injected into
+the **signing payload** (signed forms) or the **PoW challenge**
+(pow-to-owner forms) — a tx made for one network never carries
+over to another (see `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 

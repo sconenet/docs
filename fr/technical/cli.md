@@ -190,7 +190,25 @@ passe par `domain set` / `domain update`.
   scone domain register n.tld --proof -` (ou `--proof FICHIER`).
   La preuve est liée au nom et au réseau ; la fraîcheur est
   vérifiée par le nœud à l'application (fenêtre de validité
-  d'époque).
+  d'époque). Avec `--mine-for <pubkey>`, il mine à la place une
+  preuve POW-TO-OWNER pour ce bénéficiaire et imprime le JSON
+  `scone-domain-pow-to-v1` `{type, name, network_id, epoch,
+  pow_to, proof}` — consommable UNIQUEMENT par `register --to` /
+  `renew --to` pour exactement cette clé (le challenge l'embarque ;
+  contrôle insensible à la casse à la soumission).
+- Soumission pow-to-owner (aucun coffre nécessaire — `--to` est
+  exclusif de `--identity`) : `scone domain register <nom> --to
+  <pubkey>` / `scone domain renew <nom> --to <pubkey>` et
+  `scone tld register <tld> --to <pubkey>` / `scone tld renew
+  <tld> --to <pubkey>` soumettent une preuve dont le challenge
+  lie la clé du BÉNÉFICIAIRE ; l'`owner` en chaîne est recalculé
+  comme `hash(pubkey_dest)` (un renew ne change JAMAIS de mains).
+  Sans `--proof`, la commande mine elle-même la preuve ; avec
+  `--proof -`/FICHIER elle consomme un payload
+  `scone-domain-pow-to-v1` et refuse une preuve minée pour UN
+  AUTRE bénéficiaire. Style pipe : `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --to
+  <pubkey> --proof -`.
 - `scone domain export <nom> [--out FILE]` — écrit le jeu
   d'enregistrements vérifié sur chaîne dans le format exact de
   `update --file` (aller-retour garanti : export → édition →

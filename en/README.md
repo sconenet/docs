@@ -24,7 +24,7 @@ Two parts:
 | Document | Content |
 |---|---|
 | [protocol.md](technical/protocol.md) | Canonical wire binary format: LEB128 varints, identifiers, DNS records, blocks, P2P messages, limits, versioning |
-| [transactions.md](technical/transactions.md) | Signed transaction format v1: fields, wire order (RegisterDomain carries the name, arbitrary discriminants), owner derivation, signed payload `SCONE-TX-SIG-V1`, validation rules |
+| [transactions.md](technical/transactions.md) | Transaction formats v1: signed forms (fields, wire order — RegisterDomain carries the name, arbitrary discriminants, owner derivation, signed payload `SCONE-TX-SIG-V1`) and the four signature-less pow-to-owner forms (the mined proof IS the authorization), validation rules |
 | [blockchain.md](technical/blockchain.md) | Blockchain layer: `TxId`, Merkle tree, `BlockHash`, genesis, canonical state, block validation, consensus abstraction |
 | [keystore.md](technical/keystore.md) | `.sconekey` keyfile format (Argon2id + XChaCha20-Poly1305), `scone-keystore` API, `identity` commands |
 | [storage.md](technical/storage.md) | Local redb persistence: table schema, atomic deltas, memory policy, trust model, DoS bounds |
