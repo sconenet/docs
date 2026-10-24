@@ -144,8 +144,7 @@ KV 状态后端、区块日志、经校验的快照
 检查点/心跳循环（CLI 通过直接的 p2p QUIC 与
 中继通信，不再有本地 RPC）。可达性与发现：AutoNAT
 v2（可达/处于 NAT 后的判定）、面向 NAT 后节点的
-circuit-relay v2 + DCUtR、mDNS（零配置局域网发现，
-在 devnet 上默认开启）和 UPnP（由路由器做 QUIC
+circuit-relay v2 + DCUtR 和 UPnP（由路由器做 QUIC
 端口映射，可选启用）。通过 `.env` 文件进行配置（见 `.env.example`）。
 参考：`/docs/en/technical/relay.md`。
 
@@ -161,7 +160,9 @@ circuit-relay v2 + DCUtR、mDNS（零配置局域网发现，
 
 **scone-genesis** —— 用于主网
 创世准备的一次性工具二进制（kickstarter）：带版本的 JSON 清单、
-分配方案、确定性区块。
+分配方案、确定性区块。该工具生成产物，仓库永不将其纳入版本管理
+（拒绝写入任何 Rust workspace 内部；分发保留至主网上线，见
+`blockchain.md`）。
 
 **scone** —— 二进制/CLI。只有实际使用某个 crate 时才
 依赖它（当前包括：用于中继的 scone-network、scone-blockchain、

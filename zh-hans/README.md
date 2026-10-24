@@ -25,11 +25,11 @@
 | 文档 | 内容 |
 |---|---|
 | [protocol.md](technical/protocol.md) | 规范线上二进制格式：LEB128 变长整数、标识符、DNS 记录、区块、P2P 消息、限制、版本管理 |
-| [transactions.md](technical/transactions.md) | 已签名交易格式 v1：字段、线上顺序（RegisterDomain 携带名称、任意判别值）、所有者派生、签名载荷 `SCONE-TX-SIG-V1`、验证规则 |
+| [transactions.md](technical/transactions.md) | 交易格式 v1：已签名形式（字段、线上顺序——RegisterDomain 携带名称、任意判别值、所有者派生、签名载荷 `SCONE-TX-SIG-V1`）以及四种无签名的 pow-to-owner 形式（挖出的工作量证明即是授权）、验证规则 |
 | [blockchain.md](technical/blockchain.md) | 区块链层：`TxId`、Merkle 树、`BlockHash`、创世区块、规范状态、区块验证、共识抽象 |
 | [keystore.md](technical/keystore.md) | `.sconekey` 密钥文件格式（Argon2id + XChaCha20-Poly1305）、`scone-keystore` API、`identity` 命令 |
 | [storage.md](technical/storage.md) | 本地 redb 持久化：表结构、原子增量、内存策略、信任模型、DoS 边界 |
-| [relay.md](technical/relay.md) | 网络中继（`scone-network`）：libp2p 协议、节点发现（种子、目录、mDNS、UPnP）、可达性（AutoNAT、circuit-relay、DCUtR）、内存池、同步、Kademlia DHT、本地拓扑、Prometheus 指标、DNS 快照、完整 CLI、`.env` 配置 |
+| [relay.md](technical/relay.md) | 网络中继（`scone-network`）：libp2p 协议、节点发现（种子、目录、UPnP）、可达性（AutoNAT、circuit-relay、DCUtR）、内存池、同步、Kademlia DHT、本地拓扑、Prometheus 指标、DNS 快照、完整 CLI、`.env` 配置 |
 | [dns.md](technical/dns.md) | UDP + TCP DNS 服务器（M6/M7b）：权威 DNS 快照、16 路分片热路径缓存（共享条目、无分配查找、紧凑记录、名称压缩）、RFC 1035 编解码器、TCP RFC 7766（512 字节 UDP / 64 KiB TCP 预算、TC 位）、DHT 负缓存、递归回退、边界限制 |
 | [cli.md](technical/cli.md) | `scone` 二进制：日志与详细程度（stdout/stderr、`-v` 级别、`RUST_LOG`）、通过 `.env` 进行环境配置（优先级：标志 > `.env` > 默认值） |
 | [security-model.md](technical/security-model.md) | 安全模型：委员会选举、种子防研磨（分析：无需 VRF）、歧义行为与罚没 |

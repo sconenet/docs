@@ -87,24 +87,7 @@ swarm 層級的硬性限制（libp2p
    開機時重組目錄：中繼站無需組態就
    找到它慣常的 peer。它是快取：檔案
    缺失／損毀 = 空目錄，絕不是錯誤。
-4. **LAN mDNS**（`--mdns`）— 本機連結上
-   的零組態探索：同一網路區段的相鄰
-   中繼站完全無需種子即互相發現（零組態
-   devnet 路徑）。**預設：devnet 開、
-   其他關**（可重置的本機網路本身就是
-   探索網路；公開部署不做群播）。行為：
-   綁定群播 socket；綁定失敗（介面
-   無群播、沙箱環境）附警告**停用**
-   mDNS — 絕不致命（探索是便利、絕非
-   生命線）。每個 `Discovered` 鄰居
-   餵入 Kademlia 表（`kad.add_address`），
-   與明確 bootstrap 減去組態後完全相同；
-   `Expired` 條目由 libp2p 自行追蹤
-  （連線以其自身逾時關閉）。行為的
-   `mdns`／`upnp` 成員是 `Toggle`（建構時
-   啟用／停用、
-   `build_behaviour(key, enable_mdns, enable_upnp)`）。
-5. **UPnP**（`--upnp`、opt-in）— 由家用
+4. **UPnP**（`--upnp`、opt-in）— 由家用
    路由器映射 QUIC 監聽埠：節點無需
    circuit relay 即可從外部觸達。在
    `NewExternalAddr` 時，外部位址註冊為
@@ -117,12 +100,14 @@ swarm 層級的硬性限制（libp2p
    LAN 上的正常情況。過期的映射（續約
    失敗）是警告。
 
-mDNS 跟隨網路（明確的 `--mdns`／
-`SCONE_MDNS` 恆勝）：**devnet 預設開**、
-testnet/mainnet 關；UPnP 保持**預設停用**
-（`config.rs` 中 `enable_mdns`／`enable_upnp`
-= `false`、中繼站為 devnet 開啟 mDNS）：
-公開部署不群播也不與路由器交談。
+UPnP 保持**預設停用**（`config.rs` 中
+`enable_upnp` = `false`）：公開部署未經同意
+不與任何路由器交談。**mDNS 探索已被移除**
+（remove-mdns-discovery、2026-10-22）：對等
+連線僅來自明確 bootstrap、內建種子與
+Kademlia — 舊版 `--mdns`／`SCONE_MDNS` 旗標
+仍被接受但無效果（腳本相容、與 `--rpc`
+同樣處理）。
 
 ### 本機拓撲最佳化（恆開）
 
@@ -390,6 +375,14 @@ devnet 金鑰簽署的區塊被拒
 函式庫預設 `SCONE_ANCHOR_PASSPHRASE` 經由
 二進位檔永不被觸及，clap 恆覆寫它）：
 
+- **提議者輪替**：每個 epoch 恰有**一位**
+  被指定的委員會成員自我提議
+ （`committee[epoch % size]`、決定性）；
+  其他成員絕不簽署自己的尖端 — 檢查點的
+  內容取決於提議者的尖端，而未加閘門的
+  自我提議曾把 epoch 撕裂成相互競爭的
+  內容、每個防護都正確地將其作為
+  equivocation 拒絕（testnet、2026-10-21）；
 - 在每個已接受／已產出的區塊後，若本
   節點是當前委員會成員**且**委員會達到
   `MIN_FINALITY_COMMITTEE_SIZE`，中繼站
@@ -397,11 +390,26 @@ devnet 金鑰簽署的區塊被拒
   （data-dir 中的 `signer-state.dat` —
   一金鑰 = 每 epoch 一票、防當機
   fail-closed）並 gossip 它；
+- **收到即投票**：內容在我們的鏈上有效
+  （被引用的區塊存在、且雜湊相同）並
+  帶有委員會簽章的提議也會得到我們的
+  簽章 — 沒有它，每個錨點只簽署自己
+  尖端的內容、法定人數永遠湊不齊；
 - 收到的簽章（`Message::Checkpoint`）依
   `CheckpointData` 雜湊累積（上界 256
   條）；同一資料上有 `quorum_for(委員會
   規模)` 個成員簽章 → `accept_checkpoint` +
   廣播已最終化的檢查點；
+- **最終性持久化**：檢查點窗口與凍結
+  基座在每次最終化時寫入儲存、並在啟動
+  時重新載入。檢查點是 gossip 狀態
+ （絕不由區塊攜帶）— 沒有此持久化的
+  重啟會從空基座開始、再也無法鏈接
+  peer 提供的窗口（網路窗口之下的
+  epoch 錨點已消失）；
+- **最終性追趕**：基座為空的中繼站
+ （全新節點的啟動）每個 tick 向 peer
+  請求 `GetCheckpoints`、直到基座恢復；
 - 無錨點金鑰的中繼站保持**被動**：它
   累積、最終化、轉發，但絕不簽署；
 - `GetCheckpoints` → 服務
@@ -589,13 +597,11 @@ multiaddr 由中繼站在 stdout 經 `p2p:` 行
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -645,7 +651,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_LISTEN` | `--listen` | P2P 監聽 multiaddr（預設：所有介面、短暫埠） |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap 種子、**可重複**（每值一行 — dotenvy 累加）；取代內建種子 |
 | `SCONE_GENESIS` | `--genesis` | 創世檔（創始節點） |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS 探索（`true` = 啟用、`false` = 關；預設：devnet 開、其他關） |
+| `SCONE_MDNS` | `--mdns` | （已過時 — mDNS 探索已移除；被接受、被忽略） |
 | `SCONE_UPNP` | `--upnp` | UPnP 埠映射（`true` = 啟用） |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS 伺服器綁定位址 |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 遞迴備援、**可重複** |
@@ -693,13 +699,13 @@ CLI 涵蓋使用者路徑（`domain register`、
 `register` 聲明以網路難度挖其 PoW
 （devnet 上毫秒級）。
 
-`--geo-*`／`--health-*` 選項組態**內嵌
-DNS 解析器**的 GeoDNS 與健康檢查：完整
-語義、優先順序與本機 GeoIP 表記錄於
-[`dns.md`](dns.md#geodns-geographic-routing) —
-地理路由**恆開**（內嵌 GeoIP 表、無需
-選項）；`--health-check` 預設關、經典路徑
-不變。
+**不存在任何 geo 或健康選項**：地理區**由建置
+強制**（內嵌 DB-IP Lite 表 — 完整語義見
+[`dns.md`](dns.md#geodns-geographic-routing)）；
+地理路由無需任何選項即**恆開**，且解析器
+不做任何健康檢查 — 它按原樣服務簽署記錄集
+（端點可用性是端點營運者的事）。任何
+`--geo-*`／`--health-*` 旗標都被 clap 硬性拒絕。
 
 ### `domain register|update`（M5）— 一條指令完成簽署交易
 

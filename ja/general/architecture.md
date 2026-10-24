@@ -93,13 +93,13 @@ scone           ← バイナリ / アプリケーション
 
 **scone-storage** — ローカル永続化(同梱済み)。具体的なバックエンドは `redb`(`NodeStore`)で、ブロックチェーン/DHT/DNS がredbに直接結合しないよう、最小限のトレイトの背後に隠されています。別のバックエンド(分散KV)を接続することも可能です。ページネーションされたKV状態バックエンド、ブロックログ、検証済みスナップショット(ハッシュ化されたマニフェスト + ページ)、再起動時のリストア/リプレイパスを含みます。参照: `/docs/en/technical/storage.md`。
 
-**scone-network** — ノードのp2pリレー。libp2p/QUICスワーム、トランザクションとブロックのリレー(組織的なローカル検証)、有界のメモリプール、有界のブロック同期(128ブロック/リクエスト)、`SignedDnsRecord` のKademlia DHT、UDP+TCP DNSサーバー(GeoDNS常時有効 — 組み込みGeoIPテーブル、再帰フォールバック)、アンカーのチェックポイント/ハートビートループ(CLIはリレーと直接p2p QUICで対話し、ローカルRPCはもうありません)。到達可能性と発見:AutoNAT v2(reachable/NATedの判定)、NAT化ノード用のcircuit-relay v2 + DCUtR、mDNS(ゼロ設定のLAN発見、devnetではデフォルトでON)、UPnP(ルーターによるQUICポートマッピング、オプトイン)。`.env` ファイルによる設定(`.env.example` を参照)。参照: `/docs/en/technical/relay.md`。
+**scone-network** — ノードのp2pリレー。libp2p/QUICスワーム、トランザクションとブロックのリレー(組織的なローカル検証)、有界のメモリプール、有界のブロック同期(128ブロック/リクエスト)、`SignedDnsRecord` のKademlia DHT、UDP+TCP DNSサーバー(GeoDNS常時有効 — 組み込みGeoIPテーブル、再帰フォールバック)、アンカーのチェックポイント/ハートビートループ(CLIはリレーと直接p2p QUICで対話し、ローカルRPCはもうありません)。到達可能性と発見:AutoNAT v2(reachable/NATedの判定)、NAT化ノード用のcircuit-relay v2 + DCUtR、UPnP(ルーターによるQUICポートマッピング、オプトイン)。`.env` ファイルによる設定(`.env.example` を参照)。参照: `/docs/en/technical/relay.md`。
 
 **scone-keystore** — Ed25519署名キーの暗号化された保存(`.sconekey` ファイル:Argon2id + XChaCha20-Poly1305)。このクレートがファイルシステムを所有するため、`scone-crypto` は純粋なまま保てます。参照: `/docs/en/technical/keystore.md`。
 
 **scone-topology** — ローカルp2pトポロジー最適化のための純粋(PURE)エンジン。ネットワークゼロ、ファイルシステムゼロ、asyncゼロ。libp2pもスワームも知りません。`scone-network` が観測(ping RTT、接続)を供給し、近傍管理の決定を受け取ります。
 
-**scone-genesis** — mainnetジェネシス準備のための一回限りのツールバイナリ(キックスターター)。バージョン付きJSONマニフェスト、アロケーション、決定論的ブロック。
+**scone-genesis** — mainnetジェネシス準備のための一回限りのツールバイナリ(キックスターター)。バージョン付きJSONマニフェスト、アロケーション、決定論的ブロック。ツールが成果物(アーティファクト)を生成し、リポジトリはそれを決してバージョン管理しません(Rustワークスペース内への書き込みを拒否。配布は立ち上げ時に限定、`blockchain.md` を参照)。
 
 **scone** — バイナリ/CLI。実際に使うクレートにのみ依存します(現在:リレー用のscone-network、scone-blockchain、scone-storage、scone-keystore、scone-protocol、scone-core、scone-crypto、scone-topology)。
 

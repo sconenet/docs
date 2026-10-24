@@ -94,8 +94,12 @@ Transaction = disc u8 || version u8 || payload
 | 判别值 | 类型 |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 每个判别值都是任意的不透明常量（没有逻辑
 顺序；`0x00` 永远无效）—— 完整规范性表格见
@@ -103,14 +107,18 @@ Transaction = disc u8 || version u8 || payload
 
 `version` 字节（当前值 `0x01`）紧跟判别值：
 任何其他值都被显式拒绝
-（`UnsupportedVersion(value)`）。**所有交易都是签名的**
-（Ed25519）：完整规范、签名载荷与验证规则见
+（`UnsupportedVersion(value)`）。大多数交易都是签名的
+（Ed25519）—— 除了四种无签名的 pow-to-owner 形式
+（`0x2A`、`0x57`、`0x84`、`0xC3`）：挖出的工作量证明
+就是授权，其挑战绑定了受益者密钥与网络。完整规范、
+签名载荷与验证规则见
 **`/docs/en/technical/transactions.md`**（规范性）。
 
 自 2026-09 线上格式变更起，**交易不再携带
-`network` 字段**：`network_id`（`str` ≤ 16）**只**注入
-签名载荷 —— 为一个网络签名的交易绝不能在
-另一个网络上验证（见 `/docs/en/technical/blockchain.md`）。
+`network` 字段**：`network_id`（`str` ≤ 16）注入
+**签名载荷**（已签名形式）或 **PoW 挑战**
+（pow-to-owner 形式）—— 为一个网络制作的交易绝不会
+转移到另一个网络（见 `/docs/en/technical/blockchain.md`）。
 
 ### REGISTER_DOMAIN (0x21)
 

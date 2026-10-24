@@ -73,7 +73,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 会累积：`.env` 中每个值一行（dotenvy 追加）。
 
 `SCONE_*` 变量的完整表格（网络、P2P 监听、
-bootstrap、创世、mDNS、UPnP、DNS 面、指标、拓扑
+bootstrap、创世、UPnP、DNS 面、指标、拓扑
 profile、锚节点）及各自的语义位于
 [`relay.md`](relay.md#environment-configuration-env)；
 带注释的模板是仓库根目录的 `.env.example`（复制
@@ -164,6 +164,33 @@ scone tld renew mytld               # explicit renewal
 解析移到了 `scone domain resolve <name>`（原 `record
 get`）；十六进制发布通道（`record put`）已消失 ——
 编辑通过 `domain set` / `domain update` 进行。
+- `scone domain mine <name>` —— 只挖注册证明
+  （无身份、无 keystore、不提交）：将
+  `scone-domain-pow-v1` JSON `{type, name, network_id,
+  epoch, proof}` 打印到 stdout。委托挖矿：另一台
+  机器为你挖矿，你的密钥绝不离开你的机器。可以
+  管道或重定向：`scone domain mine n.tld | scone domain
+  register n.tld --proof -`（或 `--proof FILE`）。证明
+  绑定名称与网络；新鲜度由节点在应用时强制
+  执行（纪元有效窗口）。使用 `--mine-for <pubkey>`
+  时，它改为为该受益者挖一个 POW-TO-OWNER 证明，
+  并打印 `scone-domain-pow-to-v1` JSON `{type, name,
+  network_id, epoch, pow_to, proof}` —— 只能由该确切
+  密钥的 `register --to` / `renew --to` 消费（挑战
+  内嵌该密钥；提交时不区分大小写校验）。
+- Pow-to-owner 提交（无需 keystore —— `--to` 与
+  `--identity` 互斥）：`scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to
+  <pubkey>` 以及 `scone tld register <tld> --to
+  <pubkey>` / `scone tld renew <tld> --to <pubkey>`
+  提交挑战绑定受益者密钥的证明；链上 `owner`
+  重新计算为 `hash(pubkey_dest)`（续期绝不改变
+  所有权）。不带 `--proof` 时，命令自己挖证明；
+  带 `--proof -`/FILE 时消费
+  `scone-domain-pow-to-v1` 载荷，并拒绝为其他
+  受益者挖出的证明。管道风格：`scone domain
+  mine n.tld --mine-for <pubkey> | scone domain
+  register n.tld --to <pubkey> --proof -`。
 - `scone domain export <name> [--out FILE]` —— 以
   精确的 `update --file` 格式写出经链上校验的
   记录集（保证往返：export → 编辑 → update 重新提交
@@ -173,6 +200,25 @@ get`）；十六进制发布通道（`record put`）已消失 ——
   以注释形式的警告导出 —— 绝不静默丢弃。
 
 `domain get` 还会打印 `domain_id` 和 `valid_until`。
+
+## PoW 基准测试（`scone bench-pow`）
+
+测量机器的 Argon2id 哈希率（与共识验证使用的
+是同一个哈希），并把网络的难度换算成具体的
+等待时间：
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+输出：总哈希率与每个 worker 的哈希率，以及每项
+操作的预期平均时间 —— 转让/指派（固定费率）、
+私有 TLD 开放，以及 TLD/域名注册下限（长度
+曲线）。所选网络决定 Argon2id 参数（mainnet：
+64 MiB、t=2 —— 真实成本；testnet/devnet：轻量
+配置，毫秒级证明）。每个 worker 分配自己的
+64 MiB Argon2id 通道 —— 请按可用内存调整
+`--cores`。
 
 ## 构建：dev 与启用主网（mainnet-compile-gate）
 

@@ -74,7 +74,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 累加：`.env` 中每個值一行（dotenvy 附加）。
 
 `SCONE_*` 變數的完整表（網路、P2P 監聽、
-bootstrap、創世、mDNS、UPnP、DNS 表面、指標、拓撲
+bootstrap、創世、UPnP、DNS 表面、指標、拓撲
 設定檔、錨點）及各自的語義位於
 [`relay.md`](relay.md#environment-configuration-env)；
 帶註解的範本是儲存庫根目錄的 `.env.example`
@@ -171,6 +171,34 @@ scone tld renew mytld               # explicit renewal
 `record get`）；十六進位發布通道（`record put`）已
 移除 — 編輯一律透過 `domain set`／
 `domain update`。
+- `scone domain mine <name>` — 只挖註冊證明
+  （無身分、無 keystore、不提交）：將
+  `scone-domain-pow-v1` JSON `{type, name, network_id,
+  epoch, proof}` 印到 stdout。委託挖礦：另一台
+  機器為你挖礦，你的金鑰絕不離開你的機器。
+  可以管線或重新導向：`scone domain mine n.tld |
+  scone domain register n.tld --proof -`（或
+  `--proof FILE`）。證明綁定名稱與網路；新鮮度
+  由節點在套用時強制執行（epoch 有效窗口）。
+  使用 `--mine-for <pubkey>` 時，改為為該受益者
+  挖一個 POW-TO-OWNER 證明，並印出
+  `scone-domain-pow-to-v1` JSON `{type, name,
+  network_id, epoch, pow_to, proof}` — 只能由該
+  確切金鑰的 `register --to` / `renew --to` 消費
+  （挑戰內嵌該金鑰；提交時不分大小寫檢查）。
+- Pow-to-owner 提交（無需 keystore — `--to` 與
+  `--identity` 互斥）：`scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to
+  <pubkey>` 與 `scone tld register <tld> --to
+  <pubkey>` / `scone tld renew <tld> --to <pubkey>`
+  提交挑戰綁定受益者金鑰的證明；鏈上
+  `owner` 重新計算為 `hash(pubkey_dest)`
+  （續期絕不換手）。不帶 `--proof` 時，指令自己
+  挖證明；帶 `--proof -`/FILE 時消費
+  `scone-domain-pow-to-v1` 酬載，並拒絕為其他
+  受益者挖出的證明。管線風格：`scone domain
+  mine n.tld --mine-for <pubkey> | scone domain
+  register n.tld --to <pubkey> --proof -`。
 - `scone domain export <name> [--out FILE]` — 以
   精確的 `update --file` 格式寫出
   經鏈驗證的記錄集
@@ -182,6 +210,25 @@ scone tld renew mytld               # explicit renewal
   以註解警告匯出 — 絕不靜靜丟棄。
 
 `domain get` 也印出 `domain_id` 與 `valid_until`。
+
+## PoW 基準測試（`scone bench-pow`）
+
+測量機器的 Argon2id 雜湊率（與共識驗證使用的
+是同一個雜湊），並把網路的難度換算成具體的
+等待時間：
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+輸出：總雜湊率與每個 worker 的雜湊率，以及每項
+操作的預期平均時間 — 轉讓／指派（固定費率）、
+私有 TLD 開放，以及 TLD／網域註冊下限（長度
+曲線）。所選網路決定 Argon2id 參數（mainnet：
+64 MiB、t=2 — 真實成本；testnet/devnet：輕量
+設定檔，毫秒級證明）。每個 worker 配置自己的
+64 MiB Argon2id 通道 — 請按可用記憶體調整
+`--cores`。
 
 ## 建置：開發 vs 啟用主網（mainnet-compile-gate）
 

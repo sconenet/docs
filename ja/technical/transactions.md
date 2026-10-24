@@ -106,7 +106,7 @@ M8a以降の規範ワイヤーフォーマット。**完全な状態ルールは
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | フィールド | 型 | 制約 |
@@ -114,6 +114,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32生バイト | 移転されるTLD |
 | `owner` | 32生バイト | `public_key` の導出(現在の所有者 / 署名者) |
 | `new_owner` | 32生バイト | 受取人の識別情報(不透明: どの値も構文的には有効。それを使えるキーへの結合はM8bの状態ルールです) |
+| `proof` | 有界(可変長整数 ‖ バイト) | アンチチャーン譲渡プルーフ、チャレンジ `SCONE-TLD-XFER-V1 ‖ tld_id`、フラット難易度 `transfer_pow_difficulty`、エポックソルト |
 | `public_key` | 32生バイト | 署名者のEd25519公開鍵 |
 | `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
 
@@ -143,10 +144,10 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
-`RegisterDomain` の鏡像: 正準名は平文で運ばれ、`domain_id` は `DomainId(name)` と等しくなければなりません(デコード、エンコード、検証時に再計算)。**名前のTLDの所有者**が署名します(適用時に検査、M8b)。`assignee` がドメインの最初の所有者になります(`new_owner` と同様に不透明)。
+`RegisterDomain` の鏡像: 正準名は平文で運ばれ、`domain_id` は `DomainId(name)` と等しくなければなりません(デコード、エンコード、検証時に再計算)。**名前のTLDの所有者**が署名します(適用時に検査、M8b)。`assignee` がドメインの最初の所有者になります(`new_owner` と同様に不透明)。独自のフラットなアンチスパムプルーフを運びます(`assign_pow_difficulty`、チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — 意図的にフラット: 名前空間の排他性はTLD生成時に支払済み)。
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -212,6 +213,42 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 - `proof`: 長さ可変長整数 + バイト、256で上限(`MAX_PROOF_LEN`)。アロケーションの前に検査。
 - `name`: 長さ可変長整数 + UTF-8バイト、253で上限(`MAX_NAME_LEN`)。`scone-core` の名前付けルールで再検証。
 
+## POW-TO-OWNER — 4つの署名なし形式(0x2A、0x57、0x84、0xC3)
+
+署名付き形式と並ぶ4つの**追加的**変種です(決して置き換えではありません — D1): `REGISTER_TLD_POW`(0x2A)、`RENEW_TLD_POW`(0x57)、`REGISTER_DOMAIN_POW`(0x84)、`RENEW_DOMAIN_POW`(0xC3)。どれも署名者キーも署名も運びません: **マイニングされたプルーフオブワークこそが全認可です**。
+
+### チャレンジは受益者とネットワークを束縛する(D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: ファミリータグ(TLDはSCONE-TLD-V1、ドメインはSCONE-DOMAIN-V1) — クロス種別のリプレイなし;
+- `pubkey_dest`: **受益者**のキー — 手渡されたプルーフはそのキーにしか消費されません(プルーフの窃取なし、安全な委託マイニング);
+- `network_id`: devnetのプルーフはtestnetやmainnetで決してリプレイされません。
+
+RENEWAL形式は、署名付きファミリーのアンチリユース接尾辞を追加します: `‖ current_valid_until`(BE、8バイト) — 1つのマイニング済みプルーフが正確に1期間を支払います。
+
+### 本体構造
+
+署名付き本体の正確な鏡像で、署名者キーの代わりに `pubkey_dest`、末尾の署名はなし:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest)、再計算、決して信用しない(D4)。open = OPEN誕生(低めのレート)。private = 厳密な3期間、受益者がPoSシートになります;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖ timestamp.v ‖ proof ‖ pubkey_dest — OPEN TLDのみ(プライベート → `TldClosed`: プライベート名前空間は所有者署名パスを保持);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖ valid_until.v ‖ proof ‖ pubkey_dest。
+
+### 適用ガード(D3)
+
+- オンチェーンの所有者はチャレンジの受益者でも**なければなりません**: renewalは決して持ち主を変えません — 登録だけが新しい財産を作ります;
+- 難易度、エポックウィンドウ、猶予、期間は署名付き形式そのものです(D5: 参入コストは変わりません);
+- 受益者のキーは、署名者のキーとまったく同じように解決されます(PoSプール解決)。
+
+### txidと共存
+
+txidはコンテンツの正準ハッシュのままです。0x2A/0x57/0x84/0xC3判別子がフォークマーカーです — 古いノードはUnknownDiscriminantとして拒否し、新しいノードはv1形式をそのままデコードします。`signing_payload` は4つすべてに対してN/Aです(型付き `PowNotSignable` エラー): 決して署名されません。
+
+CLI: `scone domain register <name> --to <pubkey-hex>`、`scone domain mine <name> --mine-for <pubkey>`、`scone domain renew <name> --to`、`scone tld register/renew --to`。
+
 ## 所有者の導出
 
 厳格なルール: **所有者は常に再計算され、決して信頼されない**。
@@ -242,17 +279,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 性質:
@@ -331,7 +368,11 @@ Mainnetベンチマーク(プライベートTLD、約6 Mハッシュ/秒): 1文�
 
 約65秒/ブロックで: TLDクレームはシングルコアCPUの約0.1ブロック、ドメインはブロックの約1 ms — ユーザーには象徴的、大規模な産業化には高価(アンチスクワット)。ハードウェアの目標が低下したら再較正すること(モバイルARM: 約4〜8倍遅い)。
 
-状態分岐(M8b、実装済み): `RegisterTld` は常にPoWを要求。`RegisterDomain` は**オープン**TLD上で要求(クローズパスはassign専用 — `AssignDomain`、PoWなし、TLD所有者が署名)。
+状態分岐(M8b、実装済み): `RegisterTld` は常にPoWを要求。`RegisterDomain` は**オープン**TLD上で要求(クローズパスはassign専用 — `AssignDomain`、TLD所有者が署名し、独自のフラットなアンチスパムプルーフを持ちます)。
+
+**譲渡とアサインのプルーフ(コンセンサスレベルのアンチスパム)**: `TransferTld`、`TransferDomain`、`AssignDomain` はそれぞれ**フラット**なプルーフオブワークを運びます — 2つの譲渡には `transfer_pow_difficulty`(チャレンジ `SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`)、アサインには `assign_pow_difficulty`(チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)。登録と同じエポックソルトとアンチプレマイニングウィンドウ。メモリプール准入時に検証され(推定エポック、ベストエフォート)、適用時に厳密に検証されます。目標: 譲渡の頻繁な売買やプライベートTLD下での大量作成のコストは、ポリシーではなくコンセンサスレベルの仕事にします。長さごとの課税なし: アサインについては、名前空間の排他性はプライベートTLDの作成時にすでに支払われています。
+
+**受動的な譲渡**: これらの取得パス(`TransferTld`、`TransferDomain`、`AssignDomain`)は譲渡者だけが署名します — 受取人は決して相談されません。意図された選択です(贈与、デッドドロップ、遺贈)。課せ可能なPoS債務はありません: `security-model.md`(受動的取得と適格性)を参照。
 
 ## 検証ルール
 

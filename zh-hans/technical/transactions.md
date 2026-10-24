@@ -152,7 +152,7 @@ TLD 所有者、凡自助声明处必有 PoW、域名侧的
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | 字段 | 类型 | 约束 |
@@ -160,6 +160,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 裸字节 | 被转移的 TLD |
 | `owner` | 32 裸字节 | `public_key` 的派生（当前所有者 / 签名者） |
 | `new_owner` | 32 裸字节 | 接收方身份（不透明：任何值在语法上都有效；与可花费密钥的绑定是 M8b 状态规则） |
+| `proof` | 有界（varint ‖ 字节） | 反频繁倒手的转让证明、挑战 `SCONE-TLD-XFER-V1 ‖ tld_id`、扁平难度 `transfer_pow_difficulty`、纪元盐 |
 | `public_key` | 32 裸字节 | 签名者的 Ed25519 公钥 |
 | `signature` | **恰好 64 字节** | 签名载荷的 Ed25519 签名 |
 
@@ -201,7 +202,7 @@ TLD = 任何人都可以做注册 PoW 并声明一个空闲
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 `RegisterDomain` 的镜像：规范名称以明文
@@ -209,7 +210,11 @@ name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[
 （在解码、编码与验证时重新计算）。由
 **该名称所属 TLD 的所有者**签名（在应用时
 检查，M8b）；`assignee` 成为域名的第一
-所有者（不透明，如同 `new_owner`）。
+所有者（不透明，如同 `new_owner`）。携带
+自己的扁平反垃圾证明（`assign_pow_difficulty`、
+挑战 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —— 刻意
+扁平：命名空间的独占性已在 TLD 创建时
+付费）。
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -302,6 +307,76 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
   （`MAX_NAME_LEN`），由 `scone-core` 命名规则重新
   验证。
 
+## POW-TO-OWNER —— 四种无签名形式（0x2A、0x57、0x84、0xC3）
+
+与已签名形式并列的四种**增量**变体（绝不是
+替代 —— D1）：`REGISTER_TLD_POW`（0x2A）、
+`RENEW_TLD_POW`（0x57）、`REGISTER_DOMAIN_POW`
+（0x84）、`RENEW_DOMAIN_POW`（0xC3）。没有一个
+携带签名者密钥**或**签名：**挖出的工作量
+证明就是全部授权**。
+
+### 挑战绑定受益者与网络（D2）
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`：家族标签（TLD 为 SCONE-TLD-V1、
+  域名为 SCONE-DOMAIN-V1）—— 无跨种类重放；
+- `pubkey_dest`：**受益者**的密钥 —— 被交出的
+  证明只能由该密钥消费（无证明窃取、安全的
+  委托挖矿）；
+- `network_id`：devnet 证明绝不在 testnet 或
+  mainnet 上重放。
+
+续期形式追加了已签名家族的反重用后缀：
+`‖ current_valid_until`（BE、8 字节）—— 一份
+挖出的证明恰好支付一个任期。
+
+### 主体结构
+
+已签名主体的精确镜像、`pubkey_dest` 顶替
+签名者密钥、没有尾部签名：
+
+- `REGISTER_TLD_POW`：name ‖ tld_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ open(0x00|0x01) ‖
+  pubkey_dest —— `owner` = hash(pubkey_dest)、
+  重新计算、绝不被信任（D4）；open = OPEN
+  诞生（较低费率）；private = 严格的 3 年
+  任期、受益者成为 PoS 席位；
+- `REGISTER_DOMAIN_POW`：name ‖ domain_id ‖
+  owner ‖ timestamp.v ‖ proof ‖ pubkey_dest —
+  仅限 OPEN TLD（私有 → `TldClosed`：私有
+  命名空间保留所有者签名路径）；
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`：name ‖
+  id ‖ owner ‖ valid_until.v ‖ proof ‖
+  pubkey_dest。
+
+### 应用防护（D3）
+
+- 链上所有者**还必须是**挑战的受益者：
+  续期绝不能改变所有权 —— 只有注册创建
+  新财产；
+- 难度、纪元窗口、宽限与任期是已签名形式
+  自己的（D5：进入成本不变）；
+- 受益者的密钥被解析（PoS 资格池解析），
+  恰如签名者的密钥。
+
+### txid 与共存
+
+txid 保持内容的规范哈希；0x2A/0x57/0x84/0xC3
+判别值就是分叉标记 —— 旧节点将它们作为
+`UnknownDiscriminant` 拒绝、新节点按原样解码
+v1 形式。`signing_payload` 对全部四种均为
+N/A（类型化 `PowNotSignable` 错误）：它们
+绝不被签名。
+
+CLI：`scone domain register <name> --to
+<pubkey-hex>`、`scone domain mine <name>
+--mine-for <pubkey>`、`scone domain renew <name>
+--to`、`scone tld register/renew --to`。
+
 ## 所有者派生
 
 硬性规则：**所有者永远被重新计算，绝不信任**。
@@ -343,17 +418,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 属性：
@@ -511,7 +586,30 @@ x86-64 上单线程吞吐约 7.7 M H/s）：
 状态分支（M8b，已交付）：`RegisterTld` 总是
 需要其 PoW；`RegisterDomain` 在**开放** TLD 上
 需要 PoW（封闭路径仅限 assign ——
-`AssignDomain`、无 PoW、由 TLD 所有者签名）。
+`AssignDomain`、由 TLD 所有者签名、带自己的
+扁平反垃圾证明）。
+
+**转让与指派证明（共识级反垃圾）**：
+`TransferTld`、`TransferDomain` 与 `AssignDomain`
+各自携带**扁平**的工作量证明 —— 两次转让用
+`transfer_pow_difficulty`（挑战
+`SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`）、指派用
+`assign_pow_difficulty`（挑战
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name`）。与注册相同
+的纪元盐与防预挖窗口；在内存池准入时验证
+（估计纪元、尽力而为）、然后在应用时验证
+（严格）。目标：转让倒手与私有 TLD 下的批量
+创建花费的是共识级工作、而非政策。无按
+长度征税：对指派而言，命名空间的独占性已
+在私有 TLD 创建时付清。
+
+**被动转让**：这些获取路径（`TransferTld`、
+`TransferDomain`、`AssignDomain`）仅由转出方
+签名 —— 从不征询接收方。这是有意的选择
+（赠与、死投、遗赠）、没有可强加的 PoS
+债务：见 `security-model.md`（被动获取与
+资格）。
 
 ## 验证规则
 

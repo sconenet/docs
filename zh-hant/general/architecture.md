@@ -144,8 +144,7 @@ KV 狀態後端、區塊日誌、經驗證的快照（含雜湊的清單
 檢查點／心跳迴圈（CLI 對中繼站直接說 p2p QUIC，
 不再有本機 RPC）。可達性與探索：AutoNAT
 v2（可達／NATed 判定）、circuit-relay v2 + DCUtR 給 NATed
-節點、mDNS（零組態 LAN 探索，devnet 上預設開啟）
-與 UPnP（由路由器映射 QUIC 埠，採 opt-in）。透過 `.env` 檔案組態（見 `.env.example`）。
+節點與 UPnP（由路由器映射 QUIC 埠，採 opt-in）。透過 `.env` 檔案組態（見 `.env.example`）。
 參考：`/docs/en/technical/relay.md`。
 
 **scone-keystore** — Ed25519 簽署金鑰的加密儲存
@@ -160,7 +159,9 @@ v2（可達／NATed 判定）、circuit-relay v2 + DCUtR 給 NATed
 
 **scone-genesis** — 用於主網創世準備的一次性工具二進位檔
 （kickstarter）：版本化 JSON 清單、配置
-（allocations）、決定性區塊。
+（allocations）、決定性區塊。該工具產出成品（artifacts），儲存庫
+永不將其納入版本控制（拒絕寫入任何 Rust workspace 內部；散布
+保留至主網上線，見 `blockchain.md`）。
 
 **scone** — 二進位檔／CLI。只有在實際使用某 crate 時才
 相依於它（目前：relay 用 scone-network、scone-blockchain、

@@ -48,7 +48,7 @@ RUST_LOG=scone_network=trace,info scone relay   # ターゲットごと
 
 反復可能な変数(`SCONE_BOOTSTRAP`、`SCONE_DNS_UPSTREAM`)は蓄積されます。`.env` に値ごとに1行(dotenvyが追記)。
 
-`SCONE_*` 変数の完全な表(ネットワーク、P2Pリッスン、ブートストラップ、ジェネシス、mDNS、UPnP、DNSサーフェス、メトリクス、トポロジープロファイル、アンカー)とそれぞれの意味は[`relay.md`](relay.md#environment-configuration-env)にあります。コメント付きテンプレートはリポジトリルートの `.env.example` です(`.env` にコピーして使います。コミットは決してしないこと。`.env` はgitignoreされています)。
+`SCONE_*` 変数の完全な表(ネットワーク、P2Pリッスン、ブートストラップ、ジェネシス、UPnP、DNSサーフェス、メトリクス、トポロジープロファイル、アンカー)とそれぞれの意味は[`relay.md`](relay.md#environment-configuration-env)にあります。コメント付きテンプレートはリポジトリルートの `.env.example` です(`.env` にコピーして使います。コミットは決してしないこと。`.env` はgitignoreされています)。
 
 ## レベルの意味(コード規約)
 
@@ -99,9 +99,21 @@ scone tld renew mytld               # 明示的な更新
 すべての操作には正規のパスが1つだけ存在します。かつてのルートエイリアス（`show`、`lookup`、`owned`、`renew`）は削除されました（remove-cli-aliases）。実在しなかった `domain info` の記載も同時に削除されています。
 
 オフラインの16進サーフェス(`tx build|sign|verify`、`submit tx` サブコマンド)は削除されました(remove-tx-surface-v2)。これらが担っていたM8bの操作は、今や第一級のコマンドです。`scone tld open <tld>`(一方向のセルフサービスオープン、オープン用PoWは代わりにマイニングされます)、`scone tld transfer <tld> <owner>`、`scone tld revoke <tld>`、`scone domain assign <name> <owner>`(TLD所有者、プライベートTLD)、そして `scone domain transfer <name> <owner>`。いずれも:状態読み取り、署名、送信、txid。DNSレコードの解決は `scone domain resolve <name>`(旧 `record get`)に移動しました。16進公開チャンネル(`record put`)はなくなりました。編集は `domain set` / `domain update` 経由で行います。
+- `scone domain mine <name>` — 登録プルーフだけをマイニングします(識別情報なし、keystoreなし、送信なし)。`scone-domain-pow-v1` JSON `{type, name, network_id, epoch, proof}` をstdoutに出力します。委託マイニング:別のマシンがあなたのためにマイニングし、あなたのキーがあなたのマシンを離れることは決してありません。パイプやリダイレクトで使えます。`scone domain mine n.tld | scone domain register n.tld --proof -`(`--proof FILE` でも可)。プルーフは名前とネットワークに束縛されます。新鮮さはノードが適用時に強制します(epoch有効ウィンドウ)。`--mine-for <pubkey>` を付けると、代わりにその受益者のためのPOW-TO-OWNERプルーフをマイニングし、`scone-domain-pow-to-v1` JSON `{type, name, network_id, epoch, pow_to, proof}` を出力します。消費できるのはその正確なキーの `register --to` / `renew --to` だけです(チャレンジがそのキーを埋め込みます。送信時に大文字小文字を区別しないチェック)。
+- Pow-to-owner送信(keystore不要 — `--to` は `--identity` と排他):`scone domain register <name> --to <pubkey>` / `scone domain renew <name> --to <pubkey>`、および `scone tld register <tld> --to <pubkey>` / `scone tld renew <tld> --to <pubkey>` は、チャレンジが受益者のキーを束縛するプルーフを送信します。オンチェーンの `owner` は `hash(pubkey_dest)` として再計算されます(renewは決して持ち主を変えません)。`--proof` なしでは、コマンド自身がプルーフをマイニングします。`--proof -`/FILE 付きでは `scone-domain-pow-to-v1` ペイロードを消費し、別の受益者のためにマイニングされたプルーフを拒否します。パイプのスタイル:`scone domain mine n.tld --mine-for <pubkey> | scone domain register n.tld --to <pubkey> --proof -`。
 - `scone domain export <name> [--out FILE]` — チェーン検証済みのレコードセットを、ちょうど `update --file` のフォーマットで書き出します(往復保証:export → 編集 → update が同じセットを再送信)。`--out` なしの場合はstdout。`domain resolve` は同じ可読フォーマットを使うので、`resolve > zone.txt` はそのままインポート可能です。テキスト構文のない種類(GEOROUTE、不明)はコメント付き警告としてエクスポートされます。黙って破棄されることは決してありません。
 
 `domain get` は `domain_id` と `valid_until` も表示します。
+
+## PoWベンチマーク(`scone bench-pow`)
+
+マシンのArgon2idハッシュレートを測定し(コンセンサス検証が使うのと同じハッシュです)、ネットワークの難易度を具体的な待ち時間に変換します:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+出力:合計とワーカーごとのH/s、そして操作ごとの予想平均時間 — 譲渡/アサイン(一律レート)、プライベートTLDのオープン、TLD/ドメイン登録の下限(長さカーブ)。選択したネットワークがArgon2idパラメータを決めます(mainnet: 64 MiB、t=2 — 本来のコスト。testnet/devnet: 軽量プロファイル、ミリ秒のプルーフ)。各ワーカーは自分専用の64 MiB Argon2idレーンを確保します — 利用可能なRAMに合わせて `--cores` を調整してください。
 
 ## ビルド:dev対mainnet有効(mainnet-compile-gate)
 

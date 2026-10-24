@@ -160,8 +160,22 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 私有 TLD（`SetTldOpen`）維持平難度
 （`open_tld_pow_difficulty`：testnet 6 bits／mainnet
 22 bits）：交易只攜帶 `tld_id`，名稱在建立時
-已為其長度付費。純函數（決定性：兩個節點對
-同一個名稱算出同一難度）。
+已為其長度付費。**另外兩種平式證明**補齊了
+這個家族（共識層級的反濫發、與註冊相同的
+epoch 鹽和窗口）：`transfer_pow_difficulty`
+用於讓與（`TransferTld`／`TransferDomain`、挑戰
+`SCONE-TLD-XFER-V1 ‖ tld_id`／
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`），
+`assign_pow_difficulty` 用於私有 TLD 之下的建立
+（`AssignDomain`、挑戰 `SCONE-DOMAIN-ASSIGN-V1 ‖
+name` — 刻意為平：命名空間的排他性已在 TLD
+建立時付費、無按長度的重複課稅）。指示性
+數值：16-bit mainnet（bench-pow 2026-10-23
+校準：在實測 10.6 H/s 的單核上、每次讓與／
+指派約 1.7 小時、參考 11.4 H/s；4 核約
+25 分鐘 — 對工業化而言昂貴、對誠實的
+擁有者則是平常的工作）、4-bit testnet、
+1-bit devnet。純函數（決定性）。
 
 創世是**每網路**的協定常數，僅由
 常數即可重現（無隨機性、無本機時鐘、無網路）：
@@ -182,6 +196,19 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 ≤ 2048 項配置）— 此加寬格式正是
 `MAX_CONSENSUS_LEN` = 64 KiB 的理由（見
 `scone-blockchain::genesis_alloc`）。
+
+**創世配置產物的散布**：任何創世產物
+（`genesis.bin`、清單）都絕不存放在原始碼
+儲存庫或程式碼發行中、無論網路或專案階段
+— 兩份創世檔就是兩個網路。mainnet 配置創世
+僅在上線時誕生（切換為預設啟用的
+`mainnet` feature）：由 `scone-genesis` 從
+發布於儲存庫之外的已簽署清單產生、其雜湊
+固定在上線公告中、且只有創始節點消費它
+（`--genesis`、鏈的誕生）；所有其他節點以
+同步加入網路。該工具拒絕任何寫入 Rust
+workspace 目錄內部的行為（存在 `Cargo.toml`）：
+創世絕不能落入原始碼樹。
 
 共識酬載中的 `network_id` 使創世雜湊 —
 乃至整條區塊鏈 — **跨網路互斥**：testnet
@@ -786,11 +813,19 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`：
 
-1. **引導**（無已最終化檢查點）：整個池簽署
-   — 從本機視圖抽出的委員會會在落後
-   節點間分歧（最終性凍結的根本原因）；
-   整個池依鏈決定性。嚴格選取在第一次
-   最終性後恢復。
+1. **引導**（無已最終化檢查點）：池的
+   **新鮮營運者**簽署（`fresh_operators` —
+   最近的心跳、與已最終化體制相同的窗口）。
+   該過濾器是鏈狀態（心跳在鏈上），因此
+   依尖端決定性：位於同一尖端的兩個節點
+   算出同一集合。新鮮營運者低於
+   `MIN_FINALITY_COMMITTEE_SIZE` 時安全降級到
+   整個池（冷引導、全面故障 — 建構上
+   最終性絕不喪失）。原始池不能充當簽署
+   集合：每次自助註冊都會增大法定數的
+   分母、而那些擁有者從不簽署 — 約
+   10 次註冊後最終性變得不可達（testnet、
+   2026-10-21）。
 2. **已最終化體制**：從凍結池的**新鮮**子集抽籤
    （RFC proof-of-service §5.2）— 每個席位（擁有者
    金鑰）由尖端的狀態解析至其有效
@@ -804,10 +839,21 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    池抽籤（冷引導、全面營運者故障 — 建構上
    最終性絕不喪失）。
 
-`allowed_producers(block_ts)`（區塊生產）遵循相同
-方案：引導時整個池；已最終化體制中為
-選出的委員會 + 復原抽籤（在共識時間
-k × `epoch_secs` 後解鎖第 k 次抽籤）。
+`allowed_producers(block_ts)`（區塊生產）遵循一條
+刻意更寬的規則：引導時整個池；已最終化
+體制中為**整個凍結池**。選出的委員會（+
+復原抽籤）仍然只是**檢查點簽署**集合。將
+生產收窄至委員會曾被先規範、後實作、隨後
+移除：視圖落後一個檢查點的生產者會按引導
+規則評估候選區塊、其產出的每個區塊都被
+已最終化的 peer 拒絕（`InvalidProducer`）、且
+跨轉換期拼出的任何鏈歷史永遠無法通過
+`pool_at_height` 重播 — 最終性永遠凍結在
+第一個檢查點（sim 重現器 `duplicate_and_delay`、
+2026-10-21）。僅憑池凍結就承載了安全性：
+成員變更（註冊、讓與、封禁、到期）只在
+下一個檢查點生效，因此生產者集合保持為
+已最終化鏈的純函數。
 
 檢查點法定數為 `quorum_for(委員會規模)`
 （floor(2n/3)+1）；低於 `MIN_FINALITY_COMMITTEE_SIZE`

@@ -19,11 +19,11 @@
 | ドキュメント | 内容 |
 |---|---|
 | [protocol.md](technical/protocol.md) | 正準ワイヤーバイナリフォーマット:LEB128可変長整数、識別子、DNSレコード、ブロック、P2Pメッセージ、制限、バージョニング |
-| [transactions.md](technical/transactions.md) | 署名済みトランザクションフォーマットv1:フィールド、ワイヤー順序(RegisterDomainは名前を運ぶ、任意の判別子)、所有者の導出、署名対象ペイロード `SCONE-TX-SIG-V1`、検証ルール |
+| [transactions.md](technical/transactions.md) | トランザクションフォーマットv1:署名付き形式(フィールド、ワイヤー順序(RegisterDomainは名前を運ぶ、任意の判別子)、所有者の導出、署名対象ペイロード `SCONE-TX-SIG-V1`)と4つの署名なしpow-to-owner形式(マイニングされたプルーフがそのまま認可)、検証ルール |
 | [blockchain.md](technical/blockchain.md) | ブロックチェーン層:`TxId`、Merkleツリー、`BlockHash`、ジェネシス、正準状態、ブロック検証、コンセンサス抽象化 |
 | [keystore.md](technical/keystore.md) | `.sconekey` キーファイルフォーマット(Argon2id + XChaCha20-Poly1305)、`scone-keystore` API、`identity` コマンド |
 | [storage.md](technical/storage.md) | ローカルredb永続化:テーブルスキーマ、アトミックなデルタ、メモリポリシー、信頼モデル、DoS上限 |
-| [relay.md](technical/relay.md) | ネットワークリレー(`scone-network`):libp2pプロトコル、ピア発見(シード、ディレクトリ、mDNS、UPnP)、到達可能性(AutoNAT、circuit-relay、DCUtR)、メモリプール、同期、Kademlia DHT、ローカルトポロジー、Prometheusメトリクス、DNSスナップショット、完全なCLI、`.env` 設定 |
+| [relay.md](technical/relay.md) | ネットワークリレー(`scone-network`):libp2pプロトコル、ピア発見(シード、ディレクトリ、UPnP)、到達可能性(AutoNAT、circuit-relay、DCUtR)、メモリプール、同期、Kademlia DHT、ローカルトポロジー、Prometheusメトリクス、DNSスナップショット、完全なCLI、`.env` 設定 |
 | [dns.md](technical/dns.md) | UDP + TCP DNSサーバー(M6/M7b):権威DNSスナップショット、16分割シャード化ホットパスキャッシュ(共有エントリ、アロケーションなしルックアップ、パックされたレコード、名前圧縮)、RFC 1035コーデック、TCP RFC 7766(512バイトUDP / 64 KiB TCPバジェット、TCビット)、DHTネガティブキャッシュ、再帰フォールバック、上限値 |
 | [cli.md](technical/cli.md) | `scone` バイナリ:ロギングと詳細度(stdout/stderr、`-v` レベル、`RUST_LOG`)、`.env` による環境設定(優先順位:フラグ > `.env` > デフォルト) |
 | [security-model.md](technical/security-model.md) | セキュリティモデル:委員会選出、シードのアンチグラインディング(分析:VRFは不要)、等価性違反(イコケーション)とスラッシング |

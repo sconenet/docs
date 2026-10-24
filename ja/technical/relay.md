@@ -49,10 +49,10 @@
 1. **明示的シード**(`--bootstrap`、完全なmultiaddr)— 常に最優先。空でないリストの提供は他のすべてを置き換えます。`--no-builtin-seeds` は、100%プライベートなデプロイのために組み込みシードを空にします。
 2. **組み込みシード**(`scone-network/src/config.rs` の `builtin_seeds(network)`)— 各公式バイナリリリースで凍結、ネットワークごと。未設定のリレーは単独でネットワークに参加します。(公開testnetがデプロイされるまで、testnetでは空。)
 3. **学習済みディレクトリ**(`<data-dir>/peers.json`)— `identify` で学習したすべてのアドレスを保持(最終_seen。上限**2000エントリ** — 接続ではなくアドレスで、最大時でもRAM約400 KiB — そして**90日の年齢切断**: 90日以上前に最後に見られたエントリは、書き込み時に破棄され、ロード時に無視されます。2000スロットを、起動時のダイヤルタイムアウト以外の貢献しかない回転前の化石ではなく、もっともらしいピアで満たし続けます)。保存は生成ティックで約1回/分。シードもブートストラップもない起動時、ディレクトリが再構成されます: リレーは設定なしでいつものピアを見つけます。これはキャッシュです: ファイルの欠落・破損 = 空のディレクトリ。決してエラーではありません。
-4. **LAN mDNS**(`--mdns`)— ローカルリンク上のゼロ設定発見: 同じネットワークセグメントの隣接リレーが、シードなしで互いを見つけます(ゼロ設定のdevnetパス)。**デフォルト: devnetではON、他ではOFF**(リセット可能なローカルネットワークは設計上、発見ネットワークです。公開デプロイは何もマルチキャストしません)。動作: マルチキャストソケットのバインド。バインド失敗(インターフェースにマルチキャストなし、サンドボックス環境)は、警告とともにmDNSを**無効化**します — 決して致命的ではありません(発見は便利さであって、命綱では決してありません)。すべての `Discovered` 隣接ノードは、Kademliaテーブルに供給されます(`kad.add_address`)。設定を除いて、まさに明示的なブートストラップと同じです。`Expired` エントリはlibp2p自身が追跡します(接続は自らのタイムアウトで閉じます)。ビヘイビアーの `mdns`/`upnp` メンバーは `Toggle` です(構築時に有効/無効、`build_behaviour(key, enable_mdns, enable_upnp)`)。
-5. **UPnP**(`--upnp`、オプトイン)— ホームルーターによるQUICリッスンポートのマッピング: ノードは、サーキットリレーなしに外から到達可能になります。`NewExternalAddr` で、外部アドレスがスワームの実際の外部アドレスとして登録されます(`add_external_address` — identify/autonatに見え、トランスポートリレーの候補)。IGDゲートウェイなし(`GatewayNotFound`)または非ルーティング可能なゲートウェイ(`NonRoutableGateway`): 通常の情報ログのみで、マッピングはスキップ — ホームLANでは正常なケースです。期限切れのマッピング(更新失敗)は警告です。
+4. **UPnP**(`--upnp`、オプトイン)— ホームルーターによるQUICリッスンポートのマッピング: ノードは、サーキットリレーなしに外から到達可能になります。`NewExternalAddr` で、外部アドレスがスワームの実際の外部アドレスとして登録されます(`add_external_address` — identify/autonatに見え、トランスポートリレーの候補)。IGDゲートウェイなし(`GatewayNotFound`)または非ルーティング可能なゲートウェイ(`NonRoutableGateway`): 通常の情報ログのみで、マッピングはスキップ — ホームLANでは正常なケースです。期限切れのマッピング(更新失敗)は警告です。
 
-mDNSはネットワークに従います(明示的な `--mdns`/`SCONE_MDNS` が常に優先): **devnetではデフォルトでON**、testnet/mainnetではOFF。UPnPは**デフォルトで無効**のままです(`config.rs` の `enable_mdns`/`enable_upnp` = `false`、リレーがdevnet用にmDNSをONにします): 公開デプロイは何もマルチキャストせず、どのルーターとも話しません。
+UPnPは**デフォルトで無効**のままです(`config.rs` の `enable_upnp` = `false`): 公開デプロイは同意なしにどのルーターとも話しません。**mDNS発見は削除されました**
+(remove-mdns-discovery、2026-10-22): ピアリングは、明示的なブートストラップ、組み込みシード、Kademlia のみから来ます — レガシーな `--mdns`/`SCONE_MDNS` フラグは効果なしで引き続き受け付けられます(スクリプト互換性、`--rpc` と同じ扱い)。
 
 ### ローカルトポロジー最適化(常時有効)
 
@@ -179,8 +179,15 @@ scone relay --topology-profile tiny
 
 `--anchor-key` で(`.sconekey` キーファイル、パスフレーズは `--anchor-passphrase-env` 経由、デフォルト `SCONE_ANCHOR_PASS` — `scone-network` ライブラリのデフォルト `SCONE_ANCHOR_PASSPHRASE` には、バイナリ経由では決して到達しません。clapが常に上書きします):
 
+- **提案者ローテーション**: 各エポックにつき、指定された委員会メンバーが**ちょうど1人**自己提案します
+  (`committee[epoch % size]`、決定論的)。他のメンバーは自分のチップを決して署名しません —
+  チェックポイントの内容は提案者のチップに依存し、ゲートされていない自己提案は、エポックを
+  互いに競合する内容に分裂させ、各ガードがそれを正当にequivocationとして拒否しました(testnet、2026-10-21)。
 - 各受理/生成ブロックの後、このノードが現在の委員会のメンバー**であり**、委員会が `MIN_FINALITY_COMMITTEE_SIZE` に達していれば、リレーは自分の `SignerGuard`(データディレクトリ内の `signer-state.dat` — 1キー = 1票/エポック、クラッシュ安全なフェイルクローズド)を通じて提案されたチェックポイントに署名し、ゴシップします。
+- **受領時投票**: 内容が**私たちの**チェーン上で有効であり(参照されたブロックが同じハッシュで存在する)、委員会の署名を運ぶ提案は、私たちの署名も得ます — それがなければ、すべてのアンカーは自分のチップの内容だけに署名し、定足数は決して集まりませんでした。
 - 受信した署名(`Message::Checkpoint`)は、`CheckpointData` ハッシュごとに蓄積されます(256エントリに有界)。同じデータに対して `quorum_for(委員会サイズ)` のメンバー署名が集まれば → `accept_checkpoint` + ファイナライズされたチェックポイントのブロードキャスト。
+- **ファイナリティ永続化**: チェックポイントウィンドウと凍結ベースは、ファイナライズのたびにストアに書き込まれ、起動時に再読み込みされます。チェックポイントはゴシップ状態です(ブロックによって運ばれることは決してありません)— この永続化なしの再起動は空のベースから始まり、ピアから提供されたウィンドウを再びチェーンすることは決してできませんでした(ネットワークのウィンドウより下のエポックアンカーは失われています)。
+- **ファイナリティ キャッチアップ**: ベースが空のリレー(新規ノードの起動)は、ベースが復元されるまで、毎ティック peer に `GetCheckpoints` を要求します。
 - アンカーキーのないリレーは**受動的**のままです: 蓄積し、ファイナライズし、リレーしますが、決して署名しません。
 - `GetCheckpoints` → `checkpoint_window()` ウィンドウが提供されます。
 - ループのエラーはすべてログに記録されて飲み込まれます — 決して致命的ではありません。
@@ -266,13 +273,11 @@ JSON TCP RPCサーバーは**削除されました**: CLI(とレジストラのa
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -308,7 +313,7 @@ scone domain resolve NAME [--peer MULTIADDR]
 | `SCONE_LISTEN` | `--listen` | P2Pリッスンmultiaddr(デフォルト: 全インターフェース、ephemeralポート) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | ブートストラップシード、**反復可能**(値ごとに1行 — dotenvyが蓄積)。組み込みシードを置き換えます |
 | `SCONE_GENESIS` | `--genesis` | ジェネシスファイル(創設者ノード) |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS発見(`true` = 有効、`false` = 無効。デフォルト: devnetではON、他ではOFF) |
+| `SCONE_MDNS` | `--mdns` | (廃止 — mDNS発見は削除されました。受け付けられるが、無視されます) |
 | `SCONE_UPNP` | `--upnp` | UPnPポートマッピング(`true` = 有効) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNSサーバーのバインドアドレス |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 再帰フォールバック、**反復可能** |
@@ -328,7 +333,7 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 オフラインの16進サーフェス(`tx` と `submit` サブコマンド)はなくなりました(remove-tx-surface-v2)。CLIはユーザーパス(`domain register`、`domain renew`、`domains`)と、第一級コマンドとしてのM8bファミリーをカバーします: `tld open`、`tld transfer`、`tld revoke`、`domain assign`、`domain transfer`。`register` クレームは、ネットワーク難易度でPoWをマイニングします(devnetではミリ秒)。
 
-`--geo-*`/`--health-*` オプションは、**組み込みDNSリゾルバー**のGeoDNSとヘルスチェックを設定します: 完全な意味論、優先順位、ローカルGeoIPテーブルは[`dns.md`](dns.md#geodns-geographic-routing)に文書化されています — 地理的ルーティングは**常に有効**(組み込みGeoIPテーブル、オプション不要)。`--health-check` はデフォルトでオフ、古典的パスは変更なし。
+**geoやヘルスのオプションは存在しません**: geoゾーンは**ビルドで強制**されます(組み込みDB-IP Liteテーブル — 完全な意味論は[`dns.md`](dns.md#geodns-geographic-routing)に文書化)。地理的ルーティングはオプションなしで**常に有効**であり、リゾルバーはヘルスチェックを一切行いません — 署名済みレコードセットをそのまま提供します(エンドポイントの可用性はエンドポイントオペレーターの関心事です)。すべての `--geo-*`/`--health-*` フラグはclapによって硬性拒否されます。
 
 ### `domain register|update`(M5)— ワンコマンドでの署名済みトランザクション
 

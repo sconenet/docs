@@ -74,14 +74,18 @@ Transaction = disc u8 || version u8 || payload
 | 判別子 | 型 |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 各判別子は任意の不透明定数です(論理的な並びなし。`0x00` は決して有効ではない)。完全な規範表は `/docs/en/technical/transactions.md` にあります。
 
-`version` バイト(現在の値 `0x01`)は判別子の後に続きます。その他の値は明示的に拒否されます(`UnsupportedVersion(value)`)。**すべてのトランザクションは署名されます**(Ed25519)。完全な仕様、署名対象ペイロード、検証ルールは **`/docs/en/technical/transactions.md`**(規範)にあります。
+`version` バイト(現在の値 `0x01`)は判別子の後に続きます。その他の値は明示的に拒否されます(`UnsupportedVersion(value)`)。ほとんどのトランザクションは署名されます(Ed25519) — 4つの署名なしpow-to-owner形式(`0x2A`、`0x57`、`0x84`、`0xC3`)を除きます。マイニングされたプルーフがそのまま認可であり、そのチャレンジは受益者のキーとネットワークを結び付けます。完全な仕様、署名対象ペイロード、検証ルールは **`/docs/en/technical/transactions.md`**(規範)にあります。
 
-2026年9月のワイヤー変更以降、**トランザクションは `network` フィールドを運びません**: `network_id`(`str` ≤ 16)は**署名ペイロードにのみ**注入されます。あるネットワーク向けに署名されたtxは、別のネットワークでは決して検証されません(`/docs/en/technical/blockchain.md` 参照)。
+2026年9月のワイヤー変更以降、**トランザクションは `network` フィールドを運びません**: `network_id`(`str` ≤ 16)は**署名ペイロード**(署名形式)または**PoWチャレンジ**(pow-to-owner形式)に注入されます。あるネットワーク向けに作られたtxが、別のネットワークに持ち込まれることはありません(`/docs/en/technical/blockchain.md` 参照)。
 
 ### REGISTER_DOMAIN (0x21)
 

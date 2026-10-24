@@ -98,8 +98,12 @@ Transaction = disc u8 || version u8 || payload
 | 判別碼 | 型別 |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 每個判別碼都是任意的不透明常數（無邏輯
 順序；`0x00` 永遠無效）— 完整規範表在
@@ -107,15 +111,19 @@ Transaction = disc u8 || version u8 || payload
 
 `version` 位元組（當前值 `0x01`）跟在判別碼
 之後：任何其他值都被明確拒絕
-（`UnsupportedVersion(value)`）。**所有交易
-皆經簽署**（Ed25519）：完整規格、簽署酬載
+（`UnsupportedVersion(value)`）。大多數交易
+皆經簽署（Ed25519）— 除了四種無簽名的
+pow-to-owner 形式（`0x2A`、`0x57`、`0x84`、
+`0xC3`）：挖出的工作量證明即是授權，其挑戰
+綁定受益者金鑰與網路。完整規格、簽署酬載
 與驗證規則見
 **`/docs/en/technical/transactions.md`**（規範）。
 
 自 2026-09 線上格式變更起，**交易不再攜帶
 `network` 欄位**：`network_id`（`str` ≤ 16）
-**只注入簽署酬載** — 為一個網路簽署的
-交易永遠無法在另一個網路上驗證（見
+注入**簽署酬載**（簽署形式）或 **PoW 挑戰**
+（pow-to-owner 形式）— 為一個網路製作的
+交易永遠不會轉移到另一個網路（見
 `/docs/en/technical/blockchain.md`）。
 
 ### REGISTER_DOMAIN（0x21）
