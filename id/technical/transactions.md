@@ -158,7 +158,7 @@ wire (ia hidup hanya dalam payload penandatanganan).
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Field | Tipe | Batasan |
@@ -166,6 +166,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 byte mentah | TLD yang ditransfer |
 | `owner` | 32 byte mentah | derivasi dari `public_key` (owner saat ini / penandatangan) |
 | `new_owner` | 32 byte mentah | identitas penerima (opaque: nilai apa pun valid secara sintaks; pengikatan ke kunci yang bisa membelanjakannya adalah aturan state M8b) |
+| `proof` | berbatas (varint ‖ byte) | bukti transfer anti-churn, tantangan `SCONE-TLD-XFER-V1 ‖ tld_id`, kesulitan datar `transfer_pow_difficulty`, salt epoch |
 | `public_key` | 32 byte mentah | kunci publik Ed25519 penandatangan |
 | `signature` | **tepat 64 byte** | tanda tangan Ed25519 atas payload bertanda tangan |
 
@@ -207,7 +208,7 @@ diganti setelah penandatanganan.
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Cermin dari `RegisterDomain`: nama kanonik dibawa dalam teks
@@ -215,7 +216,10 @@ polos dan `domain_id` harus sama dengan `DomainId(name)` (dihitung
 ulang saat dekode, enkode dan validasi). Ditandatangani oleh
 **owner TLD dari nama itu** (diperiksa saat penerapan, M8b);
 `assignee` menjadi owner pertama domain (opaque, seperti
-`new_owner`).
+`new_owner`). Membawa bukti anti-spam datarnya sendiri
+(`assign_pow_difficulty`, tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖
+name` — datar memang disengaja: eksklusivitas namespace sudah
+dibayar saat penciptaan TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -325,6 +329,75 @@ Transaksi yang `owner`-nya tidak cocok dengan derivasi
 core, `OwnerKeyMismatch` di sisi chain), ditolak saat enkode,
 dekode **dan** validasi chain (pertahanan berlapis).
 
+## POW-TO-OWNER — empat bentuk tanpa tanda tangan (0x2A, 0x57, 0x84, 0xC3)
+
+Empat varian TAMBAHAN di samping bentuk-bentuk bertanda tangan
+(tidak pernah pengganti — D1): `REGISTER_TLD_POW` (0x2A),
+`RENEW_TLD_POW` (0x57), `REGISTER_DOMAIN_POW` (0x84),
+`RENEW_DOMAIN_POW` (0xC3). Tak satu pun membawa kunci
+penandatangan ATAU tanda tangan: **bukti proof of work yang
+ditambang adalah seluruh otorisasinya**.
+
+### Tantangan mengikat penerima manfaat dan jaringan (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: tag keluarga (SCONE-TLD-V1 untuk TLD,
+  SCONE-DOMAIN-V1 untuk domain) — tidak ada replay
+  lintas-kind;
+- `pubkey_dest`: kunci PENERIMA MANFAAT — bukti yang
+  diserahkan hanya dapat dikonsumsi oleh kunci itu (tidak ada
+  pencurian bukti, penambangan terdelegasi yang aman);
+- `network_id`: bukti devnet tidak pernah replay di testnet
+  atau mainnet.
+
+Bentuk PERPANJANGAN menambahkan sufiks anti-pakai-ulang
+keluarga bertanda tangan: `‖ current_valid_until` (BE,
+8 byte) — satu bukti yang ditambang membayar tepat satu masa.
+
+### Struktur body
+
+Cermin eksak dari body bertanda tangan, `pubkey_dest`
+menggantikan kunci penandatangan, TANPA tanda tangan di ekor:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` =
+  hash(pubkey_dest), dihitung ulang, tidak pernah dipercaya
+  (D4); open = kelahiran TERBUKA (tarif lebih ringan); privat
+  = masa 3 tahun ketat, penerima manfaat menjadi kursi PoS;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ pubkey_dest — hanya TLD TERBUKA
+  (privat → TldClosed: namespace privat mempertahankan jalur
+  tanda tangan owner);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Penjaga penerapan (D3)
+
+- Owner on-chain JUGA HARUS penerima manfaat tantangan: sebuah
+  perpanjangan TIDAK PERNAH berganti tangan — hanya register
+  yang menciptakan properti baru;
+- kesulitan, jendela epoch, tenggang, dan masa adalah milik
+  bentuk BERTANDA TANGAN sendiri (D5: biaya masuk tidak
+  berubah);
+- kunci penerima manfaat dipelajari (resolusi kumpulan PoS)
+  persis seperti kunci penandatangan.
+
+### txid dan koeksistensi
+
+Txid tetap hash kanonik dari konten; diskriminan
+0x2A/0x57/0x84/0xC3 adalah penanda fork — node lama menolaknya
+sebagai UnknownDiscriminant, node baru mendekode bentuk v1
+tanpa perubahan. `signing_payload` N/A untuk keempatnya
+(error bertipe `PowNotSignable`): tidak pernah ditandatangani.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew
+--to`.
+
 ## Payload bertanda tangan
 
 Payload bertanda tangan adalah enkode kanonik transaksi **tanpa
@@ -353,17 +426,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Properti:
@@ -520,8 +593,29 @@ target perangkat keras turun (ARM mobile: ~4–8× lebih lambat).
 
 Cabang state (M8b, dirilis): `RegisterTld` SELALU membutuhkan
 PoW-nya; `RegisterDomain` membutuhkannya pada TLD **terbuka**
-(jalur tertutup assign-only — `AssignDomain`, tanpa PoW,
-ditandatangani oleh owner TLD).
+(jalur tertutup assign-only — `AssignDomain`, ditandatangani
+oleh owner TLD, dengan bukti anti-spam datarnya sendiri).
+
+**Bukti transfer dan penugasan (anti-spam tingkat konsensus)**:
+`TransferTld`, `TransferDomain` dan `AssignDomain` masing-masing
+membawa bukti kerja **datar** — `transfer_pow_difficulty` untuk
+dua transfer (tantangan `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty`
+untuk penugasan (tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖ name`).
+Salt epoch dan jendela anti-premining yang sama dengan
+registrasi; diverifikasi saat admisi mempool (estimasi epoch,
+best-effort) lalu saat penerapan (ketat). Tujuannya: perputaran
+transfer dan penciptaan massal di bawah TLD privat membebani
+kerja tingkat konsensus, bukan kebijakan. Tanpa pajak
+per-panjang: untuk penugasan, eksklusivitas namespace sudah
+dibayar saat TLD privat diciptakan.
+
+**Transfer pasif**: jalur akuisisi ini (`TransferTld`,
+`TransferDomain`, `AssignDomain`) ditandatangani oleh pemindah
+seorang diri — penerima tidak pernah dikonsultasi. Pilihan yang
+dianggap disengaja (hadiah, dead drop, warisan), tanpa utang
+PoS yang bisa dipaksakan: lihat `security-model.md` (akuisisi
+pasif dan kelayakan).
 
 ## Aturan validasi
 

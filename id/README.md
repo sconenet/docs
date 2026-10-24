@@ -25,11 +25,11 @@ Dua bagian:
 | Dokumen | Konten |
 |---|---|
 | [protocol.md](technical/protocol.md) | Format biner wire kanonik: varint LEB128, identifier, record DNS, blok, pesan P2P, batasan, versioning |
-| [transactions.md](technical/transactions.md) | Format transaksi bertanda tangan v1: field, urutan wire (RegisterDomain membawa nama, diskriminan arbitrer), derivasi owner, payload bertanda tangan `SCONE-TX-SIG-V1`, aturan validasi |
+| [transactions.md](technical/transactions.md) | Format transaksi v1: bentuk bertanda tangan (field, urutan wire — RegisterDomain membawa nama, diskriminan arbitrer, derivasi owner, payload bertanda tangan `SCONE-TX-SIG-V1`) dan empat bentuk pow-to-owner tanpa tanda tangan (bukti yang ditambang ADALAH otorisasi), aturan validasi |
 | [blockchain.md](technical/blockchain.md) | Lapisan blockchain: `TxId`, pohon Merkle, `BlockHash`, genesis, state kanonik, validasi blok, abstraksi konsensus |
 | [keystore.md](technical/keystore.md) | Format keyfile `.sconekey` (Argon2id + XChaCha20-Poly1305), API `scone-keystore`, perintah `identity` |
 | [storage.md](technical/storage.md) | Persistensi lokal redb: skema tabel, delta atomik, kebijakan memori, model kepercayaan, batasan DoS |
-| [relay.md](technical/relay.md) | Relay jaringan (`scone-network`): protokol libp2p, penemuan peer (seed, direktori, mDNS, UPnP), jangkauan (AutoNAT, circuit-relay, DCUtR), mempool, sinkronisasi, DHT Kademlia, topologi lokal, metrik Prometheus, snapshot DNS, CLI lengkap, konfigurasi `.env` |
+| [relay.md](technical/relay.md) | Relay jaringan (`scone-network`): protokol libp2p, penemuan peer (seed, direktori, UPnP), jangkauan (AutoNAT, circuit-relay, DCUtR), mempool, sinkronisasi, DHT Kademlia, topologi lokal, metrik Prometheus, snapshot DNS, CLI lengkap, konfigurasi `.env` |
 | [dns.md](technical/dns.md) | Server DNS UDP + TCP (M6/M7b): snapshot DNS otoritatif, cache hot-path ter-shard 16 arah (entri bersama, pencarian tanpa alokasi, record terpadat, kompresi nama), kodek RFC 1035, TCP RFC 7766 (anggaran 512-byte UDP / 64 KiB TCP, bit TC), cache negatif DHT, fallback rekursif, batasan |
 | [cli.md](technical/cli.md) | Biner `scone`: logging dan verbositas (stdout/stderr, level `-v`, `RUST_LOG`), konfigurasi lingkungan via `.env` (prioritas flag > `.env` > default) |
 | [security-model.md](technical/security-model.md) | Model keamanan: pemilihan komite, anti-grinding seed (analisis: VRF tidak diperlukan), ekuivokasi dan slashing |

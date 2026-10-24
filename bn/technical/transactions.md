@@ -151,7 +151,7 @@ M8a থেকে নরমেটিভ ওয়্যার ফরম্যা�
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | ফিল্ড | টাইপ | শর্ত |
@@ -159,6 +159,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | ৩২ কাঁচা বাইট | ট্রান্সফারকৃত TLD |
 | `owner` | ৩২ কাঁচা বাইট | `public_key`-র ডেরিভেশন (বর্তমান owner / স্বাক্ষরকারী) |
 | `new_owner` | ৩২ কাঁচা বাইট | প্রাপকের পরিচয় (অপাস: যেকোনো মান সিনট্যাক্টিক্যালি বৈধ; এটি খর্চ করতে পারে এমন কী-এর সাথে বাঁধা একটি M8b স্টেট নিয়ম) |
+| `proof` | সীমাবদ্ধ (ভ্যারিন্ট ‖ বাইট) | অ্যান্টি-চার্ন ট্রান্সফার প্রুফ, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, ফ্ল্যাট ডিফিকাল্টি `transfer_pow_difficulty`, এপোক সল্ট |
 | `public_key` | ৩২ কাঁচা বাইট | স্বাক্ষরকারীর Ed25519 পাবলিক কী |
 | `signature` | **ঠিক ৬৪ বাইট** | স্বাক্ষরিত পেলোডের Ed25519 সিগনেচার |
 
@@ -199,14 +200,18 @@ owner দ্বারে `AssignDomain`-এর মাধ্যমে তৈর�
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 `RegisterDomain`-এর আয়না: ক্যানোনিকাল নাম পরিষ্কারভাবে বহনিত
 এবং `domain_id` অবশ্যই `DomainId(name)`-এর সমান হতে হবে
 (ডিকোডিং, এনকোডিং ও ভ্যালিডেশনে পুনর্গণনীত)। **নামের TLD-র
 owner** দ্বারা স্বাক্ষরিত (প্রয়োগে যাচাই, M8b); `assignee`
-ডোমেইনের প্রথম owner হয় (অপাস, `new_owner`-এর মতো)।
+ডোমেইনের প্রথম owner হয় (অপাস, `new_owner`-এর মতো)। এটি তার
+নিজস্ব ফ্ল্যাট অ্যান্টি-স্প্যাম প্রুফ বহন করে
+(`assign_pow_difficulty`, challenge `SCONE-DOMAIN-ASSIGN-V1 ‖
+name` — সিদ্ধান্ততঃ ফ্ল্যাট: namespace-এর একচেটিয়া অধিকার TLD
+সৃষ্টির সময়ই পরিশোধিত হয়েছিল)।
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -297,6 +302,74 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 - `name`: দৈর্ঘ্য-ভ্যারিন্ট + UTF-8 বাইট, ২৫৩-এ সীমাবদ্ধ
   (`MAX_NAME_LEN`), `scone-core` নামকরণ নিয়ম দ্বারা পুনঃভ্যালিডেটেড।
 
+## POW-TO-OWNER — চারটি স্বাক্ষর-বিহীন রূপ (0x2A, 0x57, 0x84, 0xC3)
+
+স্বাক্ষরিত রূপগুলির পাশাপাশি চারটি সংযোজনশীল ভ্যারিয়েন্ট
+(কখনোই প্রতিস্থাপন নয় — D1): `REGISTER_TLD_POW` (0x2A),
+`RENEW_TLD_POW` (0x57), `REGISTER_DOMAIN_POW` (0x84),
+`RENEW_DOMAIN_POW` (0xC3)। কোনোটিই স্বাক্ষরকারীর কী বা কোনো
+সিগনেচার বহন করে না: **খনন করা proof of work-ই সম্পূর্ণ
+অনুমোদন**।
+
+### Challenge উপকারভোগী ও নেটওয়ার্ককে বাঁধে (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: পরিবারের ট্যাগ (TLD-র জন্য SCONE-TLD-V1, ডোমেইনের
+  জন্য SCONE-DOMAIN-V1) — কোনো ক্রস-কাইন্ড রিপ্লে নেই;
+- `pubkey_dest`: উপকারভোগীর কী — হস্তান্তরকৃত একটি প্রুফ কেবল
+  সেই কী দ্বারাই গ্রহণযোগ্য (কোনো প্রুফ চুরি নেই, নিরাপদ
+  ডেলিগেটেড মাইনিং);
+- `network_id`: একটি devnet প্রুফ কখনো টেস্টনেট বা মেইননেটে
+  রিপ্লে হয় না।
+
+নবায়ন রূপগুলি স্বাক্ষরিত পরিবারের অ্যান্টি-পুনঃব্যবহার সাফিক্স
+যোগ করে: `‖ current_valid_until` (BE, ৮ বাইট) — একটি খননকৃত
+প্রুফ ঠিক একটি মেয়াদই পরিশোধ করে।
+
+### বডি স্ট্রাকচার
+
+স্বাক্ষরিত বডির নিখুঁত আয়না, স্বাক্ষরকারী কী-র জায়গায়
+`pubkey_dest`, কোনো ট্রেইলিং সিগনেচার নেই:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` =
+  hash(pubkey_dest), পুনর্গণনীত, কখনো বিশ্বাস করা হয় না (D4);
+  open = ওপেন জন্ম (কম হার); প্রাইভেট = কঠোর ৩-বছর মেয়াদ,
+  উপকারভোগী একটি PoS সিট হয়ে যায়;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ pubkey_dest — শুধুমাত্র ওপেন TLD
+  (প্রাইভেট → TldClosed: প্রাইভেট namespace owner-সিগনেচার
+  পাথ ধরে রাখে);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest।
+
+### প্রয়োগ গার্ড (D3)
+
+- অন-চেইন owner-কেও challenge-এর উপকারভোগী হতে হবে: একটি
+  নবায়ন কখনোই হাত বদলাতে পারে না — শুধু একটি register নতুন
+  সম্পত্তি তৈরি করে;
+- ডিফিকাল্টি, এপোক উইন্ডো, গ্রেস ও মেয়াদ স্বাক্ষরিত রূপগুলির
+  নিজস্ব (D5: প্রবেশ ব্যয় বদলায় না);
+- উপকারভোগীর কী একজন স্বাক্ষরকারীর মতোই শেখা হয় (PoS পুল
+  রেজোলিউশন)।
+
+### txid ও সহাবস্থান
+
+txid কনটেন্টের ক্যানোনিকাল হ্যাশই থাকে; 0x2A/0x57/0x84/0xC3
+ডিসক্রিমিন্যান্টগুলি ফর্ক-মার্কার — একটি পুরনো নোড সেগুলিকে
+UnknownDiscriminant হিসেবে প্রত্যাখ্যান করে, একটি নতুন নোড v1
+রূপগুলি অপরিবর্তিতভাবে ডিকোড করে। চারটির জন্যই `signing_payload`
+N/A (টাইপড `PowNotSignable` ত্রুটি): সেগুলি কখনো স্বাক্ষরিত হয়
+না।
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew
+--to`।
+
 ## Owner ডেরিভেশন
 
 কঠোর নিয়ম: **owner সর্বদা পুনর্গণনীত, কখনো বিশ্বাস করা হয় না**।
@@ -338,17 +411,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 বৈশিষ্ট্য:
@@ -500,8 +573,30 @@ x86-64-তে একক-থ্রেড থ্রুপুট ~7.7 M H/s):
 
 স্টেট শাখা (M8b, শিপড): `RegisterTld` সর্বদা তার PoW চায়;
 `RegisterDomain` একটি **ওপেন** TLD-তে এটি চায় (বন্ধ পাথ
-শুধু-অ্যাসাইন — `AssignDomain`, কোনো PoW নেই, TLD-র owner
-দ্বারা স্বাক্ষরিত)।
+শুধু-অ্যাসাইন — `AssignDomain`, TLD-র owner দ্বারা স্বাক্ষরিত,
+তার নিজস্ব ফ্ল্যাট অ্যান্টি-স্প্যাম প্রুফসহ)।
+
+**ট্রান্সফার ও অ্যাসাইনমেন্ট প্রুফ (কনসেনসাস-স্তরের
+অ্যান্টি-স্প্যাম)**: `TransferTld`, `TransferDomain` এবং
+`AssignDomain` প্রতিটি একটি **ফ্ল্যাট** proof of work বহন করে —
+দুটি ট্রান্সফারের জন্য `transfer_pow_difficulty` (challenge
+`SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖
+domain_id`), অ্যাসাইনমেন্টের জন্য `assign_pow_difficulty`
+(challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)। রেজিস্ট্রেশনের
+মতোই একই এপোক সল্ট ও অ্যান্টি-প্রি-মাইনিং উইন্ডো; মেমপুল ভর্তিতে
+যাচাই (আনুমানিক এপোক, সর্বোচ্চ-প্রচেষ্টা) তারপর প্রয়োগে
+(কঠোর)। লক্ষ্য: ট্রান্সফার চার্ন এবং প্রাইভেট TLD-র নিচে ভর সৃষ্টি
+পলিসি নয়, কনসেনসাস-স্তরের পরিশ্রমের খরচ করায়। কোনো
+দৈর্ঘ্য-প্রতি কর নেই: অ্যাসাইনমেন্টের জন্য, namespace-এর
+একচেটিয়া অধিকার প্রাইভেট TLD তৈরির সময়ই পরিশোধিত হয়ে
+গিয়েছিল।
+
+**প্যাসিভ ট্রান্সফার**: এই অর্জন-পথগুলি (`TransferTld`,
+`TransferDomain`, `AssignDomain`) একমাত্র ট্রান্সফারকারী দ্বারা
+স্বাক্ষরিত — প্রাপক কখনোই জিজ্ঞাসিত হয় না। একটি সচেতনভাবে
+গৃহীত পছন্দ (উপহার, dead drop, উইল), কোনো চাপিয়ে-দেওয়া যায়
+এমন PoS দায় নেই: `security-model.md` দেখুন (প্যাসিভ
+অ্যাকুইজিশন ও যোগ্যতা)।
 
 ## ভ্যালিডেশন নিয়ম
 

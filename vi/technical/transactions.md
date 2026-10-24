@@ -154,7 +154,7 @@ tên miền. Không payload nào mang trường `network` trên wire
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Trường | Kiểu | Ràng buộc |
@@ -162,6 +162,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 byte thô | TLD được chuyển nhượng |
 | `owner` | 32 byte thô | dẫn xuất của `public_key` (chủ hiện tại / người ký) |
 | `new_owner` | 32 byte thô | danh tính người nhận (mờ: mọi giá trị đều hợp lệ về cú pháp; ràng buộc vào các khóa có thể chi tiêu nó là quy tắc trạng thái M8b) |
+| `proof` | có giới hạn (varint ‖ byte) | bằng chứng chuyển nhượng chống-churn, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, độ khó phẳng `transfer_pow_difficulty`, muối epoch |
 | `public_key` | 32 byte thô | khóa công khai Ed25519 của người ký |
 | `signature` | **đúng 64 byte** | chữ ký Ed25519 của payload ký |
 
@@ -203,14 +204,17 @@ ký.
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Ảnh phản chiếu của `RegisterDomain`: tên chuẩn được mang dưới
 dạng văn bản rõ và `domain_id` phải bằng `DomainId(name)` (tính
 lại lúc giải mã, mã hóa và xác thực). Ký bởi **chủ của TLD của
 tên** (kiểm tra lúc áp dụng, M8b); `assignee` trở thành chủ đầu
-tiên của tên miền (mờ, như `new_owner`).
+tiên của tên miền (mờ, như `new_owner`). Mang theo bằng chứng
+chống thư rác phẳng của riêng nó (`assign_pow_difficulty`,
+challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — phẳng một cách có
+chủ đích: tính độc quyền của namespace đã được trả lúc tạo TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -303,6 +307,72 @@ id là đủ.
   (`MAX_NAME_LEN`), xác thực lại bởi các quy tắc đặt tên của
   `scone-core`.
 
+## POW-TO-OWNER — bốn dạng không chữ ký (0x2A, 0x57, 0x84, 0xC3)
+
+Bốn biến thể CỘNG THÊM bên cạnh các dạng có chữ ký (không bao
+giờ là thay thế — D1): `REGISTER_TLD_POW` (0x2A),
+`RENEW_TLD_POW` (0x57), `REGISTER_DOMAIN_POW` (0x84),
+`RENEW_DOMAIN_POW` (0xC3). Không dạng nào mang khóa người ký
+HAY chữ ký: **bằng chứng proof of work đã đào chính là toàn bộ
+sự ủy quyền**.
+
+### Challenge gắn người thụ hưởng và mạng (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: tag của họ (SCONE-TLD-V1 cho TLD, SCONE-DOMAIN-V1
+  cho tên miền) — không phát lại chéo-kind;
+- `pubkey_dest`: khóa của NGƯỜI THỤ HƯỞNG — một bằng chứng được
+  trao tay chỉ tiêu thụ được bởi khóa đó (không đánh cắp bằng
+  chứng, đào ủy nhiệm an toàn);
+- `network_id`: một bằng chứng devnet không bao giờ phát lại
+  trên testnet hay mainnet.
+
+Các dạng GIA HẠN nối thêm hậu tố chống-tái-sử-dụng của họ có
+chữ ký: `‖ current_valid_until` (BE, 8 byte) — một bằng chứng
+đã đào trả đúng một kỳ hạn.
+
+### Cấu trúc thân
+
+Ảnh phản chiếu chính xác của các thân có chữ ký, `pubkey_dest`
+ở vị trí khóa người ký, KHÔNG có chữ ký đuôi:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` =
+  hash(pubkey_dest), tính lại, không bao giờ tin (D4); open =
+  khai sinh MỞ (tỷ lệ nhẹ hơn); riêng tư = kỳ hạn nghiêm ngặt
+  3 năm, người thụ hưởng trở thành một ghế PoS;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ pubkey_dest — chỉ TLD MỞ (riêng tư →
+  TldClosed: namespace riêng tư giữ đường chữ ký của chủ);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Các chốt áp dụng (D3)
+
+- Chủ trên chuỗi CŨNG PHẢI là người thụ hưởng của challenge:
+  một gia hạn KHÔNG BAO GIỜ đổi chủ — chỉ register tạo ra tài
+  sản mới;
+- độ khó, cửa sổ epoch, ân hạn và kỳ hạn là của riêng các dạng
+  CÓ CHỮ KÝ (D5: chi phí gia nhập không đổi);
+- khóa của người thụ hưởng được học (phân giải tập PoS) y như
+  khóa của một người ký.
+
+### txid và cùng tồn tại
+
+Txid giữ nguyên là băm chuẩn của nội dung; các discriminant
+0x2A/0x57/0x84/0xC3 là dấu nhánh — một nút cũ từ chối chúng
+như UnknownDiscriminant, một nút mới giải mã các dạng v1 không
+đổi. `signing_payload` là N/A cho cả bốn (lỗi có kiểu
+`PowNotSignable`): chúng không bao giờ được ký.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew
+--to`.
+
 ## Dẫn xuất owner
 
 Quy tắc cứng: **owner luôn được tính lại, không bao giờ tin**.
@@ -344,17 +414,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Tính chất:
@@ -504,8 +574,30 @@ hơn ~4–8×).
 
 Các nhánh trạng thái (M8b, đã bàn giao): `RegisterTld` LUÔN LUÔN
 yêu cầu PoW của nó; `RegisterDomain` yêu cầu nó trên một TLD
-**mở** (đường đóng là chỉ-assign — `AssignDomain`, không PoW,
-ký bởi chủ TLD).
+**mở** (đường đóng là chỉ-assign — `AssignDomain`, ký bởi chủ
+TLD, với bằng chứng chống thư rác phẳng riêng).
+
+**Các bằng chứng chuyển nhượng và gán (chống thư rác mức đồng
+thuận)**: `TransferTld`, `TransferDomain` và `AssignDomain`
+mỗi cái mang một bằng chứng công việc **phẳng** —
+`transfer_pow_difficulty` cho hai chuyển nhượng (challenge
+`SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖
+domain_id`), `assign_pow_difficulty` cho việc gán (challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Cùng muối epoch và cửa sổ
+chống-tiền-đào với đăng ký; xác minh lúc vào mempool (epoch
+ước lượng, best-effort) rồi lúc áp dụng (nghiêm ngặt). Mục
+tiêu: churn chuyển nhượng và tạo hàng loạt dưới một TLD riêng
+tư tốn công sức mức đồng thuận, không phải chính sách. Không
+thuế theo chiều dài: cho việc gán, tính độc quyền của namespace
+đã được trả khi TLD riêng tư được tạo.
+
+**Chuyển nhượng thụ động**: các đường thu nhận này
+(`TransferTld`, `TransferDomain`, `AssignDomain`) được ký bởi
+một mình bên chuyển nhượng — người nhận không bao giờ được
+hỏi. Một lựa chọn được chấp nhận có chủ đích (quà tặng, dead
+drop, di chúc), không có nợ PoS áp đặt được: xem
+`security-model.md` (thu nhận thụ động và tư cách đủ điều
+kiện).
 
 ## Quy tắc xác thực
 

@@ -317,16 +317,27 @@ Mọi tệp nhị phân nhúng một **bảng ánh xạ IP → quốc gia** biê
 dịch vào relay: **không cần cấu hình**, định tuyến địa lý hoạt
 động mọi nơi, tự động.
 
-- **Nguồn dữ liệu**: các **tệp ủy quyền RIR** (RIPE NCC, ARIN,
-  APNIC, LACNIC, AFRINIC), tải và phân phối lại tự do:
-  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
-  (quốc gia đăng ký của mỗi khối IPv4/IPv6 được ủy quyền).
-  Ngày tạo nằm trong header bảng
+- **Nguồn dữ liệu**: **DB-IP Lite** ("IP to Country Lite"),
+  giấy phép **CC BY 4.0** — phân phối lại được với ghi công:
+  `https://db-ip.com` (được tuyển chọn hằng tháng; trước đây:
+  các ủy quyền RIR qua `scripts/gen-geo-table.py`, đã gỡ bỏ).
+  Các ô lượng tử hóa **/20 v4 và /24 v6** (độ mịn bản địa của
+  DB-IP, ~1,3 triệu dải, vượt giới hạn bộ nhớ của parser) —
+  ~96.500 quy tắc. Ngày tạo nằm trong header bảng
   (`assets/embedded-geo.table`).
-- **Tái tạo**: `scripts/gen-geo-table.py` (tải 5 tệp, chuyển
-  đổi, chuẩn hóa tiền tố — ~176.000 quy tắc).
+- **Checksum**: SHA-256 của bảng được tính lúc biên dịch
+  (`build.rs`), **xác minh lại lúc khởi động** (lệch = từ chối
+  có kiểu — một tệp nhị phân bị biến đổi không bao giờ trả lời
+  địa lý) và được ghi log lúc khởi động kèm ghi công. Băm bảo
+  đảm "mọi nút của một build chia sẻ cùng một bảng" là thứ CÓ
+  THỂ KIỂM TRA, không phải giả định.
+- **Tái tạo**: `scripts/geo-convert.py` (tải CSV DB-IP Lite
+  của tháng, chuyển đổi — quốc gia dạng số, châu lục dẫn xuất
+  ISO→M49, ASN/vùng vắng trong Lite).
 - **Độ mịn**: quốc gia (ISO 3166-1 số) + châu lục (UN M49) dẫn
-  xuất. Không ASN hay vùng (vắng trong các ủy quyền).
+  xuất. Không ASN hay vùng (vắng trong Lite — một nhu cầu
+  ASN/vùng chờ một bước tiến pipeline nhúng, không bao giờ là
+  bảng cục bộ).
 - **Hiệu năng**: tra cứu **tìm kiếm nhị phân** trên các dải đã
   sắp (chỉ mục dựng một lần khi dùng lần đầu, theo họ v4/v6)
   — đo được ~95 ns/tra cứu nóng, ~50 µs truy cập ngẫu nhiên
@@ -335,8 +346,13 @@ dịch vào relay: **không cần cấu hình**, định tuyến địa lý ho�
 - **Tự-định-vị relay**: định tuyến theo **IP nguồn của mỗi
   truy vấn** — một relay LAN định tuyến các client cục bộ của
   mình sang vùng đúng tự động.
-- **Ưu tiên**: một bảng vận hành viên tường minh
-  (`--geo-ip-table`/geo-config) **ghi đè** bảng nhúng.
+- **Bảng BỊ ÁP ĐẶT** (remove-geo-operator-table, 2026-10-22):
+  bảng nhúng là **nguồn duy nhất** — không tồn tại nhập hay ghi
+  đè của vận hành viên. **Không có tùy chọn geo lúc chạy**:
+  mọi cờ `--geo-*` là một lời từ chối clap dứt khoát (geozone
+  được build áp đặt). Một vận hành viên có nhu cầu riêng (ASN,
+  vùng) chờ một bước tiến pipeline nhúng, không phải một bảng
+  cục bộ.
 
 ### Tổng quan
 
@@ -442,11 +458,14 @@ băng).
    phối tỷ lệ với trọng số. `weight = 0` = không hoạt động,
    không bao giờ được chọn (kể cả đứng một mình — sang tầng
    kế).
-4. **Failover sức khỏe** — một endpoint **Unhealthy** bị để
-   riêng; nếu toàn bộ tầng tối thiểu không khả dụng, sang tầng
-   priority kế. **Không-clear coi như khả dụng** (cái không rõ
-   không bị phạt). Mọi thứ không khả dụng → hành vi DNS cổ
-   điển.
+4. **Thứ tự có ký, không thăm dò** — bộ phân giải KHÔNG BAO
+   GIỜ phán xét khả dụng của một endpoint: mọi endpoint hoạt
+   động (weight > 0) của scope được bầu đều là ứng viên, đầu
+   của tầng tối thiểu được bầu bằng phép rút trọng số, và các
+   cái sau đóng vai failover **theo thứ tự bộ bản ghi có ký**
+   (chính thứ tự đó là cơ chế failover). Khả năng với tới của
+   endpoint là việc của vận hành viên endpoint, không bao giờ
+   là việc của bộ phân giải.
 
 ### Phản hồi
 
@@ -457,8 +476,8 @@ băng).
   các quy tắc TTL chung).
 - AA đặt (phản hồi có thẩm quyền — GEOROUTE là một bản ghi có
   ký đã xác minh như mọi bản ghi khác).
-- Phản hồi rỗng sau lọc (không ứng viên đúng họ, mọi thứ
-  Unhealthy, không tuyến khớp) → bộ phân giải tiếp tục đường
+- Phản hồi rỗng sau lọc (không ứng viên đúng họ, không tuyến
+  cho zone) → bộ phân giải tiếp tục đường
   cổ điển của mình (thường là NODATA: NOERROR, 0 câu trả lời);
   các rcode lỗi theo quy tắc chung (không bao giờ cache).
 - Một bản ghi A/AAAA cổ điển cùng tồn tại trong bộ được ƯU
@@ -476,25 +495,26 @@ select_scope + rút trọng số, µs) và bypass cache. Cache cổ
 được tạo khi geo không quyết gì. Các rcode lỗi vẫn không bao
 giờ cache.
 
-### Kiểm tra sức khỏe (`--health-check`)
+### Ủy quyền NS (các bản ghi `ns`) — chủ chọn ai phục vụ
 
-- `HealthCache` theo từng đích (`GeoTarget`): `probe` = đọc
-  không chặn (trạng thái mới, hay Unknown), **không bao giờ**
-  một lần kiểm được kích hoạt từ đường phân giải.
-- Làm mới: nếu một ứng viên được bầu là Unknown/vắng trong
-  cache, MỘT lần làm mới được lên lịch như một tác vụ nền
-  (`tokio::spawn_blocking`: connect TCP là chặn, bị cấm trong
-  vòng UDP). Chống spam: một lần làm mới mỗi lúc cho mỗi đích
-  (HashSet), khởi động lại được sau khi lần làm mới trước kết
-  thúc.
-- `TcpChecker`: connect TCP bị chặn (hết hạn 2 s) tới
-  `target:port`. **Cổng không thể dẫn xuất từ một bản ghi
-  DNS**: `--health-port` đặt nó (mặc định 443). Trình kiểm
-  **cố ý ngây thơ** (connect thành công ≠ dịch vụ khỏe) — có
-  thể cải thiện (HTTP, TLS, mức ứng dụng) mà không đổi định
-  dạng.
-- TTL mục: `--health-ttl-secs` (mặc định 5 s); mục hết hạn =
-  Unknown = khả dụng.
+Chủ của một tên miền chọn chế độ phục vụ theo từng tên miền:
+
+- **DHT (mặc định)** — không có bản ghi `ns`, mạng Scone phục
+  vụ các A/AAAA on-chain (relay `--dns`, hay cầu NSD qua
+  export);
+- **NS độc lập** — chủ thêm các bản ghi `ns <ip-hay-tên>`
+  (nameserver CỦA HỌ, IP trực tiếp hay hostname): tên miền bị
+  ỦY QUYỀN — mạng ngừng phục vụ nội dung của nó (A/AAAA →
+  NODATA + thẩm quyền NS), và bất cứ ai phân giải đều theo NS
+  của chủ. Giới hạn: **12 NS phân biệt mỗi tên miền** (mọi
+  dạng, khử trùng lặp theo giá trị — phản chiếu các trần của
+  registry ngoài đời). Gỡ một NS giải phóng slot; gỡ tất cả
+  khôi phục chế độ DHT.
+
+**Không có kiểm tra sức khỏe nào tồn tại**: khả dụng của
+endpoint là việc của các vận hành viên endpoint — bộ phân giải
+phục vụ bộ bản ghi có ký nguyên trạng, theo thứ tự bản ghi
+(thứ tự bản ghi là cơ chế failover).
 
 ### Bảo mật
 
@@ -503,12 +523,14 @@ giờ cache.
   record_hash) trước mọi sử dụng. **Không tin mạng nếu chưa
   xác minh** — một GEOROUTE DHT chưa xác minh không bao giờ
   trả lời.
-- Vị trí client đến từ **bảng GeoIP nhúng** (ủy quyền RIR, xem
-  trên) dẫn xuất từ IP nguồn của nó — hay từ cấu hình cục bộ
-  tường minh của bộ phân giải (`--geo-ip-table` hay
-  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  cái thắng), không bao giờ từ một API GeoIP mạng (không rò
-  truy vấn, không phụ thuộc).
+- Vị trí client đến từ **mạch tự khám phá**: relay tự định vị
+  qua địa chỉ ngoài của nó (STUN/AutoNAT/UPnP) được phân giải
+  bởi bảng nhúng do build áp đặt — các client LAN (IP nguồn
+  riêng tư) thừa hưởng vị trí đó, các client Internet được phân
+  giải bởi IP của chính họ, cái không rõ quay về World. Không
+  bao giờ từ một API GeoIP mạng (không rò truy vấn, không phụ
+  thuộc) và không bao giờ từ một tuyên bố của vận hành viên
+  (các zone do build áp đặt).
 - Phép rút là tất định và cục bộ: không bí mật, không cần tính
   khó đoán (an ninh là của chữ ký bản ghi, không phải của phép
   rút).
@@ -530,13 +552,12 @@ vụ mọi tên con):
 
 Hành vi kỳ vọng:
 
-- client **US** → 10.1.0.1 (≈70%) hay 10.1.0.2 (≈30%); nếu cả
-  hai Unhealthy → failover p20 → **10.2.0.1**;
+- client **US** → 10.1.0.1 (≈70%) hay 10.1.0.2 (≈30%); tầng
+  p20 chỉ chạm tới khi không có endpoint p10 nào hoạt động
+  (weight = 0 ở khắp nơi) → khi đó **10.2.0.1**;
 - client **TW** → 10.3.0.1 (≈80%) hay 10.4.0.1 (≈20%);
 - client **FR** (250) → không tuyến FR hay EU trong bộ → WORLD
   → **10.0.0.1**;
-- mọi thứ Unhealthy → không quyết geo → NODATA (NOERROR, 0 câu
-  trả lời);
 - câu hỏi **A** trên một tuyến chỉ-IPv6 → câu trả lời rỗng
   (không bao giờ một IPv6 trong A);
 - tên miền không có quy tắc áp dụng được → cùng câu hỏi, hành
@@ -547,80 +568,40 @@ Hành vi kỳ vọng:
 | Tùy chọn | Mặc định | Vai trò |
 |---|---|---|
 | (không — GeoDNS luôn bật, bảng nhúng) | bật | Định tuyến tự động theo IP nguồn |
-| `--geo-ip-table <path>` | — | **Bảng GeoIP cục bộ** (xem dưới). Chiếm ƯU TIÊN over mọi tùy chọn tĩnh `--geo-*` |
-| `--geo-country <u16>` | — | Quốc gia client, ISO 3166-1 số (840=US…) — tĩnh |
-| `--geo-continent <u16>` | — | Châu lục client, UN M49 (150=EU…); dẫn xuất từ quốc gia nếu bỏ qua — tĩnh |
-| `--geo-asn <u32>` | — | AS client (64500…) — tĩnh, mới trong v2 |
-| `--geo-region <u32>` | — | Vùng client (định danh mờ của bên xuất bản) — tĩnh, mới trong v2 |
-| `--health-check` | tắt | Bật kiểm tra (failover sức khỏe) |
-| `--no-health-check` | tắt | **Tắt tường minh** kiểm tra — THẮNG `--health-check` (xem ưu tiên) |
-| `--health-ttl-secs <u64>` | 5 | TTL của một mục sức khỏe |
-| `--health-port <u16>` | 443 | Cổng TCP cho kiểm tra (không dẫn xuất được từ bản ghi DNS) |
+| `--geo-ip-table`, `--geo-config`, `--geo-country/…`, `--health-*` | — | (ĐÃ GỠ — gãy cứng: geozone do build áp đặt và bộ phân giải không thực hiện kiểm tra sức khỏe; không tồn tại cờ lúc chạy) |
 
-#### Bảng GeoIP cục bộ (`--geo-ip-table`)
+#### Bảng nhúng là nguồn duy nhất
 
-Tệp VĂN BẢN cục bộ của các tiền tố, đọc **một lần** lúc khởi
-động (tối đa 100.000 quy tắc, `MAX_GEOIP_RULES`). Một quy tắc
-mỗi dòng, `#` = chú thích, dòng trống bỏ qua:
+Bảng GeoIP **do build áp đặt** (DB-IP Lite, lượng tử hóa, xem
+phần bảng nhúng phía trên): không bảng vận hành viên nào có thể
+được nhập. Phân giải: **IP nguồn của truy vấn DNS**
+(theo-từng-client: UDP `recv_from` / TCP `peer_addr`) được so
+trong 16 byte với bảng nhúng; quy tắc có **tiền tố khớp dài
+nhất** thắng (khi hòa, cái đầu theo thứ tự tệp).
 
-```text
-# prefix/mask        country continent asn     region
-10.0.0.0/8           840   3          .       .
-2001:db8::/32        250   150        64500   11
-192.0.2.0/24         158   9
-```
+- **nguồn riêng tư/không-định-tuyến được** (RFC1918, ULA
+  fc00::/7, link-local, loopback): client nằm BÊN TRONG mạng
+  của relay — nó thừa hưởng vị trí relay tự khám phá;
+- **nguồn công khai vắng trong bảng**: World (không chia geo —
+  không bao giờ một câu trả lời sai).
 
-- `prefix/mask`: IPv4 (`len ≤ 32`, chuyển sang dạng 16 byte,
-  đuôi 0 — cùng quy ước wire) hay IPv6 (`len ≤ 128`). **Các
-  bit host phải 0** (`10.1.2.3/8` bị từ chối);
-- `country`: ISO 3166-1 **số** `u16`, bắt buộc;
-- `continent`: UN M49 `u16`, tùy chọn (`.` hay bỏ = vắng,
-  châu lục khi đó dẫn xuất được từ quốc gia);
-- `asn`: `u32`, tùy chọn (`.` = vắng);
-- `region`: `u32` mờ, tùy chọn (`.` = vắng).
-
-Phân giải: **IP nguồn của truy vấn DNS** (theo-từng-client:
-UDP `recv_from` / TCP `peer_addr`; không rõ → IP tham chiếu
-của bộ phân giải) được so trong 16 byte; quy tắc có **tiền tố
-khớp dài nhất** thắng (khi hòa, cái đầu theo thứ tự tệp);
-không khớp → vị trí rỗng (World).
-
-**Nghiêm ngặt**: tệp do vận hành viên cấu hình — một dòng vô
-hiệu (tiền tố sai dạng, quốc gia không số, châu lục không rõ,
-trường thừa…) là một **lỗi khởi động** mang **số dòng vi
-phạm**; không bao giờ một dòng bị bỏ âm thầm, không bao giờ
-một bảng cục bộ.
+**Nghiêm ngặt** được giữ lại cho mọi bề mặt bảng tương lai:
+một dòng vô hiệu là một lỗi khởi động có kiểu mang số dòng vi
+phạm; không bao giờ một dòng bị bỏ âm thầm, không bao giờ một
+bảng cục bộ.
 
 #### Ưu tiên tùy chọn
 
-- **Locator**: `--geo-ip-table` **chiếm ưu tiên** over các
-  tùy chọn tĩnh
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
-  chúng bị bỏ qua khi bảng được cung cấp. Không bảng, các
-  tùy chọn tĩnh áp dụng.
-- **Sức khỏe**: `--no-health-check` là một **cờ riêng thắng**
-  over `--health-check` — tổ hợp
-  `--health-check --no-health-check` để kiểm tra tắt, không
-  mơ hồ thứ tự nhập. Không `--health-check`, kiểm tra tắt mặc
-  định: **Không-clear = khả dụng**, câu trả lời geo đi ra kể
-  cả khi đích đã chết. (Một `NoopChecker` — luôn Healthy —
-  cũng tồn tại để dựng cấu trúc sức khỏe mà không để riêng
-  endpoint nào: kiểm thử/hoang tưởng.)
+- **Locator**: bảng nhúng ÁP ĐẶT vị trí địa lý — không ghi đè
+  bởi vận hành viên. Relay khám phá vị trí của nó từ địa chỉ
+  ngoài (STUN/AutoNAT/UPnP được phân giải bởi bảng); các
+  client LAN thừa hưởng vị trí đó; các client Internet được
+  phân giải bởi IP nguồn của họ; cái không rõ quay về World.
 
-Ví dụ:
+Ví dụ (định tuyến geo hoạt động KHÔNG có cờ geo nào):
 
 ```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-ip-table /etc/scone/geoip.txt \
-            --no-health-check
-```
-
-Ví dụ tĩnh v2:
-
-```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-country 250 --geo-asn 64500 --geo-region 11 \
-            --health-check --health-port 443
+scone relay --dns 127.0.0.1:5353
 ```
 
 

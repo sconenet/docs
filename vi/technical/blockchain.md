@@ -160,8 +160,20 @@ TLD mở 1 ký tự = 27 bit ≈ 15 ngày; tên miền 1 ký tự = 26 bit ≈
 **Mở** một TLD riêng tư sẵn có (`SetTldOpen`) giữ độ khó phẳng
 (`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet): tx
 chỉ mang `tld_id`, tên đã trả theo chiều dài của nó lúc tạo.
-Hàm thuần túy (tất định: hai nút tính cùng một độ khó cho cùng
-một tên).
+**Hai bằng chứng phẳng nữa** hoàn thiện gia đình (chống thư rác
+ở mức đồng thuận, cùng muối epoch và cửa sổ với đăng ký):
+`transfer_pow_difficulty` cho chuyển nhượng (`TransferTld`/
+`TransferDomain`, challenge `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`) và `assign_pow_difficulty`
+cho việc tạo dưới một TLD riêng tư (`AssignDomain`, challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — phẳng một cách có chủ đích:
+tính độc quyền của namespace đã được trả lúc tạo TLD, không
+thuế kép theo chiều dài). Giá trị tham khảo: 16 bit mainnet
+(hiệu chuẩn bench-pow 2026-10-23: ≈ 1,7 h cho mỗi chuyển
+nhượng/gán trên MỘT nhân ở 10,6 H/s đo được, tham chiếu
+11,4 H/s; ≈ 25 phút ở 4 nhân — đắt để công nghiệp hóa, công
+việc bình thường của một chủ sở hữu trung thực), 4 bit testnet,
+1 bit devnet. Hàm thuần túy (tất định).
 
 Genesis là một hằng số giao thức **theo từng mạng**, tái lập được
 chỉ từ các hằng số (không ngẫu nhiên, không đồng hồ cục bộ,
@@ -183,6 +195,19 @@ entries` (các tên miền/TLD trả trước, sắp chuẩn theo tên,
 manifest ≤ 60 KiB, ≤ 2048 phân bổ) — chính định dạng mở rộng này
 biện minh cho `MAX_CONSENSUS_LEN` = 64 KiB (xem
 `scone-blockchain::genesis_alloc`).
+
+**Phân phối genesis phân bổ**: không artefact genesis nào
+(`genesis.bin`, manifest) từng nằm trong repo mã nguồn hay trong
+các bản phát hành mã, bất kể mạng hay giai đoạn dự án — hai tệp
+genesis là hai mạng. Genesis phân bổ của mainnet chỉ sinh ra khi
+ra mắt (công tắc sang tính năng `mainnet` bật theo mặc định):
+được tạo bởi `scone-genesis` từ một manifest có chữ ký được công
+bố bên ngoài repo, băm của nó được ghim trong thông báo ra mắt,
+và chỉ các nút sáng lập mới tiêu thụ nó (`--genesis`, khởi sinh
+chuỗi); mọi nút khác tham gia mạng bằng đồng bộ. Công cụ từ chối
+mọi thao tác ghi bên trong một thư mục workspace Rust (có mặt
+của `Cargo.toml`): genesis không bao giờ được phép hạ cánh vào
+cây mã nguồn.
 
 `network_id` trong payload đồng thuận làm cho các băm genesis —
 và do đó toàn bộ blockchain — **tách rời giữa các mạng**: một
@@ -777,11 +802,18 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`:
 
-1. **Bootstrap** (chưa có checkpoint hoàn tất): TOÀN BỘ tập hợp
-   ký — một ủy ban rút từ một góc nhìn cục bộ sẽ lệch giữa các
-   nút trễ (nguyên nhân gốc của các đơ tính cuối); toàn bộ tập
-   hợp là tất định theo chuỗi. Lựa chọn nghiêm ngặt tiếp tục
-   ở lần tính cuối đầu tiên.
+1. **Bootstrap** (chưa có checkpoint hoàn tất): các **vận hành
+   viên CÒN MỚI** của tập hợp ký (`fresh_operators` — một
+   heartbeat gần đây, cùng cửa sổ với chế độ hoàn tất). Bộ lọc là
+   trạng thái chuỗi (heartbeat nằm trên chuỗi), nên nó tất định
+   theo đỉnh: hai nút cùng đỉnh tính ra cùng một tập hợp. Dưới
+   `MIN_FINALITY_COMMITTEE_SIZE` vận hành viên còn mới, suy giảm
+   an toàn về TOÀN BỘ tập hợp (bootstrap nguội, sự cố tổng thể —
+   tính cuối không bao giờ mất về mặt cấu trúc). Tập hợp thô
+   không thể làm bộ ký: mỗi lần tự đăng ký lại làm tăng mẫu số
+   quorum trong khi các chủ đó không bao giờ ký — tính cuối trở
+   nên không với tới được sau ~10 lần đăng ký (testnet,
+   2026-10-21).
 2. **Chế độ hoàn tất**: rút từ tập con **còn mới** của tập hợp
    đóng băng (RFC proof-of-service §5.2) — mỗi ghế (khóa chủ)
    được phân giải tới vận hành viên HIỆU LỰC của nó bởi trạng
@@ -795,10 +827,22 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    (bootstrap nguội, sự cố vận hành viên tổng thể — tính cuối
    không bao giờ mất về mặt cấu trúc).
 
-`allowed_producers(block_ts)` (tạo khối) theo cùng lược đồ:
-toàn bộ tập hợp lúc bootstrap; ủy ban được bầu + các lần rút
-khôi phục (rút k mở khóa sau k × `epoch_secs` thời gian đồng
-thuận) trong chế độ hoàn tất.
+`allowed_producers(block_ts)` (tạo khối) theo một quy tắc rộng
+hơn một cách cố ý: toàn bộ tập hợp lúc bootstrap; **toàn bộ tập
+hợp ĐÓNG BĂNG** trong chế độ hoàn tất. Ủy ban được bầu (+ các
+lần rút khôi phục) chỉ còn là tập KÝ CHECKPOINT. Việc thu hẹp
+việc tạo khối vào ủy ban đã được đặc tả và triển khai trước,
+rồi bị bỏ: một người tạo khối có góc nhìn trễ một checkpoint sẽ
+đánh giá ứng viên theo quy tắc bootstrap và phát các khối mà
+mọi peer hoàn tất đều từ chối (`InvalidProducer`), và bất kỳ
+lịch sử chuỗi nào ghép qua thời điểm chuyển tiếp cũng không bao
+giờ vượt qua được phần phát lại `pool_at_height` — tính cuối đơ
+vĩnh viễn tại checkpoint đầu tiên (bộ tái hiện mô phỏng
+`duplicate_and_delay`, 2026-10-21). Việc đóng băng tập hợp một
+mình đã gánh phần an toàn: các thay đổi thành viên (đăng ký,
+chuyển nhượng, cấm, hết hạn) chỉ có hiệu lực tại checkpoint
+KẾ TIẾP, nên tập người tạo khối vẫn là một hàm thuần túy của
+chuỗi đã hoàn tất.
 
 Quorum checkpoint là `quorum_for(kích thước ủy ban)`
 (floor(2n/3)+1); một ủy ban dưới `MIN_FINALITY_COMMITTEE_SIZE`

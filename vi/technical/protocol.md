@@ -97,8 +97,12 @@ Transaction = disc u8 || version u8 || payload
 | Discriminant | Kiểu |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Mỗi discriminant là một hằng số mờ tùy ý (không có trình tự logic
 nào; `0x00` không bao giờ hợp lệ) — bảng chuẩn đầy đủ trong
@@ -106,14 +110,18 @@ nào; `0x00` không bao giờ hợp lệ) — bảng chuẩn đầy đủ trong
 
 Byte `version` (giá trị hiện tại `0x01`) đi sau discriminant:
 mọi giá trị khác bị từ chối tường minh
-(`UnsupportedVersion(value)`). **Mọi giao dịch đều được ký**
-(Ed25519): đặc tả đầy đủ, payload ký và quy tắc xác thực trong
+(`UnsupportedVersion(value)`). Hầu hết các giao dịch đều được ký
+(Ed25519) — NGOẠI TRỪ bốn dạng pow-to-owner không chữ ký
+(`0x2A`, `0x57`, `0x84`, `0xC3`): bằng chứng đã đào CHÍNH LÀ sự
+ủy quyền, và challenge của nó gắn khóa của người thụ hưởng và
+mạng. Đặc tả đầy đủ, payload ký và quy tắc xác thực trong
 **`/docs/en/technical/transactions.md`** (chuẩn).
 
 Kể từ thay đổi wire tháng 9-2026, **giao dịch không còn mang
-trường `network`**: `network_id` (`str` ≤ 16) được tiêm **chỉ
-vào payload ký** — một tx ký cho mạng này không bao giờ xác minh
-được trên mạng khác (xem `/docs/en/technical/blockchain.md`).
+trường `network`**: `network_id` (`str` ≤ 16) được tiêm vào
+**payload ký** (các dạng có chữ ký) hoặc **challenge PoW**
+(các dạng pow-to-owner) — một tx tạo cho mạng này không bao giờ
+chuyển sang mạng khác (xem `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 

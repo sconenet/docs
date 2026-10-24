@@ -322,19 +322,28 @@ Setiap biner menanam **tabel pemetaan IP → negara** yang
 dikompilasi ke dalam relay: **tanpa konfigurasi**, routing
 geografis aktif di mana-mana, otomatis.
 
-- **Sumber data**: **berkas delegasi RIR** (RIPE NCC, ARIN,
-  APNIC, LACNIC, AFRINIC), bebas diunduh dan didistribusikan
-  ulang:
-  `https://ftp.ripe.net/pub/stats/<rir>/delegated-<rir>-extended-latest`
-  (negara registrasi tiap blok IPv4/IPv6 yang didelegasikan).
-  Tanggal generasi ada di header tabel
+- **Sumber data**: **DB-IP Lite** ("IP to Country Lite"),
+  berlisensi **CC BY 4.0** — dapat didistribusikan ulang dengan
+  atribusi: `https://db-ip.com` (dikurasi bulanan; sebelumnya:
+  delegasi RIR via `scripts/gen-geo-table.py`, dihapus).
+  Sel terkuantisasi **/20 v4 dan /24 v6** (granularitas natif
+  DB-IP, ~1,3 juta rentang, melampaui batas memori parser) —
+  ~96.500 aturan. Tanggal generasi ada di header tabel
   (`assets/embedded-geo.table`).
-- **Regenerasi**: `scripts/gen-geo-table.py` (mengunduh 5
-  berkas, mengonversi, menormalisasi prefiks — ~176.000
-  aturan).
+- **Checksum**: SHA-256 tabel dihitung saat kompilasi
+  (`build.rs`), **diverifikasi ulang saat boot** (ketidakcocokan
+  = penolakan bertipe — biner yang diubah tidak pernah melayani
+  jawaban geografis) dan dicatat saat boot beserta atribusinya.
+  Hash menjamin "setiap node dari sebuah build berbagi tabel
+  yang sama" adalah sesuatu yang BISA DIPERIKSA, bukan
+  diasumsikan.
+- **Regenerasi**: `scripts/geo-convert.py` (mengunduh CSV
+  DB-IP Lite bulan itu, mengonversi — negara numerik, benua
+  turunan ISO→M49, ASN/region absen dari Lite).
 - **Granularitas**: negara (ISO 3166-1 numerik) + benua (UN
-  M49) turunan. Tanpa ASN maupun region (absen dari
-  delegasi).
+  M49) turunan. Tanpa ASN maupun region (absen dari Lite —
+  kebutuhan ASN/region menunggu evolusi pipeline tertanam,
+  tidak pernah tabel lokal).
 - **Kinerja**: pencarian **binary search** atas rentang terurut
   (indeks dibangun sekali pada pemakaian pertama, per keluarga
   v4/v6) — terukur ~95 ns/pencarian hot, ~50 µs akses-acak pada
@@ -343,8 +352,13 @@ geografis aktif di mana-mana, otomatis.
 - **Lokasi-dir relay**: routing mengikuti **IP sumber tiap
   kueri** — relay LAN merutekan klien lokalnya ke zona yang
   tepat secara otomatis.
-- **Prioritas**: tabel operator eksplisit
-  (`--geo-ip-table`/geo-config) **menimpa** yang tertanam.
+- **Tabel DIWAJIBKAN** (remove-geo-operator-table, 2026-10-22):
+  tabel tertanam adalah **satu-satunya sumber** — tidak ada
+  impor maupun penimpaan operator. **Tidak ada opsi geo
+  runtime**: setiap flag `--geo-*` adalah penolakan clap tegas
+  (geozone diwajibkan oleh build). Operator dengan kebutuhan
+  khusus (ASN, region) menunggu evolusi pipeline tertanam,
+  bukan tabel lokal.
 
 ### Ringkasan
 
@@ -448,11 +462,14 @@ test `geo_known_bytes`, dibekukan).
    yang meningkat mendistribusikan proporsional terhadap bobot.
    `weight = 0` = tidak aktif, tidak pernah terpilih (bahkan
    sendirian — pindah ke level berikutnya).
-4. **Failover kesehatan** — endpoint **Unhealthy** disisihkan;
-   jika seluruh level minimal tak tersedia, pindah ke level
-   priority berikutnya. **Unknown dihitung tersedia** (yang tak
-   dikenal tidak dihukum). Semuanya tak tersedia → perilaku DNS
-   klasik.
+4. **Urutan bertanda tangan, tanpa probing** — resolver TIDAK
+   PERNAH menilai ketersediaan sebuah endpoint: setiap endpoint
+   aktif (weight > 0) dari scope terpilih adalah kandidat,
+   kepala level minimal terpilih lewat undian terbobot, dan
+   yang berikutnya bertindak sebagai failover **dalam urutan
+   himpunan record bertanda tangan** (urutan itulah mekanisme
+   failover-nya). Jangkauan endpoint adalah urusan operator
+   endpoint, bukan urusan resolver.
 
 ### Respons
 
@@ -464,7 +481,7 @@ test `geo_known_bytes`, dibekukan).
 - AA diset (respons otoritatif — GEOROUTE adalah record bertanda
   tangan terverifikasi seperti lainnya).
 - Respons kosong setelah filter (tanpa kandidat keluarga yang
-  tepat, semuanya Unhealthy, tanpa rute cocok) → resolver
+  tepat, tanpa rute untuk zona tersebut) → resolver
   melanjutkan jalur klasiknya (biasanya NODATA: NOERROR, 0
   jawaban); rcode error mengikuti aturan umum (tidak pernah
   di-cache).
@@ -483,25 +500,26 @@ undian terbobot, µs) dan melewati cache. Cache klasik
 termasuk NODATA yang dihasilkan saat geo tidak memutuskan
 apa pun. Rcode error tetap tidak pernah di-cache.
 
-### Pemeriksaan kesehatan (`--health-check`)
+### Delegasi NS (record `ns`) — owner memilih siapa yang melayani
 
-- `HealthCache` per target (`GeoTarget`): `probe` = baca non-
-  blocking (status segar, atau Unknown), **tidak pernah**
-  pemeriksaan yang dipicu dari jalur resolusi.
-- Penyegaran: jika kandidat terpilih Unknown/absen dari cache,
-  SATU penyegaran dijadwalkan sebagai task latar
-  (`tokio::spawn_blocking`: connect TCP blocking, dilarang di
-  loop UDP). Anti-spam: satu penyegaran pada satu waktu per
-  target (HashSet), dapat dimulai ulang setelah penyegaran
-  sebelumnya selesai.
-- `TcpChecker`: connect TCP berbatas (timeout 2 dtk) ke
-  `target:port`. **Port tidak dapat diturunkan dari record
-  DNS**: `--health-port` menyetelnya (default 443). Checkernya
-  **sengaja naif** (connect berhasil ≠ layanan sehat) — dapat
-  ditingkatkan (HTTP, TLS, level aplikasi) tanpa perubahan
-  format.
-- TTL entri: `--health-ttl-secs` (default 5 dtk); entri
-  kedaluwarsa = Unknown = tersedia.
+Owner sebuah domain memilih mode pelayanan per domain:
+
+- **DHT (default)** — tanpa record `ns`, jaringan Scone melayani
+  A/AAAA on-chain (relay `--dns`, atau jembatan NSD via export);
+- **NS independen** — owner menambahkan record
+  `ns <ip-atau-nama>` (nameserver MILIKNYA, IP langsung atau
+  hostname): domain DIDELIGASIKAN — jaringan berhenti melayani
+  kontennya (A/AAAA → NODATA + otoritas NS), dan siapa pun yang
+  me-resolve mengikuti NS milik owner. Batasnya: **12 NS
+  berbeda per domain** (semua bentuk, terdeduplikasi per nilai
+  — cermin dari batas registry dunia nyata). Menghapus sebuah
+  NS membebaskan slotnya; menghapus semuanya mengembalikan
+  mode DHT.
+
+**Tidak ada pemeriksaan kesehatan yang ada**: ketersediaan
+endpoint adalah urusan operator endpoint — resolver melayani
+himpunan record bertanda tangan apa adanya, dalam urutan record
+(urutan record itulah mekanisme failover-nya).
 
 ### Keamanan
 
@@ -510,13 +528,15 @@ apa pun. Rcode error tetap tidak pernah di-cache.
   record_hash) sebelum penggunaan apa pun. **Tanpa kepercayaan
   jaringan tanpa validasi** — GEOROUTE DHT tak terverifikasi
   tidak pernah menjawab.
-- Posisi klien berasal dari **tabel GeoIP tertanam**
-  (delegasi RIR, lihat atas) yang diturunkan dari IP sumbernya —
-  atau dari konfigurasi lokal eksplisit resolver
-  (`--geo-ip-table` atau
-  `--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`,
-  yang berprioritas), tidak pernah dari API GeoIP jaringan
-  (tanpa kebocoran kueri, tanpa dependensi).
+- Posisi klien berasal dari **sirkuit yang ditemukan otomatis**:
+  relay menemukan lokasinya sendiri via alamat eksternalnya
+  (STUN/AutoNAT/UPnP) yang diselesaikan oleh tabel tertanam
+  yang diwajibkan build — klien LAN (IP sumber privat) mewarisi
+  posisi itu, klien Internet diselesaikan oleh IP mereka
+  sendiri, yang tak dikenal jatuh ke World. Tidak pernah dari
+  API GeoIP jaringan (tanpa kebocoran kueri, tanpa dependensi)
+  dan tidak pernah dari deklarasi operator (zona-zona
+  diwajibkan oleh build).
 - Undian deterministik dan lokal: tanpa rahasia, tanpa
   ketakterdugaan yang disyaratkan (keamanannya ada pada tanda
   tangan record, bukan pada undian).
@@ -538,13 +558,12 @@ seluruh himpunan melayani setiap subnama):
 
 Perilaku yang diharapkan:
 
-- klien **US** → 10.1.0.1 (≈70%) atau 10.1.0.2 (≈30%); jika
-  keduanya Unhealthy → failover p20 → **10.2.0.1**;
+- klien **US** → 10.1.0.1 (≈70%) atau 10.1.0.2 (≈30%); level
+  p20 hanya tercapai jika tak ada endpoint p10 yang aktif
+  (weight = 0 di mana-mana) → barulah **10.2.0.1**;
 - klien **TW** → 10.3.0.1 (≈80%) atau 10.4.0.1 (≈20%);
 - klien **FR** (250) → tanpa rute FR atau EU dalam himpunan →
   WORLD → **10.0.0.1**;
-- semuanya Unhealthy → tanpa keputusan geo → NODATA (NOERROR,
-  0 jawaban);
 - pertanyaan **A** pada rute khusus-IPv6 → jawaban kosong
   (tidak pernah IPv6 dalam A);
 - domain tanpa aturan yang berlaku → pertanyaan sama, perilaku
@@ -555,82 +574,42 @@ Perilaku yang diharapkan:
 | Opsi | Default | Peran |
 |---|---|---|
 | (tanpa — GeoDNS selalu aktif, tabel tertanam) | on | Routing otomatis per IP sumber |
-| `--geo-ip-table <path>` | — | **Tabel GeoIP lokal** (lihat bawah). BERPRIORITAS atas semua opsi `--geo-*` statis |
-| `--geo-country <u16>` | — | Negara klien, ISO 3166-1 numerik (840=US…) — statis |
-| `--geo-continent <u16>` | — | Benua klien, UN M49 (150=EU…); diturunkan dari negara jika dihilangkan — statis |
-| `--geo-asn <u32>` | — | AS klien (64500…) — statis, baru di v2 |
-| `--geo-region <u32>` | — | Subdivisi klien (identifier opaque penerbit) — statis, baru di v2 |
-| `--health-check` | off | Mengaktifkan pemeriksaan (failover kesehatan) |
-| `--no-health-check` | off | **Menonaktifkan pemeriksaan secara eksplisit** — MENANG atas `--health-check` (lihat prioritas) |
-| `--health-ttl-secs <u64>` | 5 | TTL entri kesehatan |
-| `--health-port <u16>` | 443 | Port TCP pemeriksaan (tak dapat diturunkan dari record DNS) |
+| `--geo-ip-table`, `--geo-config`, `--geo-country/…`, `--health-*` | — | (DIHAPUS — kerusakan keras: geozone diwajibkan oleh build dan resolver tidak melakukan pemeriksaan kesehatan; tidak ada flag runtime yang ada) |
 
-#### Tabel GeoIP lokal (`--geo-ip-table`)
+#### Tabel tertanam adalah satu-satunya sumber
 
-Berkas TEKS lokal berisi prefiks, dibaca **sekali** saat startup
-(maks 100.000 aturan, `MAX_GEOIP_RULES`). Satu aturan per baris,
-`#` = komentar, baris kosong diabaikan:
+Tabel GeoIP **diwajibkan oleh build** (DB-IP Lite, terkuantisasi,
+lihat bagian tabel tertanam di atas): tidak ada tabel operator
+yang bisa diimpor. Resolusi: **IP sumber kueri DNS**
+(per-klien: UDP `recv_from` / TCP `peer_addr`) dibandingkan
+dalam 16 byte terhadap tabel tertanam; aturan dengan **prefiks
+cocok terpanjang** menang (seri: yang pertama dalam urutan
+berkas).
 
-```text
-# prefix/mask        country continent asn     region
-10.0.0.0/8           840   3          .       .
-2001:db8::/32        250   150        64500   11
-192.0.2.0/24         158   9
-```
+- **sumber privat/tak-terroute** (RFC1918, ULA fc00::/7,
+  link-local, loopback): klien berada DI DALAM jaringan relay —
+  ia mewarisi posisi milik relay yang ditemukan sendiri;
+- **sumber publik yang absen dari tabel**: World (tanpa
+  pemisahan geo — tidak pernah jawaban yang salah).
 
-- `prefix/mask`: IPv4 (`len ≤ 32`, dikonversi ke bentuk 16-byte,
-  ekor nol — konvensi sama dengan wire) atau IPv6
-  (`len ≤ 128`). **Bit host harus nol** (`10.1.2.3/8`
-  ditolak);
-- `country`: ISO 3166-1 **numerik** `u16`, wajib;
-- `continent`: UN M49 `u16`, opsional (`.` atau dihilangkan =
-  absen, benua lalu bisa diturunkan dari negara);
-- `asn`: `u32`, opsional (`.` = absen);
-- `region`: `u32` opaque, opsional (`.` = absen).
-
-Resolusi: **IP sumber kueri DNS** (per-klien: UDP `recv_from` /
-TCP `peer_addr`; tak dikenal → IP referensi resolver)
-dibandingkan dalam 16 byte; aturan dengan **prefiks cocok
-terpanjang** menang (seri: yang pertama dalam urutan berkas);
-tanpa cocok → posisi kosong (World).
-
-**Keketatan**: berkas dikonfigurasi operator — baris tidak
-valid (prefiks salah-bentuk, negara non-numerik, benua tak
-dikenal, field berlebih…) adalah **error startup** yang membawa
-**nomor baris pelanggaran**; tidak pernah baris yang diabaikan
-diam-diam, tidak pernah tabel parsial.
+**Keketatan** dipertahankan untuk permukaan tabel masa depan
+apa pun: baris tidak valid adalah error startup bertipe yang
+membawa nomor baris pelanggaran; tidak pernah baris yang
+diabaikan diam-diam, tidak pernah tabel parsial.
 
 #### Prioritas opsi
 
-- **Locator**: `--geo-ip-table` **berprioritas** atas opsi
-  statis
-  (`--geo-country`/`--geo-continent`/`--geo-asn`/`--geo-region`),
-  yang diabaikan saat tabel diberikan. Tanpa tabel, opsi statis
-  berlaku.
-- **Kesehatan**: `--no-health-check` adalah **flag khusus yang
-  menang** atas `--health-check` — kombinasi
-  `--health-check --no-health-check` meninggalkan pemeriksaan
-  nonaktif, tanpa ambiguitas urutan input. Tanpa
-  `--health-check`, pemeriksaan mati secara default: **Unknown
-  = tersedia**, jawaban geo keluar meski targetnya mati.
-  (`NoopChecker` — selalu Healthy — juga ada untuk memasang
-  struktur kesehatan tanpa menyisihkan endpoint apa pun:
-  test/paranoia.)
+- **Locator**: tabel tertanam MENGWAJIBKAN geolokasi — tidak
+  ada penimpaan operator. Relay menemukan posisinya dari alamat
+  eksternalnya (STUN/AutoNAT/UPnP yang diselesaikan oleh
+  tabel); klien LAN mewarisi posisi itu; klien Internet
+  diselesaikan oleh IP sumber mereka; yang tak dikenal jatuh
+  ke World.
 
-Contoh:
+Contoh (routing geo aktif TANPA flag geo):
 
 ```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-ip-table /etc/scone/geoip.txt \
-            --no-health-check
-```
-
-Contoh statis v2:
-
-```bash
-scone relay --dns 127.0.0.1:5353 \
-            --geo-country 250 --geo-asn 64500 --geo-region 11 \
-            --health-check --health-port 443
+scone relay --dns 127.0.0.1:5353
 ```
 
 

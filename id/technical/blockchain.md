@@ -162,8 +162,20 @@ CLI menambang multi-inti), ~11,4 H/s/inti. **Membuka** TLD privat
 yang ada (`SetTldOpen`) tetap pada kesulitan datar
 (`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet): tx
 hanya membawa `tld_id`, namanya sudah membayar panjangnya saat
-penciptaan. Fungsi murni (determinisme: dua node menghitung
-kesulitan yang sama untuk nama yang sama).
+penciptaan. **Dua bukti datar lagi** melengkapi keluarga ini
+(anti-spam tingkat konsensus, salt epoch dan jendela yang sama
+dengan registrasi): `transfer_pow_difficulty` untuk transfer
+(`TransferTld`/`TransferDomain`, tantangan `SCONE-TLD-XFER-V1 ‖
+tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) dan
+`assign_pow_difficulty` untuk penugasan di bawah TLD privat
+(`AssignDomain`, tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —
+datar memang disengaja: eksklusivitas namespace sudah dibayar
+saat penciptaan TLD, tanpa pajak ganda per-panjang). Nilai
+indikatif: 16 bit mainnet (kalibrasi bench-pow 2026-10-23: ≈
+1,7 jam per transfer/assign pada SATU inti pada 10,6 H/s
+terukur, referensi 11,4 H/s; ≈ 25 menit pada 4 inti — mahal
+untuk diindustrialisasi, kerja biasa bagi owner yang jujur),
+4 bit testnet, 1 bit devnet. Fungsi murni (determinisme).
 
 Genesis adalah konstanta protokol **per jaringan**, dapat
 direproduksi dari konstanta saja (tanpa keacakan, tanpa jam
@@ -185,6 +197,20 @@ Varian **genesis alokasi** (kickstarter mainnet, M-next): field
 ≤ 2048 alokasi) — format yang dilebarkan inilah yang
 membenarkan `MAX_CONSENSUS_LEN` = 64 KiB (lihat
 `scone-blockchain::genesis_alloc`).
+
+**Distribusi genesis alokasi**: tidak ada artefak genesis
+(`genesis.bin`, manifest) yang pernah tinggal di repositori
+sumber maupun di rilis kode, apa pun jaringannya atau tahap
+proyeknya — dua berkas genesis adalah dua jaringan. Genesis
+alokasi mainnet lahir hanya saat peluncuran (sakelar ke fitur
+`mainnet` yang aktif secara default): diproduksi oleh
+`scone-genesis` dari manifest bertanda tangan yang dipublikasikan
+di luar repositori, hash-nya disematkan di pengumuman peluncuran,
+dan hanya node founder yang mengonsumsinya (`--genesis`, kelahiran
+chain); setiap node lain bergabung ke jaringan lewat sync. Alat
+ini menolak penulisan apa pun di dalam direktori workspace Rust
+(kehadiran `Cargo.toml`): genesis tidak boleh pernah bisa mendarat
+di source tree.
 
 `network_id` dalam payload konsensus membuat hash genesis — dan
 karena itu seluruh blockchain — **terpisah antar jaringan**: blok
@@ -800,11 +826,19 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`:
 
-1. **Bootstrap** (tanpa checkpoint terfinalisasi): SELURUH
-   kumpulan menandatangani — komite yang diundi dari view lokal
-   akan menyimpang antar node yang tertinggal (akar masalah
-   pembekuan finalitas); seluruh kumpulan deterministik per
-   chain. Seleksi ketat resume pada finalitas pertama.
+1. **Bootstrap** (tanpa checkpoint terfinalisasi): **operator
+   SEGAR** dari kumpulan yang menandatangani (`fresh_operators`
+   — heartbeat terkini, jendela yang sama dengan rezim
+   terfinalisasi). Filternya adalah state chain (heartbeat
+   on-chain), jadi deterministik per tip: dua node pada tip yang
+   sama menghitung himpunan yang sama. Di bawah
+   `MIN_FINALITY_COMMITTEE_SIZE` operator segar, degradasi aman
+   ke SELURUH kumpulan (bootstrap dingin, pemadaman umum —
+   finalitas tidak pernah hilang menurut konstruksi). Kumpulan
+   mentah tidak bisa menjadi himpunan penandatangan: setiap
+   registrasi mandiri membesarkan penyebut kuorum sementara
+   owner-owner itu tidak pernah menandatangani — finalitas jadi
+   tak terjangkau setelah ~10 registrasi (testnet, 2026-10-21).
 2. **Rezim terfinalisasi**: undian dari subkumpulan **segar**
    dari kumpulan beku (RFC proof-of-service §5.2) — tiap kursi
    (kunci owner) diselesaikan ke operator EFEKTIFNYA oleh state
@@ -818,10 +852,23 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    dari SELURUH kumpulan (bootstrap dingin, pemadaman operator
    umum — finalitas tidak pernah hilang menurut konstruksi).
 
-`allowed_producers(block_ts)` (produksi blok) mengikuti skema
-yang sama: seluruh kumpulan saat bootstrap; komite terpilih +
-undian pemulihan (undian k terbuka setelah k × `epoch_secs`
-waktu konsensus) pada rezim terfinalisasi.
+`allowed_producers(block_ts)` (produksi blok) mengikuti aturan
+yang lebar secara sengaja: seluruh kumpulan saat bootstrap;
+**seluruh kumpulan BEKU** pada rezim terfinalisasi. Komite
+terpilih (+ undian pemulihan) tetap menjadi himpunan
+PENANDATANGAN CHECKPOINT saja. Mempersempit produksi ke komite
+sempat dispesifikasikan dan diimplementasikan lebih dulu, lalu
+dihapus: produsen yang view-nya tertinggal satu checkpoint
+mengevaluasi kandidat dengan aturan bootstrap dan memancarkan
+blok yang ditolak setiap peer terfinalisasi (`InvalidProducer`),
+dan riwayat chain yang dirangkai melintasi transisi itu tidak
+pernah bisa melewati replay `pool_at_height` — finalitas membeku
+di checkpoint pertama selamanya (reproducer sim
+`duplicate_and_delay`, 2026-10-21). Pembekuan kumpulan saja
+sudah memikul beban keamanan: perubahan keanggotaan (registrasi,
+transfer, ban, kedaluwarsa) hanya berlaku pada checkpoint
+BERIKUTNYA, sehingga himpunan produsen tetap fungsi murni dari
+chain terfinalisasi.
 
 Kuorum checkpoint adalah `quorum_for(ukuran komite)`
 (floor(2n/3)+1); komite di bawah `MIN_FINALITY_COMMITTEE_SIZE`

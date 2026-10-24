@@ -72,7 +72,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 জমা হয়: `.env`-এ প্রতি মানে একটি লাইন (dotenvy অ্যাপেন্ড করে)।
 
 `SCONE_*` ভেরিয়েবলের সম্পূর্ণ টেবিল (নেটওয়ার্ক, P2P লিসেন,
-বুটস্ট্র্যাপ, জেনেসিস, mDNS, UPnP, DNS সারফেস, মেট্রিক্স, টোপোলজি
+বুটস্ট্র্যাপ, জেনেসিস, UPnP, DNS সারফেস, মেট্রিক্স, টোপোলজি
 প্রোফাইল, অ্যাঙ্কর) এবং প্রতিটির শব্দার্থ
 [`relay.md`](relay.md#environment-configuration-env)-এ;
 কমেন্টেড টেমপ্লেট রিপোজিটরি রুটে `.env.example` (`.env`-এ
@@ -167,6 +167,33 @@ PoW আপনার জন্য মাইনড), `scone tld transfer <tld> <ow
 রেকর্ড রেজোলিউশন `scone domain resolve <name>`-এ স্থানান্তরিত
 (পূর্বের `record get`); হেক্স পাবলিকেশন চ্যানেল (`record put`)
 আর নেই — সম্পাদনা `domain set` / `domain update` দিয়ে যায়।
+- `scone domain mine <name>` — শুধু রেজিস্ট্রেশন প্রুফ মাইন করে
+  (কোনো পরিচয় নেই, কোনো keystore নেই, কোনো সাবমিশন নেই):
+  stdout-এ `scone-domain-pow-v1` JSON `{type, name, network_id,
+  epoch, proof}` প্রিন্ট করে। ডেলিগেটেড মাইনিং: অন্য একটি মেশিন
+  আপনার জন্য মাইন করে, আপনার কী কখনো আপনার কাছ থেকে বেরোয় না।
+  Pipe বা redirect করুন: `scone domain mine n.tld | scone
+  domain register n.tld --proof -` (বা `--proof FILE`)। প্রুফটি
+  নাম-ও-নেটওয়ার্কে বাঁধা; ফ্রেশনেস নোড প্রয়োগের সময় প্রয়োগ করে
+  (এপোক বৈধতা উইন্ডো)। `--mine-for <pubkey>` দিলে এটি বদলে
+  সেই উপকারভোগীর জন্য একটি POW-TO-OWNER প্রুফ মাইন করে এবং
+  `scone-domain-pow-to-v1` JSON `{type, name, network_id,
+  epoch, pow_to, proof}` প্রিন্ট করে — কেবল ঠিক সেই কী-র জন্য
+  `register --to` / `renew --to` দ্বারাই গ্রহণযোগ্য (challenge
+  এটি এমবেড করে; সাবমিশনে কেস-অসংবেদনশীল চেক)।
+- Pow-to-owner সাবমিশন (keystore লাগে না — `--to`
+  `--identity`-এর সাথে পারস্পরিক একচেটিয়া): `scone domain
+  register <name> --to <pubkey>` / `scone domain renew <name>
+  --to <pubkey>` এবং `scone tld register <tld> --to <pubkey>` /
+  `scone tld renew <tld> --to <pubkey>` এমন একটি প্রুফ জমা
+  দেয় যার challenge উপকারভোগীর কী-কে বাঁধে; অন-চেইন `owner`
+  `hash(pubkey_dest)` হিসেবে পুনর্গণনীত হয় (একটি renew কখনোই
+  হাত বদলায় না)। `--proof` ছাড়া, কমান্ড নিজেই প্রুফ মাইন
+  করে; `--proof -`/FILE দিলে এটি একটি `scone-domain-pow-to-v1`
+  পেলোড গ্রহণ করে এবং অন্য কোনো উপকারভোগীর জন্য মাইনড প্রুফ
+  প্রত্যাখ্যান করে। Pipe স্টাইল: `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --to
+  <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — চেইন-ভেরিফায়েড
   রেকর্ড সেট ঠিক `update --file` ফরম্যাটে লেখে
   (রাউন্ড-ট্রিপ নিশ্চয়তা: export → সম্পাদনা → update একই
@@ -177,6 +204,25 @@ PoW আপনার জন্য মাইনড), `scone tld transfer <tld> <ow
   হয় — কখনো নীরবে বাদ দেওয়া হয় না।
 
 `domain get` এছাড়াও `domain_id` এবং `valid_until` প্রিন্ট করে।
+
+## PoW বেঞ্চমার্ক (`scone bench-pow`)
+
+মেশিনের Argon2id হ্যাশ রেট পরিমাপ করে (কনসেনসাস ভেরিফিকেশন যে
+হ্যাশ ব্যবহার করে ঠিক সেটিই) এবং নেটওয়ার্কের ডিফিকাল্টিগুলোকে
+কংক্রিট অপেক্ষার সময়ে রূপান্তর করে:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+আউটপুট: মোট এবং প্রতি-worker H/s, তারপর প্রতি অপারেশনে
+প্রত্যাশিত গড় সময় — ট্রান্সফার/অ্যাসাইন (ফ্ল্যাট রেট),
+প্রাইভেট-TLD উন্মুক্তকরণ, এবং TLD/ডোমেইন রেজিস্ট্রেশন ফ্লোর
+(দৈর্ঘ্যের বক্ররেখা)। নির্বাচিত নেটওয়ার্ক Argon2id প্যারামিটার
+নির্ধারণ করে (মেইননেট: 64 MiB, t=2 — প্রকৃত খরচ; টেস্টনেট/devnet:
+হালকা প্রোফাইল, মিলিসেকেন্ড প্রুফ)। প্রতিটি worker তার নিজস্ব
+64 MiB Argon2id লেন অ্যালোকেট করে — উপলব্ধ RAM অনুযায়ী
+`--cores` সাইজ করুন।
 
 ## বিল্ড: dev বনাম মেইননেট-সক্ষম (mainnet-compile-gate)
 

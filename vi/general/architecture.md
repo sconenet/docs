@@ -150,8 +150,7 @@ GeoIP nhúng, chuyển tiếp đệ quy), vòng lặp checkpoint/heartbeat
 của các anchor (CLI nói p2p QUIC trực tiếp với relay, không còn
 RPC cục bộ nữa). Khả năng kết nối và khám phá: AutoNAT v2 (phán
 quyết kết nối được/đứng sau NAT), circuit-relay v2 + DCUtR cho các
-nút NATed, mDNS (khám phá LAN không cần cấu hình, BẬT mặc định trên
-devnet) và UPnP (ánh xạ cổng QUIC bởi router, tự nguyện). Cấu hình
+nút NATed và UPnP (ánh xạ cổng QUIC bởi router, tự nguyện). Cấu hình
 qua tệp `.env` (xem `.env.example`).
 Tham khảo: `/docs/en/technical/relay.md`.
 
@@ -168,7 +167,10 @@ xóm.
 
 **scone-genesis** — tệp nhị phân công cụ dùng một lần (kickstarter)
 cho việc chuẩn bị genesis mainnet: manifest JSON có phiên bản, các
-phân bổ, khối tất định.
+phân bổ, khối tất định. Công cụ tạo ra các artefact, repo không
+bao giờ quản lý phiên bản chúng (từ chối ghi bên trong một
+workspace Rust; phân phối dành riêng cho thời điểm ra mắt, xem
+`blockchain.md`).
 
 **scone** — tệp nhị phân/CLI. Chỉ phụ thuộc vào một crate khi thực
 sự dùng nó (hiện nay: scone-network cho relay, scone-blockchain,

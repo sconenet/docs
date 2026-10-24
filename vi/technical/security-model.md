@@ -79,6 +79,36 @@ discriminant `0x15`): trục xuất khỏi tập hợp PoS (được ghi nhật
 ký, có thể đảo ngược khi reorg). Các tên miền/TLD của bị cáo
 không bị tịch thu (trừng phạt tối thiểu — quyết định M9).
 
+## Thu nhận thụ động và tư cách đủ điều kiện PoS
+
+**Câu hỏi**: một bên thứ ba có thể áp đặt một quyền sở hữu cho tôi —
+và do đó một nghĩa vụ PoS — mà không cần sự đồng ý của tôi không?
+
+**Có với quyền sở hữu, không với nợ.** Một tên có thể được thu nhận
+thụ động: các giao dịch chuyển nhượng (`TransferTld`,
+`TransferDomain`) được ký bởi một mình **bên chuyển nhượng** (người
+nhận chỉ là một `OwnerId` mờ, không bao giờ được hỏi), `AssignDomain`
+được ký bởi chủ của TLD, và các phân bổ genesis rơi xuống khóa của
+manifest. Đây là một tính năng được chấp nhận có chủ đích: quà tặng,
+dead drop, di chúc. Tính chất chống-Sybil không phụ thuộc vào nó:
+một ghế cho mỗi **chủ khác biệt của một tên còn sống**
+(`owner_refcounts`), và mọi quyền sở hữu đều làm ai đó tốn công.
+
+**Không có nợ nào áp đặt được**: slashing chỉ trừng phạt
+**equivocation đã được chứng minh** (hai chữ ký xung đột, `SlashTx`,
+cấm); một khóa thụ động không ký gì và do đó không bao giờ bị slash.
+Sự vắng mặt của một thành viên được rút đi vào **khôi phục**
+(rút lại), không bị trừng phạt. Một ghế nhận không mong muốn vẫn có
+thể từ bỏ: hết hạn + GC, `SetTldOpen` (ghế được giải phóng khi mở),
+`RevokeTld`, hoặc chuyển nhượng lại.
+
+**Quyết định được ghi nhận — không có sự đồng ý thu nhận**: một
+tuyên bố hai pha (chuyển nhượng đang chờ, sự chấp nhận được ký bởi
+người nhận) đã được cân nhắc và bác bỏ — nó phá vỡ dead drop và
+"first applied wins", thêm một máy trạng thái lên các tên, và bảo vệ
+chống một rủi ro được chứng minh là không tồn tại (không có nợ áp đặt
+được, xem ở trên).
+
 ## Các tính chất được kiểm thử xác minh
 
 - `checkpoint_hash_engages_signatures`: băm checkpoint bao phủ

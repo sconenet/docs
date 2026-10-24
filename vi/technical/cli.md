@@ -73,7 +73,7 @@ Các biến lặp được (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`) tích
 lũy: một dòng cho mỗi giá trị trong `.env` (dotenvy nối thêm).
 
 Bảng đầy đủ các biến `SCONE_*` (mạng, lắng nghe P2P, bootstrap,
-genesis, mDNS, UPnP, bề mặt DNS, chỉ số, hồ sơ cấu trúc liên kết,
+genesis, UPnP, bề mặt DNS, chỉ số, hồ sơ cấu trúc liên kết,
 anchor) và ngữ nghĩa của từng biến nằm trong
 [`relay.md`](relay.md#environment-configuration-env); mẫu có chú
 thích là `.env.example` ở thư mục gốc của kho (sao chép sang
@@ -165,6 +165,33 @@ hộ bạn), `scone tld transfer <tld> <owner>`,
 giải bản ghi DNS chuyển sang `scone domain resolve <name>` (trước
 là `record get`); kênh xuất bản hex (`record put`) đã biến mất —
 chỉnh sửa đi qua `domain set` / `domain update`.
+- `scone domain mine <name>` — chỉ đào bằng chứng đăng ký
+  (không cần danh tính, không keystore, không gửi): in JSON
+  `scone-domain-pow-v1` `{type, name, network_id, epoch,
+  proof}` ra stdout. Đào ủy nhiệm: một máy khác đào hộ bạn,
+  khóa của bạn không bao giờ rời khỏi bạn. Pipe hay
+  redirect: `scone domain mine n.tld | scone domain register
+  n.tld --proof -` (hay `--proof FILE`). Bằng chứng gắn với
+  tên và mạng; độ tươi được nút áp đặt lúc áp dụng (cửa sổ
+  hiệu lực epoch). Với `--mine-for <pubkey>`, nó thay vào đó
+  đào một bằng chứng POW-TO-OWNER cho người thụ hưởng đó và
+  in JSON `scone-domain-pow-to-v1` `{type, name, network_id,
+  epoch, pow_to, proof}` — chỉ `register --to` / `renew
+  --to` cho đúng khóa đó mới tiêu thụ được (challenge nhúng
+  nó; kiểm tra không phân biệt hoa thường khi gửi).
+- Gửi pow-to-owner (không cần keystore — `--to` loại trừ lẫn
+  với `--identity`): `scone domain register <name> --to
+  <pubkey>` / `scone domain renew <name> --to <pubkey>` và
+  `scone tld register <tld> --to <pubkey>` / `scone tld renew
+  <tld> --to <pubkey>` gửi một bằng chứng mà challenge gắn
+  khóa NGƯỜI THỤ HƯỞNG; `owner` trên chuỗi được tính lại
+  thành `hash(pubkey_dest)` (một renew KHÔNG BAO GIỜ đổi
+  chủ). Không có `--proof`, lệnh tự đào bằng chứng; với
+  `--proof -`/FILE nó tiêu thụ một payload
+  `scone-domain-pow-to-v1` và từ chối bằng chứng đào cho
+  người thụ hưởng KHÁC. Kiểu pipe: `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --to
+  <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — ghi bộ bản ghi đã
   được chuỗi xác minh đúng định dạng `update --file` (bảo đảm khứ
   hồi: export → chỉnh sửa → update gửi lại đúng bộ đó). Không có
@@ -174,6 +201,24 @@ chỉnh sửa đi qua `domain set` / `domain update`.
   chú thích — không bao giờ bị bỏ âm thầm.
 
 `domain get` cũng in `domain_id` và `valid_until`.
+
+## Benchmark PoW (`scone bench-pow`)
+
+Đo tốc độ băm Argon2id của máy (chính loại băm mà việc xác
+minh đồng thuận dùng) và dịch các độ khó của mạng thành các
+thời gian chờ cụ thể:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+Kết quả: H/s tổng và theo từng worker, rồi thời gian chờ trung
+bình dự kiến mỗi thao tác — chuyển nhượng/gán (giá phẳng), mở
+TLD riêng tư, và các sàn đăng ký TLD/tên miền (đường cong chiều
+dài). Mạng được chọn quyết định tham số Argon2id (mainnet:
+64 MiB, t=2 — chi phí thật; testnet/devnet: hồ sơ nhẹ, bằng
+chứng mili-giây). Mỗi worker cấp phát lane Argon2id 64 MiB của
+riêng nó — chỉnh `--cores` theo RAM khả dụng.
 
 ## Build: dev vs bật-mainnet (mainnet-compile-gate)
 

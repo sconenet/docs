@@ -75,7 +75,7 @@ Variabel yang dapat diulang (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
 berakumulasi: satu baris per nilai di `.env` (dotenvy menambahkan).
 
 Tabel lengkap variabel `SCONE_*` (jaringan, listen P2P, bootstrap,
-genesis, mDNS, UPnP, permukaan DNS, metrik, profil topologi,
+genesis, UPnP, permukaan DNS, metrik, profil topologi,
 anchor) dan semantik masing-masing ada di
 [`relay.md`](relay.md#environment-configuration-env); templat
 berkomentarnya adalah `.env.example` di akar repositori (salin ke
@@ -171,6 +171,35 @@ pembukaan ditambangkan untuk Anda), `scone tld transfer <tld>
 txid. Resolusi record DNS pindah ke `scone domain resolve <name>`
 (dulu `record get`); kanal publikasi heks (`record put`) hilang —
 penyuntingan lewat `domain set` / `domain update`.
+- `scone domain mine <name>` — menambang HANYA bukti
+  registrasi (tanpa identitas, tanpa keystore, tanpa
+  pengiriman): mencetak JSON `scone-domain-pow-v1` `{type,
+  name, network_id, epoch, proof}` ke stdout. Penambangan
+  terdelegasi: mesin lain menambang untuk Anda, kunci Anda
+  tidak pernah keluar dari milik Anda. Pipe atau redirect:
+  `scone domain mine n.tld | scone domain register n.tld
+  --proof -` (atau `--proof FILE`). Bukti terikat pada nama
+  dan jaringan; kesegaran ditegakkan node saat penerapan
+  (jendela validitas epoch). Dengan `--mine-for <pubkey>`, ia
+  malah menambang bukti POW-TO-OWNER untuk penerima manfaat
+  itu dan mencetak JSON `scone-domain-pow-to-v1` `{type,
+  name, network_id, epoch, pow_to, proof}` — hanya dapat
+  dikonsumsi oleh `register --to` / `renew --to` untuk kunci
+  tepat itu (tantangan menanamkannya; pemeriksaan tak-
+  peka-huruf saat pengiriman).
+- Pengiriman pow-to-owner (tanpa keystore — `--to` eksklusif
+  dengan `--identity`): `scone domain register <name> --to
+  <pubkey>` / `scone domain renew <name> --to <pubkey>` dan
+  `scone tld register <tld> --to <pubkey>` / `scone tld renew
+  <tld> --to <pubkey>` mengirim bukti yang tantangannya
+  mengikat kunci PENERIMA MANFAAT; `owner` on-chain dihitung
+  ulang sebagai `hash(pubkey_dest)` (sebuah renew TIDAK
+  PERNAH berganti tangan). Tanpa `--proof`, perintah
+  menambang buktinya sendiri; dengan `--proof -`/FILE ia
+  mengonsumsi payload `scone-domain-pow-to-v1` dan menolak
+  bukti yang ditambang untuk penerima manfaat LAIN. Gaya
+  pipe: `scone domain mine n.tld --mine-for <pubkey> |
+  scone domain register n.tld --to <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — menulis himpunan
   record terverifikasi-chain dalam format `update --file` yang
   persis (round-trip terjamin: export → edit → update mengirim
@@ -181,6 +210,25 @@ penyuntingan lewat `domain set` / `domain update`.
   berkomentar — tidak pernah dijatuhkan diam-diam.
 
 `domain get` juga mencetak `domain_id` dan `valid_until`.
+
+## Benchmark PoW (`scone bench-pow`)
+
+Mengukur laju hash Argon2id mesin (hash yang sama yang dipakai
+verifikasi konsensus) dan menerjemahkan kesulitan jaringan
+menjadi waktu tunggu konkret:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+Keluaran: H/s total dan per-worker, lalu perkiraan waktu
+rata-rata per operasi — transfer/assign (tarif datar),
+pembukaan TLD privat, dan lantai registrasi TLD/domain (kurva
+panjang). Jaringan yang dipilih menentukan parameter Argon2id
+(mainnet: 64 MiB, t=2 — biaya sebenarnya; testnet/devnet:
+profil ringan, bukti milidetik). Setiap worker mengalokasikan
+jalur Argon2id 64 MiB-nya sendiri — sesuaikan `--cores` dengan
+RAM yang tersedia.
 
 ## Build: dev vs mainnet-aktif (mainnet-compile-gate)
 

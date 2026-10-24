@@ -151,8 +151,7 @@ aktif — tabel GeoIP tertanam, fallback rekursif), loop
 checkpoint/heartbeat anchor (CLI berbicara p2p QUIC langsung ke
 relay, tanpa RPC lokal lagi). Jangkauan dan penemuan: AutoNAT
 v2 (vonis reachable/NATed), circuit-relay v2 + DCUtR untuk node
-ter-NAT, mDNS (penemuan LAN tanpa konfigurasi, AKTIF secara default
-di devnet) dan UPnP (pemetaan port QUIC oleh router, opt-in).
+ter-NAT dan UPnP (pemetaan port QUIC oleh router, opt-in).
 Konfigurasi via berkas `.env` (lihat `.env.example`).
 Referensi: `/docs/en/technical/relay.md`.
 
@@ -168,7 +167,10 @@ koneksi) dan menerima keputusan pengelolaan lingkungan sekitar.
 
 **scone-genesis** — biner alat sekali jalan (kickstarter) untuk
 persiapan genesis mainnet: manifest JSON berversi, alokasi,
-blok deterministik.
+blok deterministik. Alat ini yang memproduksi artefaknya,
+repositori tidak pernah menyimpannya (menolak penulisan di
+dalam workspace Rust; distribusinya disiapkan untuk peluncuran,
+lihat `blockchain.md`).
 
 **scone** — biner/CLI. Bergantung pada sebuah crate hanya jika
 benar-benar menggunakannya (hari ini: scone-network untuk relay,

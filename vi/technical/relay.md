@@ -81,22 +81,7 @@ Ba cơ chế bổ trợ, theo thứ tự ưu tiên này:
    thư mục được tái lập: relay tìm lại các peer thường lệ của
    mình không cần cấu hình. Nó là một cache: tệp thiếu/hỏng =
    thư mục rỗng, không bao giờ lỗi.
-4. **mDNS LAN** (`--mdns`) — khám phá không-cấu-hình trên liên
-   kết cục bộ: các relay láng giềng trên cùng phân đoạn mạng tìm
-   nhau KHÔNG seed chút nào (đường devnet không-cấu-hình).
-   **Mặc định: BẬT cho devnet, TẮT ở nơi khác** (một mạng cục bộ
-   đặt-lại-được là một mạng khám phá theo thiết kế; một triển
-   khai công cộng không multicast gì). Hành vi: buộc socket
-   multicast; thất bại buộc (không multicast trên giao diện, môi
-   trường sandbox) **tắt** mDNS với cảnh báo — không bao giờ
-   nghiêm trọng (khám phá là tiện nghi, không phao cứu sinh).
-   Mỗi láng giềng `Discovered` nuôi bảng Kademlia
-   (`kad.add_address`), y như một bootstrap tường minh trừ phần
-   cấu hình; các mục `Expired` do chính libp2p theo dõi (kết nối
-   tự đóng theo timeout riêng). Các thành viên `mdns`/`upnp` của
-   behaviour là các `Toggle` (bật/tắt lúc dựng,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, tự nguyện) — ánh xạ cổng lắng nghe QUIC
+4. **UPnP** (`--upnp`, tự nguyện) — ánh xạ cổng lắng nghe QUIC
    bởi router gia đình: nút trở nên reachable từ bên ngoài
    KHÔNG cần circuit relay. Khi `NewExternalAddr`, địa chỉ ngoài
    được đăng ký làm địa chỉ ngoài thật của swarm
@@ -107,12 +92,13 @@ Ba cơ chế bổ trợ, theo thứ tự ưu tiên này:
    thường trên LAN gia đình. Ánh xạ hết hạn (gia hạn thất bại)
    là một cảnh báo.
 
-mDNS theo mạng (một `--mdns`/`SCONE_MDNS` tường minh luôn
-thắng): **BẬT mặc định trên devnet**, TẮT trên testnet/mainnet;
-UPnP giữ **tắt mặc định** (`enable_mdns`/`enable_upnp` =
-`false` trong `config.rs`, relay bật mDNS cho devnet): một triển
-khai công cộng không multicast gì và không nói chuyện với router
-nào.
+UPnP giữ **tắt mặc định** (`enable_upnp` = `false` trong
+`config.rs`): một triển khai công cộng không nói chuyện với
+router nào khi chưa có sự đồng ý. **Khám phá mDNS đã bị gỡ bỏ**
+(remove-mdns-discovery, 2026-10-22): peering đến độc quyền từ
+bootstrap tường minh, các seed dựng sẵn và Kademlia — cờ cũ
+`--mdns`/`SCONE_MDNS` vẫn được chấp nhận mà không có hiệu lực
+(tương thích script, đối xử giống như `--rpc`).
 
 ### Tối ưu cấu trúc liên kết cục bộ (luôn bật)
 
@@ -348,16 +334,38 @@ Với `--anchor-key` (tệp khóa `.sconekey`, cụm mật khẩu qua
 định thư viện `SCONE_ANCHOR_PASSPHRASE` của `scone-network`
 không bao giờ đạt tới qua tệp nhị phân, clap luôn ghi đè nó):
 
+- **xoay vòng proposer**: chính xác MỘT thành viên ủy ban được
+  chỉ định tự đề xuất mỗi epoch (`committee[epoch % size]`,
+  tất định); các thành viên khác không bao giờ ký đỉnh của chính
+  mình — nội dung của một checkpoint phụ thuộc vào đỉnh của
+  proposer, và các tự đề xuất không có cổng đã chia rẽ epoch
+  thành các nội dung đối đầu mà mỗi guard từ chối đúng đắn như
+  equivocation (testnet, 2026-10-21);
 - sau mỗi khối được chấp nhận/tạo, nếu nút này là thành viên của
   ủy ban hiện hành **và** ủy ban đạt
   `MIN_FINALITY_COMMITTEE_SIZE`, relay ký checkpoint đề xuất
   qua `SignerGuard` của nó (`signer-state.dat` trong thư mục dữ
   liệu — một khóa = một phiếu/epoch, chống-crash fail-closed)
   và gossip nó;
+- **vote-on-receipt**: một đề xuất mà nội dung hợp lệ trên chuỗi
+  CỦA CHÚNG TA (khối được tham chiếu có mặt, ở cùng băm) và mang
+  một chữ ký ủy ban cũng nhận được chữ ký CỦA CHÚNG TA — không có
+  nó, mỗi anchor chỉ ký nội dung đỉnh của chính mình và quorum
+  chưa bao giờ tập hợp;
 - các chữ ký nhận được (`Message::Checkpoint`) được tích lũy
   theo băm `CheckpointData` (chặn 256 mục); tại
   `quorum_for(kích thước ủy ban)` chữ ký thành viên trên CÙNG
   dữ liệu → `accept_checkpoint` + phát checkpoint hoàn tất;
+- **lưu bền tính cuối**: cửa sổ checkpoint và nền đóng băng
+  được ghi vào store tại mỗi lần hoàn tất và được nạp lại lúc
+  khởi động. Các checkpoint là trạng thái GOSSIP (không bao giờ
+  được khối mang theo) — một lần khởi động lại không có sự lưu
+  bền này bắt đầu từ một nền rỗng và không bao giờ có thể nối lại
+  một cửa sổ do peer phục vụ (các anchor epoch dưới cửa sổ của
+  mạng đã mất);
+- **đuổi kịp tính cuối**: một relay có nền rỗng (khởi động của
+  một nút mới) yêu cầu `GetCheckpoints` từ một peer mỗi nhịp cho
+  đến khi nền được phục hồi;
 - một relay không khóa anchor giữ **bị động**: nó tích lũy, hoàn
   tất, và chuyển tiếp, nhưng không bao giờ ký;
 - `GetCheckpoints` → cửa sổ `checkpoint_window()` được phục vụ;
@@ -524,13 +532,11 @@ trình chờ DHT — xem `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -578,7 +584,7 @@ giờ commit một `.env` thật). Các biến:
 | `SCONE_LISTEN` | `--listen` | multiaddr lắng nghe P2P (mặc định: mọi giao diện, cổng phù du) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap, **lặp được** (một dòng mỗi giá trị — dotenvy tích lũy); thay các seed dựng sẵn |
 | `SCONE_GENESIS` | `--genesis` | tệp genesis (nút sáng lập) |
-| `SCONE_MDNS` | `--mdns` | khám phá mDNS LAN (`true` = bật, `false` = tắt; mặc định: BẬT trên devnet, TẮT ở nơi khác) |
+| `SCONE_MDNS` | `--mdns` | (lỗi thời — khám phá mDNS đã bị gỡ bỏ; vẫn chấp nhận, bỏ qua) |
 | `SCONE_UPNP` | `--upnp` | ánh xạ cổng UPnP (`true` = bật) |
 | `SCONE_DNS_ADDR` | `--dns` | địa chỉ buộc máy chủ DNS UDP |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback đệ quy, **lặp được** |
@@ -620,12 +626,15 @@ revoke`, `domain assign`, `domain transfer`. Các lời tuyên bố
 `register` đào PoW của mình ở độ khó mạng (mili-giây trên
 devnet).
 
-Các tùy chọn `--geo-*`/`--health-*` cấu hình GeoDNS và kiểm tra
-sức khỏe **của bộ phân giải DNS nhúng**: ngữ nghĩa đầy đủ, thứ
-tự ưu tiên, và bảng GeoIP cục bộ được ghi tài liệu trong
-[`dns.md`](dns.md#geodns-geographic-routing) — định tuyến địa lý
-**luôn bật** (bảng GeoIP nhúng, không cần tùy chọn);
-`--health-check` tắt mặc định, đường cổ điển không đổi.
+**Không có tùy chọn geo hay sức khỏe nào tồn tại**: geozone
+**được build áp đặt** (bảng DB-IP Lite nhúng — ngữ nghĩa đầy đủ
+trong
+[`dns.md`](dns.md#geodns-geographic-routing)); định tuyến địa lý
+**luôn bật** mà không cần tùy chọn nào, và bộ phân giải không
+thực hiện kiểm tra sức khỏe nào — nó phục vụ tập bản ghi có chữ
+ký nguyên trạng (khả dụng của endpoint là việc của các vận hành
+viên endpoint). Bất kỳ cờ `--geo-*`/`--health-*` nào cũng là một
+lời từ chối clap dứt khoát.
 
 ### `domain register|update` (M5) — giao dịch có chữ ký trong một lệnh
 

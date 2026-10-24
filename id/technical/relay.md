@@ -85,24 +85,7 @@ Tiga mekanisme pelengkap, dalam urutan prioritas ini:
    dan tanpa bootstrap, direktori direkomposisi: relay menemukan
    peer biasanya tanpa konfigurasi. Ini cache: berkas
    hilang/rusak = direktori kosong, bukan error.
-4. **mDNS LAN** (`--mdns`) — penemuan tanpa-konfigurasi di link
-   lokal: relay tetangga pada segmen jaringan yang sama saling
-   menemukan TANPA seed sama sekali (jalur devnet
-   tanpa-konfigurasi). **Default: AKTIF untuk devnet, MATI di
-   tempat lain** (jaringan lokal yang dapat di-reset adalah
-   jaringan penemuan menurut desain; deployment publik tidak
-   memulticast apa pun). Perilaku: bind socket multicast;
-   kegagalan bind (tanpa multicast pada antarmuka, lingkungan
-   sandbox) **menonaktifkan** mDNS dengan peringatan — tidak
-   pernah fatal (penemuan adalah kemudahan, bukan tali
-   penghubung). Setiap tetangga `Discovered` mengisi tabel
-   Kademlia (`kad.add_address`), persis seperti bootstrap
-   eksplisit minus konfigurasinya; entri `Expired` dilacak
-   libp2p sendiri (koneksi tertutur pada timeout-nya sendiri).
-   Anggota `mdns`/`upnp` behaviour adalah `Toggle`
-   (aktif/nonaktif saat konstruksi,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, opt-in) — pemetaan port listen QUIC oleh
+4. **UPnP** (`--upnp`, opt-in) — pemetaan port listen QUIC oleh
    router rumah: node menjadi dapat dijangkau dari luar TANPA
    circuit relay. Pada `NewExternalAddr`, alamat eksternal
    didaftarkan sebagai alamat eksternal nyata swarm
@@ -112,12 +95,13 @@ Tiga mekanisme pelengkap, dalam urutan prioritas ini:
    polos, pemetaan dilewati — kasus normal di LAN rumah.
    Pemetaan kedaluwarsa (pembaruan gagal) adalah peringatan.
 
-mDNS mengikuti jaringan (`--mdns`/`SCONE_MDNS` eksplisit selalu
-menang): **AKTIF secara default di devnet**, MATI di
-testnet/mainnet; UPnP tetap **nonaktif secara default**
-(`enable_mdns`/`enable_upnp` = `false` di `config.rs`, relay
-menyalakan mDNS untuk devnet): deployment publik tidak
-memulticast apa pun dan tidak berbicara dengan router.
+UPnP tetap **nonaktif secara default** (`enable_upnp` = `false`
+di `config.rs`): deployment publik tidak berbicara dengan
+router tanpa persetujuan. **Penemuan mDNS telah dihapus**
+(remove-mdns-discovery, 2026-10-22): peering datang secara
+eksklusif dari bootstrap eksplisit, seed bawaan dan Kademlia —
+flag lama `--mdns`/`SCONE_MDNS` masih diterima tanpa efek
+(kompatibilitas skrip, perlakuan sama seperti `--rpc`).
 
 ### Optimasi topologi lokal (selalu aktif)
 
@@ -362,17 +346,39 @@ Dengan `--anchor-key` (keyfile `.sconekey`, passphrase via
 pustaka `scone-network` `SCONE_ANCHOR_PASSPHRASE` tidak pernah
 tercapai melalui biner, clap selalu menimpanya):
 
+- **rotasi proposer**: tepat SATU anggota komite yang ditunjuk
+  mengusulkan dirinya sendiri per epoch
+  (`committee[epoch % size]`, deterministik); anggota lain tidak
+  pernah menandatangani tip milik mereka sendiri — konten sebuah
+  checkpoint bergantung pada tip proposer, dan usulan-diri tanpa
+  gerbang pernah memecah epoch menjadi konten-konten saingan yang
+  masing-masing ditolak dengan benar oleh guard sebagai
+  ekuivokasi (testnet, 2026-10-21);
 - setelah tiap blok diterima/diproduksi, jika node ini anggota
   komite saat ini **dan** komite mencapai
   `MIN_FINALITY_COMMITTEE_SIZE`, relay menandatangani checkpoint
   yang diusulkan via `SignerGuard`-nya (`signer-state.dat` dalam
   data-dir — satu kunci = satu suara/epoch, tahan-crash
   fail-closed) dan menggossipkannya;
+- **vote-on-receipt**: usulan yang kontennya valid di chain KITA
+  (blok yang dirujuk ada, pada hash yang sama) dan membawa tanda
+  tangan anggota komite mendapat tanda tangan KITA juga — tanpa
+  itu, setiap anchor hanya menandatangani konten tip-nya sendiri
+  dan kuorum tidak pernah terkumpul;
 - tanda tangan yang diterima (`Message::Checkpoint`)
   terakumulasi per hash `CheckpointData` (berbatas 256 entri);
   pada tanda tangan `quorum_for(ukuran komite)` anggota atas
   data yang SAMA → `accept_checkpoint` + broadcast checkpoint
   terfinalisasi;
+- **persistensi finalitas**: jendela checkpoint dan basis beku
+  ditulis ke store pada setiap finalisasi dan dimuat ulang saat
+  boot. Checkpoint adalah state GOSSIP (tidak pernah dibawa blok)
+  — restart tanpa persistensi ini mulai dari basis kosong dan tak
+  pernah bisa lagi merangkai jendela yang dilayani peer (anchor
+  epoch di bawah jendela jaringan sudah hilang);
+- **catch-up finalitas**: relay yang basisnya kosong (boot node
+  baru) meminta `GetCheckpoints` ke sebuah peer pada setiap tick
+  sampai basisnya pulih;
 - relay tanpa kunci anchor tetap **pasif**: ia mengakumulasi,
   memfinalisasi, dan me-relay, tetapi tidak pernah
   menandatangani;
@@ -544,13 +550,11 @@ penunggu DHT — lihat `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (usang, diabaikan)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -598,7 +602,7 @@ setiap variabel (salin ke `.env` dan sesuaikan; `.env`
 | `SCONE_LISTEN` | `--listen` | multiaddr listen P2P (default: semua antarmuka, port ephemeral) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap, **dapat diulang** (satu baris per nilai — dotenvy mengakumulasi); menggantikan seed bawaan |
 | `SCONE_GENESIS` | `--genesis` | berkas genesis (node pendiri) |
-| `SCONE_MDNS` | `--mdns` | penemuan mDNS LAN (`true` = aktif, `false` = mati; default: AKTIF di devnet, MATI di tempat lain) |
+| `SCONE_MDNS` | `--mdns` | (usang — penemuan mDNS dihapus; diterima, diabaikan) |
 | `SCONE_UPNP` | `--upnp` | pemetaan port UPnP (`true` = aktif) |
 | `SCONE_DNS_ADDR` | `--dns` | alamat bind server DNS UDP |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback rekursif, **dapat diulang** |
@@ -641,13 +645,15 @@ sebagai perintah kelas satu: `tld open`, `tld transfer`,
 `register` menambang PoW-nya pada kesulitan jaringan
 (milidetik di devnet).
 
-Opsi `--geo-*`/`--health-*` mengonfigurasi GeoDNS dan
-pemeriksaan kesehatan **resolver DNS tertanam**: semantik
-lengkap, urutan prioritas, dan tabel GeoIP lokal didokumentasikan
-di [`dns.md`](dns.md#geodns-geographic-routing) — routing
-geografis **selalu aktif** (tabel GeoIP tertanam, tanpa opsi
-yang disyaratkan); `--health-check` mati secara default, jalur
-klasik tak berubah.
+**Tidak ada opsi geo maupun kesehatan**: geozone
+**diwajibkan oleh build** (tabel DB-IP Lite tertanam — semantik
+lengkap di
+[`dns.md`](dns.md#geodns-geographic-routing)); routing
+geografis **selalu aktif** tanpa opsi apa pun, dan resolver
+tidak melakukan pemeriksaan kesehatan — ia melayani himpunan
+rekam bertanda tangan apa adanya (ketersediaan endpoint adalah
+urusan operator endpoint). Flag `--geo-*`/`--health-*` apa pun
+adalah penolakan clap tegas.
 
 ### `domain register|update` (M5) — transaksi bertanda tangan dalam satu perintah
 

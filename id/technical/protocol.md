@@ -96,8 +96,12 @@ Transaction = disc u8 || version u8 || payload
 | Diskriminan | Tipe |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Setiap diskriminan adalah konstanta opaque arbitrer (tanpa urutan
 logis; `0x00` tidak pernah valid) — tabel normatif lengkap di
@@ -105,15 +109,19 @@ logis; `0x00` tidak pernah valid) — tabel normatif lengkap di
 
 Byte `version` (nilai saat ini `0x01`) mengikuti diskriminan:
 nilai lain ditolak secara eksplisit
-(`UnsupportedVersion(value)`). **Semua transaksi
-bertanda tangan** (Ed25519): spesifikasi lengkap, payload
+(`UnsupportedVersion(value)`). Sebagian besar transaksi
+bertanda tangan (Ed25519) — KECUALI empat bentuk pow-to-owner
+tanpa tanda tangan (`0x2A`, `0x57`, `0x84`, `0xC3`): bukti yang
+ditambang ADALAH otorisasinya, dan tantangannya mengikat kunci
+penerima manfaat dan jaringan. Spesifikasi lengkap, payload
 bertanda tangan dan aturan validasi di
 **`/docs/en/technical/transactions.md`** (normatif).
 
 Sejak perubahan wire 2026-09, **transaksi tidak lagi membawa field
-`network`**: `network_id` (`str` ≤ 16) disuntikkan **hanya ke
-dalam payload penandatanganan** — tx yang ditandatangani untuk
-satu jaringan tidak pernah terverifikasi di jaringan lain (lihat
+`network`**: `network_id` (`str` ≤ 16) disuntikkan ke dalam
+**payload penandatanganan** (bentuk bertanda tangan) atau
+**tantangan PoW** (bentuk pow-to-owner) — tx yang dibuat untuk
+satu jaringan tidak pernah berpindah ke jaringan lain (lihat
 `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)

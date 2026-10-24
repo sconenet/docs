@@ -84,6 +84,36 @@ tanda tangan (`SlashTx`, diskriminan `0x15`): pengusiran dari
 kumpulan PoS (terjurnal, dapat dibatalkan saat reorg).
 Domain/TLD terdakwa tidak disita (sanksi minimal — keputusan M9).
 
+## Akuisisi pasif dan kelayakan PoS
+
+**Pertanyaan**: bisakah pihak ketiga memaksakan kepemilikan kepadaku
+— dan dengan itu kewajiban PoS — tanpa persetujuanku?
+
+**Ya untuk kepemilikan, tidak untuk utang.** Sebuah nama bisa
+diakuisisi secara pasif: transaksi transfer (`TransferTld`,
+`TransferDomain`) ditandatangani oleh **pemindah** seorang diri
+(penerima hanya `OwnerId` opaque, tidak pernah dikonsultasi),
+`AssignDomain` ditandatangani oleh owner TLD, dan alokasi genesis
+mendarat pada kunci manifest. Ini fitur yang dianggap disengaja:
+hadiah, dead drop, warisan. Properti anti-Sybil tidak bergantung
+padanya: satu kursi per **owner berbeda dari sebuah nama hidup**
+(`owner_refcounts`), dan setiap kepemilikan membebani kerja seseorang.
+
+**Tidak ada utang yang bisa dipaksakan**: slashing hanya menghukum
+**ekuivokasi terbukti** (dua tanda tangan bertentangan, `SlashTx`,
+banning); kunci pasif tidak menandatangani apa pun dan karena itu
+tidak pernah bisa di-slash. Ketidakhadiran anggota yang diundi masuk
+ke **recovery** (undi ulang), tanpa sanksi. Kursi yang diterima tanpa
+diinginkan tetap dapat dilepaskan: kedaluwarsa + GC, `SetTldOpen`
+(kursi dilepaskan saat pembukaan), `RevokeTld`, atau transfer ulang.
+
+**Keputusan yang dicatat — tidak ada persetujuan akuisisi**: klaim
+dua fase (transfer tertunda, penerimaan yang ditandatangani penerima)
+pernah dipertimbangkan dan ditolak — ia merusak dead drop dan "first
+applied wins", menambahkan mesin status atas nama, dan melindungi
+dari risiko yang terbukti tidak ada (tidak ada utang yang bisa
+dipaksakan, lihat di atas).
+
 ## Properti yang diverifikasi oleh test
 
 - `checkpoint_hash_engages_signatures`: hash checkpoint mencakup
