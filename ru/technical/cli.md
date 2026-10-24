@@ -76,7 +76,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 добавляет).
 
 Полная таблица переменных `SCONE_*` (сеть, прослушивание P2P,
-bootstrap, генезис, mDNS, UPnP, DNS-поверхность, метрики, профиль
+bootstrap, генезис, UPnP, DNS-поверхность, метрики, профиль
 топологии, якорь) и семантика каждой живёт в
 [`relay.md`](relay.md#environment-configuration-env);
 комментированный шаблон — `.env.example` в корне репозитория
@@ -173,6 +173,34 @@ scone tld renew mytld               # explicit renewal
 Разрешение DNS-записей переехало в `scone domain resolve <name>`
 (бывший `record get`); канал hex-публикации (`record put`)
 удалён — редактирование идёт через `domain set` / `domain update`.
+- `scone domain mine <name>` — майнит ТОЛЬКО доказательство
+  регистрации (без идентичности, без keystore, без подачи):
+  печатает JSON `scone-domain-pow-v1` `{type, name, network_id,
+  epoch, proof}` в stdout. Делегированный майнинг: другая машина
+  майнит за вас, ваши ключи никогда не покидают вашу машину.
+  Направляйте в pipe или редирект:
+  `scone domain mine n.tld | scone domain register n.tld
+  --proof -` (или `--proof FILE`). Доказательство привязано к
+  имени и сети; свежесть принуждается узлом при применении
+  (окно валидности эпохи). С `--mine-for <pubkey>` вместо этого
+  майнится доказательство POW-TO-OWNER для этого бенефициара и
+  печатается JSON `scone-domain-pow-to-v1` `{type, name,
+  network_id, epoch, pow_to, proof}` — потребляемый ТОЛЬКО
+  `register --to` / `renew --to` для ровно этого ключа
+  (challenge встраивает его; проверка без учёта регистра при
+  подаче).
+- Подача pow-to-owner (keystore не нужен — `--to` исключает
+  `--identity`): `scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to <pubkey>`
+  и `scone tld register <tld> --to <pubkey>` / `scone tld
+  renew <tld> --to <pubkey>` подают доказательство, чей challenge
+  привязывает ключ БЕНЕФИЦИАРА; `owner` в цепочке перевычисляется
+  как `hash(pubkey_dest)` (продление НИКОГДА не меняет владельца).
+  Без `--proof` команда сама майнит доказательство; с `--proof
+  -`/FILE она потребляет payload `scone-domain-pow-to-v1` и
+  отвергает доказательство, замайненное для ДРУГОГО бенефициара.
+  Стиль pipe: `scone domain mine n.tld --mine-for <pubkey> |
+  scone domain register n.tld --to <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — записывает
   проверенный по цепочке набор записей в точном формате
   `update --file` (гарантированный круговорот: export →
@@ -184,6 +212,25 @@ scone tld renew mytld               # explicit renewal
   предупреждения — никогда не выбрасываются молча.
 
 `domain get` также печатает `domain_id` и `valid_until`.
+
+## Бенчмарк PoW (`scone bench-pow`)
+
+Измеряет скорость хеширования Argon2id машины (тот же хеш, что
+использует консенсусная верификация) и переводит сложности сети
+в конкретные времена ожидания:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+Вывод: суммарный H/s и H/s на воркера, затем ожидаемое среднее
+время на операцию — transfer/assign (плоская ставка), открытие
+приватного TLD и этажи регистрации TLD/домена (кривая длины).
+Выбранная сеть определяет параметры Argon2id (mainnet: 64 МиБ,
+t=2 — реальная стоимость; testnet/devnet: лёгкий профиль,
+доказательства за миллисекунды). Каждый воркер выделяет свой
+собственный lane Argon2id на 64 МиБ — размеруйте `--cores` под
+доступную ОЗУ.
 
 ## Сборки: dev с поддержкой mainnet (mainnet-compile-gate)
 

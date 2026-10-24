@@ -75,7 +75,7 @@ Wiederholbare Variablen (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
 akkumulieren: eine Zeile pro Wert in `.env` (dotenvy hängt an).
 
 Die vollständige Tabelle der `SCONE_*`-Variablen (Netzwerk, P2P
-Listen, Bootstrap, Genesis, mDNS, UPnP, DNS-Fläche, Metriken,
+Listen, Bootstrap, Genesis, UPnP, DNS-Fläche, Metriken,
 Topologie-Profil, Anker) und die Semantik jeder einzelnen lebt in
 [`relay.md`](relay.md#umgebungskonfiguration-env); die
 kommentierte Vorlage ist `.env.example` an der Repository-Wurzel
@@ -172,6 +172,36 @@ Zustandslektüre, Signatur, Einreichung, txid. Die Auflösung von
 DNS-Einträgen zog zu `scone domain resolve <name>` (ex-`record
 get`); der Hex-Veröffentlichungskanal (`record put`) ist weg —
 Bearbeitung läuft über `domain set` / `domain update`.
+- `scone domain mine <name>` — mint NUR den
+  Registrierungsbeweis (keine Identität, kein Keystore, keine
+  Einreichung): druckt die `scone-domain-pow-v1`-JSON `{type,
+  name, network_id, epoch, proof}` auf stdout. Delegiertes
+  Mining: eine andere Maschine mint für Sie, Ihre Schlüssel
+  verlassen Ihre nie. Pipe oder Umlenkung:
+  `scone domain mine n.tld | scone domain register n.tld
+  --proof -` (oder `--proof FILE`). Der Beweis ist an Name und
+  Netzwerk gebunden; die Frische wird vom Knoten bei der
+  Anwendung erzwungen (Epoche-Gültigkeitsfenster). Mit
+  `--mine-for <pubkey>` mint er stattdessen einen
+  POW-TO-OWNER-Beweis für diesen Begünstigten und druckt die
+  `scone-domain-pow-to-v1`-JSON `{type, name, network_id, epoch,
+  pow_to, proof}` — konsumierbar NUR von `register --to` /
+  `renew --to` für genau diesen Schlüssel (die Challenge bettet
+  ihn ein; Prüfung ohne Groß-/Kleinschreibung bei der
+  Einreichung).
+- pow-to-owner-Einreichung (kein Keystore nötig — `--to` ist
+  exklusiv mit `--identity`): `scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to <pubkey>`
+  und `scone tld register <tld> --to <pubkey>` / `scone tld
+  renew <tld> --to <pubkey>` reichen einen Beweis ein, dessen
+  Challenge den Schlüssel des BEGÜNSTIGTEN bindet; der `owner`
+  On-Chain wird neu berechnet als `hash(pubkey_dest)` (ein Renew
+  wechselt NIE die Hände). Ohne `--proof` mint der Befehl den
+  Beweis selbst; mit `--proof -`/FILE konsumiert er ein
+  `scone-domain-pow-to-v1`-Payload und lehnt einen für EINEN
+  ANDEREN Begünstigten geminten Beweis ab. Pipe-Stil:
+  `scone domain mine n.tld --mine-for <pubkey> | scone domain
+  register n.tld --to <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — schreibt das von der
   Chain verifizierte Eintragssatz im exakten `update --file`-Format
   (Roundtrip garantiert: Export → Bearbeitung → Update reicht
@@ -182,6 +212,25 @@ Bearbeitung läuft über `domain set` / `domain update`.
   exportiert — nie still verworfen.
 
 `domain get` druckt zusätzlich die `domain_id` und `valid_until`.
+
+## PoW-Benchmark (`scone bench-pow`)
+
+Misst die Argon2id-Hashrate der Maschine (dasselbe Hash, das die
+Konsens-Verifikation nutzt) und übersetzt die Schwierigkeiten des
+Netzwerks in konkrete Wartezeiten:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+Ausgabe: Gesamt- und Pro-Worker-H/s, dann die erwartete
+Durchschnittszeit pro Operation — Transfer/Assign (Pauschale),
+Öffnung eines privaten TLD und die TLD/Domain-Registrierungs-Floors
+(Längenkurve). Das gewählte Netzwerk bestimmt die
+Argon2id-Parameter (Mainnet: 64 MiB, t=2 — der echte Preis;
+Testnet/Devnet: das leichte Profil, Beweise in Millisekunden).
+Jeder Worker allokiert seine eigene 64-MiB-Argon2id-Lane —
+dimensionieren Sie `--cores` auf den verfügbaren RAM.
 
 ## Builds: dev vs. mainnet-fähig (mainnet-compile-gate)
 

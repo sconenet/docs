@@ -91,24 +91,7 @@ Drei komplementäre Mechanismen, in dieser Prioritätsreihenfolge:
    findet seine üblichen Peers ohne Konfiguration. Es ist ein
    Cache: fehlende/korrumpierte Datei = leeres Verzeichnis, nie
    ein Fehler.
-4. **LAN-mDNS** (`--mdns`) — Null-Konfigurations-Erkennung auf dem
-   lokalen Link: benachbarte Relays auf demselben
-   Netzwerksegment finden sich ohne jeden Seed (der
-   Null-Konfigurations-Devnet-Pfad). **Standard: AN für Devnet,
-   AUS sonstwo** (ein zurücksetzbares lokales Netzwerk ist per
-   Design ein Erkennungs-Netzwerk; ein öffentliches Deployment
-   multicastet nichts). Verhalten: Binden des Multicast-Sockets;
-   ein Bind-Fehlschlag (kein Multicast auf der Schnittstelle,
-   Sandbox-Umgebung) **deaktiviert** mDNS mit einer Warnung — nie
-   fatal (Erkennung ist ein Komfort, nie eine Lebenslinie). Jeder
-   `Discovered`-Nachbar speist die Kademlia-Tabelle
-   (`kad.add_address`), exakt wie ein explizites Bootstrap minus
-   der Konfiguration; `Expired`-Einträge werden von libp2p selbst
-   verfolgt (die Verbindung schließt sich nach eigenem Timeout).
-   Die Mitglieder `mdns`/`upnp` des Verhaltens sind `Toggle`s
-   (bei Konstruktion aktiviert/deaktiviert,
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`, Opt-in) — QUIC-Listen-Port-Freigabe durch
+4. **UPnP** (`--upnp`, Opt-in) — QUIC-Listen-Port-Freigabe durch
    den Heimrouter: der Knoten wird von außen erreichbar OHNE
    Circuit-Relay. Bei `NewExternalAddr` wird die externe Adresse
    als echte externe Adresse des Schwarms registriert
@@ -119,12 +102,14 @@ Drei komplementäre Mechanismen, in dieser Prioritätsreihenfolge:
    Fälle im Heim-LAN. Eine abgelaufene Freigabe (gescheiterte
    Erneuerung) ist eine Warnung.
 
-mDNS folgt dem Netzwerk (ein explizites `--mdns`/`SCONE_MDNS`
-gewinnt immer): **auf dem Devnet standardmäßig AN**, AUS auf
-Testnet/Mainnet; UPnP bleibt **standardmäßig deaktiviert**
-(`enable_mdns`/`enable_upnp` = `false` in `config.rs`, das Relay
-schaltet mDNS für das Devnet ein): ein öffentliches Deployment
-multicastet nichts und spricht mit keinem Router.
+UPnP bleibt **standardmäßig deaktiviert** (`enable_upnp` =
+`false` in `config.rs`): ein öffentliches Deployment spricht
+ohne Zustimmung mit keinem Router. **Die mDNS-Erkennung wurde
+entfernt** (remove-mdns-discovery, 2026-10-22): das Peering kommt
+ausschließlich vom expliziten Bootstrap, den builtin Seeds und
+Kademlia — das geerbte `--mdns`/`SCONE_MDNS`-Flag wird weiterhin
+ohne Wirkung akzeptiert (Skript-Kompatibilität, gleiche Behandlung
+wie `--rpc`).
 
 ### Lokale Topologie-Optimierung (immer aktiv)
 
@@ -378,17 +363,40 @@ Bibliotheks-Standard `SCONE_ANCHOR_PASSPHRASE` von `scone-network`
 wird über die Binärdatei nie erreicht, clap überschreibt ihn
 immer):
 
+- **Rotation des Proposanten**: genau EIN benanntes Komitee-Mitglied
+  pro Epoche schlägt sich selbst vor (`committee[epoch % size]`,
+  deterministisch); die anderen Mitglieder signieren nie ihre eigene
+  Spitze — der Inhalt eines Checkpoints hängt von der Spitze des
+  Proposanten ab, und ungefilterte Selbstvorschläge hätten die Epoche
+  in rivalisierende Inhalte gespalten, die jeder Guard zu Recht als
+  Äquivokation ablehnt (Testnet, 2026-10-21);
 - nach jedem akzeptierten/produzierten Block, wenn dieser Knoten
   Mitglied des aktuellen Komitees ist **und** das Komitee
   `MIN_FINALITY_COMMITTEE_SIZE` erreicht, signiert das Relay den
   vorgeschlagenen Checkpoint über seinen `SignerGuard`
   (`signer-state.dat` im Datenverzeichnis — ein Schlüssel = eine
   Stimme/Epoche, absturzsicher fail-closed) und gossipt es;
+- **Abstimmung bei Empfang**: ein Vorschlag, dessen Inhalt auf
+  UNSERER Chain gültig ist (der referenzierte Block ist vorhanden,
+  unter demselben Hash) und eine Komitee-Signatur trägt, bekommt
+  UNSERE Signatur ebenfalls — ohne das signierte jeder Anker nur
+  den Inhalt seiner eigenen Spitze und kein Quorum versammelte sich
+  jemals;
 - empfangene Signaturen (`Message::Checkpoint`) werden nach
   `CheckpointData`-Hash akkumuliert (auf 256 Einträge begrenzt);
   bei `quorum_for(Komiteegröße)`-Mitglieder-Signaturen auf
   DENSELBEN Daten → `accept_checkpoint` + Broadcast des
   finalisierten Checkpoints;
+- **Finalitäts-Persistenz**: das Checkpoint-Fenster und die
+  eingefrorene Basis werden bei jeder Finalisierung in den Store
+  geschrieben und beim Booten neu geladen. Checkpoints sind
+  Gossip-Zustand (nie von Blöcken getragen) — ein Neustart ohne
+  diese Persistenz startete von einer leeren Basis und könnte nie
+  wieder ein peer-serviertes Fenster verketten (die Epochen-Anker
+  unter dem Netzwerk-Fenster sind weg);
+- **Finalitäts-Aufholjagd**: ein Relay mit leerer Basis (der Boot
+  eines frischen Knotens) fragt bei jedem Tick einen Peer nach
+  `GetCheckpoints`, bis die Basis wiederhergestellt ist;
 - ein Relay ohne Ankerschlüssel bleibt **passiv**: es akkumuliert,
   finalisiert und relait, signiert aber nie;
 - `GetCheckpoints` → das Fenster `checkpoint_window()` wird bedient;
@@ -568,13 +576,11 @@ DHT-Wartender — siehe `dns.md`).
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolet, ignoriert)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -624,7 +630,7 @@ Variable (nach `.env` kopieren und anpassen; `.env` ist
 | `SCONE_LISTEN` | `--listen` | P2P-Listen-Multiaddr (Standard: alle Schnittstellen, flüchtiger Port) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | Bootstrap-Seeds, **wiederholbar** (eine Zeile pro Wert — dotenvy akkumuliert); ersetzt die eingebauten Seeds |
 | `SCONE_GENESIS` | `--genesis` | Genesis-Datei (Founder-Knoten) |
-| `SCONE_MDNS` | `--mdns` | LAN-mDNS-Erkennung (`true` = aktiviert, `false` = aus; Standard: AN auf Devnet, AUS sonstwo) |
+| `SCONE_MDNS` | `--mdns` | (obsolet — mDNS-Erkennung entfernt; akzeptiert, ignoriert) |
 | `SCONE_UPNP` | `--upnp` | UPnP-Port-Freigabe (`true` = aktiviert) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP-DNS-Server-Bind-Adresse |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | rekursive Fallbacks, **wiederholbar** |
@@ -667,13 +673,15 @@ Erstklassige-Befehle: `tld open`, `tld transfer`, `tld revoke`,
 `domain assign`, `domain transfer`. `register`-Claims mint ihr PoW
 auf Netzwerk-Schwierigkeit (Millisekunden auf Devnet).
 
-Die Optionen `--geo-*`/`--health-*` konfigurieren GeoDNS und
-Health-Checking **des eingebetteten DNS-Resolvers**: vollständige
-Semantik, Vorrangs-Reihenfolge und die lokale GeoIP-Tabelle sind in
-[`dns.md`](dns.md#geodns-geografisches-routing) dokumentiert — das
-geografische Routing ist **immer aktiv** (eingebettete
-GeoIP-Tabelle, keine Option erforderlich); `--health-check` ist
-standardmäßig aus, der klassische Pfad unverändert.
+**Keine Geo- oder Health-Option existiert**: die Geozone ist
+**vom Build auferlegt** (eingebettete DB-IP-Lite-Tabelle —
+vollständige Semantik dokumentiert in
+[`dns.md`](dns.md#geodns-geografisches-routing)); das geografische
+Routing ist **immer aktiv** ohne jede Option, und der Resolver
+führt keine Health-Prüfungen durch — er serviert den signierten
+Eintragssatz wie er ist (die Verfügbarkeit der Endpunkte ist Sache
+ihrer Betreiber). Jedes `--geo-*`/`--health-*`-Flag ist eine harte
+clap-Ablehnung.
 
 ### `domain register|update` (M5) — signierte Transaktionen in einem Befehl
 

@@ -165,8 +165,21 @@ Multi-Core), ~11.4 H/s/Kern. Das **Öffnen** einer bestehenden
 privaten TLD (`SetTldOpen`) bleibt auf flacher Schwierigkeit
 (`open_tld_pow_difficulty`: 6 Bits Testnet / 22 Bits Mainnet): die
 Tx trägt nur die `tld_id`, der Name hat seine Länge bei der
-Erstellung bezahlt. Reine Funktion (Determinismus: zwei Knoten
-berechnen dieselbe Schwierigkeit für denselben Namen).
+Erstellung bezahlt. **Zwei weitere flache Beweise** vervollständigen
+die Familie (Konsens-Anti-Spam, dasselbe Epochensalz und Fenster wie
+die Registrierungen): `transfer_pow_difficulty` für Abtretungen
+(`TransferTld`/`TransferDomain`, Challenges `SCONE-TLD-XFER-V1 ‖
+tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) und
+`assign_pow_difficulty` für die Erstellung unter einer privaten TLD
+(`AssignDomain`, Challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flach
+per Entscheidung: die Exklusivität des Namespace wurde bei der
+TLD-Erstellung bezahlt, keine Doppelbesteuerung nach Länge).
+Orientierungswerte: 16 Bits Mainnet (bench-pow-Kalibrierung
+2026-10-23: ≈ 1,7 h pro Abtretung/Assign auf EINEM Kern bei
+gemessenen 10.6 H/s, Referenz 11.4 H/s; ≈ 25 min bei 4 Kernen —
+teuer zu industrialisieren, gewöhnliche Arbeit für einen ehrlichen
+Owner), 4 Bits Testnet, 1 Bit Devnet. Reine Funktion
+(Determinismus).
 
 Die Genesis ist eine Protokollkonstante **pro Netzwerk**,
 reproduzierbar aus den Konstanten allein (kein Zufall, keine lokale
@@ -188,6 +201,20 @@ Feld `consensus` trägt `network_id ‖ ALLOC-V1 ‖ count.v ‖ entries`
 ≤ 60 KiB, ≤ 2048 Allokationen) — dieses erweiterte Format
 rechtfertigt `MAX_CONSENSUS_LEN` = 64 KiB (siehe
 `scone-blockchain::genesis_alloc`).
+
+**Verteilung der Allokations-Genesis**: kein
+Genesis-Artefakt (`genesis.bin`, Manifest) lebt je im
+Quell-Repository oder in Code-Releases, egal welches Netzwerk oder
+welche Projektphase — zwei Genesis-Dateien sind zwei Netzwerke. Die
+Mainnet-Allokations-Genesis entsteht nur zum Launch (die Umstellung
+auf die standardmäßig aktivierte `mainnet`-Feature): erzeugt von
+`scone-genesis` aus einem außerhalb des Repositorys
+veröffentlichten signierten Manifest, ihr Hash wird in der
+Launch-Ankündigung angeheftet, und nur Gründerknoten konsumieren
+sie (`--genesis`, Geburtsstunde der Chain); alle anderen Knoten
+stoßen per Sync zum Netzwerk. Das Werkzeug verweigert jede
+Schreiboperation in ein Rust-Workspace-Verzeichnis (Anwesenheit von
+`Cargo.toml`): eine Genesis darf nie im Quellbaum landen können.
 
 Die `network_id` in der Konsensnutzlast macht die Genesis-Hashes —
 und damit die gesamte Blockchain — **über Netzwerke hinweg
@@ -825,12 +852,20 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 
 `committee(recovery)`:
 
-1. **Bootstrap** (kein finalisierter Checkpoint): der GESAMTE Pool
-   signiert — ein aus einer lokalen Sicht gezogenes Komitee würde
-   zwischen zurückliegenden Knoten divergieren (die
-   Fehlerursache von Finalitäts-Einfrierungen); der gesamte Pool
-   ist deterministisch gemäß der Chain. Die strenge Auswahl setzt
-   bei der ersten Finalität wieder ein.
+1. **Bootstrap** (kein finalisierter Checkpoint): die **FRISCHEN
+   Betreiber** des Pools signieren (`fresh_operators` — ein
+   recenter Heartbeat, dasselbe Fenster wie das finalisierte
+   Regime). Der Filter ist Chain-Zustand (die Heartbeats sind
+   On-Chain), also deterministisch gemäß der Spitze: zwei Knoten
+   an derselben Spitze berechnen dieselbe Menge. Unter
+   `MIN_FINALITY_COMMITTEE_SIZE` frischen Betreibern sicherer
+   Rückfall auf den GESAMTEN Pool (kalter Bootstrap, allgemeiner
+   Betreiber-Ausfall — die Finalität geht konstruktiv nie
+   verloren). Der rohe Pool kann nicht als Signiermenge dienen:
+   jede Self-Service-Registrierung wächst den
+   Quorum-Nenner, während diese Eigentümer nie signieren — die
+   Finalität wurde nach ~10 Registrierungen unerreichbar
+   (Testnet, 2026-10-21).
 2. **Finalisiertes Regime**: Ziehung aus der **frischen** Teilmenge
    des eingefrorenen Pools (RFC Proof-of-Service §5.2) — jeder Sitz
    (Owner-Schlüssel) wird zum EFFEKTIVEN Betreiber durch den
@@ -847,10 +882,22 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
    Betreiber-Ausfall — die Finalität geht konstruktiv nie
    verloren).
 
-`allowed_producers(block_ts)` (Blockproduktion) folgt demselben
-Schema: gesamter Pool beim Bootstrap; gewähltes Komitee +
-Recovery-Ziehungen (Ziehung k freigeschaltet nach k × `epoch_secs`
-Konsenszeit) im finalisierten Regime.
+`allowed_producers(block_ts)` (Blockproduktion) folgt einer
+bewusst weiteren Regel: gesamter Pool beim Bootstrap; **gesamter
+EINGEFRORENER Pool** im finalisierten Regime. Das gewählte Komitee
+(+ Recovery-Ziehungen) bleibt nur die CHECKPOINT-SIGNIERMENGE. Die
+Verengung der Produktion auf das Komitee wurde zuerst spezifiziert
+und implementiert, dann wieder entfernt: ein Produzent, dessen Sicht
+um einen Checkpoint zurückliegt, bewertet seine Kandidaten nach den
+Bootstrap-Regeln und emittiert Blöcke, die jeder finalisierte Peer
+ablehnt (`InvalidProducer`), und jede über den Übergang
+zusammengesetzte Chain-Historie kann dann nie mehr das
+`pool_at_height`-Replay passieren — die Finalität friert am ersten
+Checkpoint für immer ein (Sim-Reproduzent `duplicate_and_delay`,
+2026-10-21). Allein der Pool-Freeze trägt die Sicherheitslast:
+Mitgliedschaftsänderungen (Registrierung, Transfer, Bann, Ablauf)
+werden erst am NÄCHSTEN Checkpoint wirksam, sodass die
+Produzentenmenge eine reine Funktion der finalisierten Chain bleibt.
 
 Das Checkpoint-Quorum ist `quorum_for(Komiteegröße)`
 (floor(2n/3)+1); ein Komitee unter `MIN_FINALITY_COMMITTEE_SIZE`

@@ -162,7 +162,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | Поле | Тип | Ограничения |
@@ -170,6 +170,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 «сырых» байта | передаваемый TLD |
 | `owner` | 32 «сырых» байта | выведение из `public_key` (текущий владелец / подписант) |
 | `new_owner` | 32 «сырых» байта | идентичность получателя (непрозрачна: любое значение синтаксически валидно; привязка к ключам, которые смогут им распоряжаться, — правило состояния M8b) |
+| `proof` | ограничено (варинт ‖ байты) | анти-чёрн цессионное доказательство, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, плоская сложность `transfer_pow_difficulty`, соль эпохи |
 | `public_key` | 32 «сырых» байта | публичный ключ Ed25519 подписанта |
 | `signature` | **ровно 64 байта** | подпись Ed25519 подписываемой полезной нагрузки |
 
@@ -211,7 +212,7 @@ TLD = любой может сделать PoW регистрации и зая�
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 Зеркало `RegisterDomain`: каноническое имя несётся открытым
@@ -219,7 +220,10 @@ name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[
 (перевычисляется при декодировании, кодировании и валидации).
 Подписано **владельцем TLD имени** (проверяется при применении,
 M8b); `assignee` становится первым владельцем домена
-(непрозрачен, как `new_owner`).
+(непрозрачен, как `new_owner`). Несёт своё собственное плоское
+анти-спам доказательство (`assign_pow_difficulty`, challenge
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — плоско по решению:
+эксклюзивность пространства была оплачена при создании TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -314,6 +318,70 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
   (`MAX_NAME_LEN`), ревалидируется правилами именования
   `scone-core`.
 
+## POW-TO-OWNER — четыре формы без подписи (0x2A, 0x57, 0x84, 0xC3)
+
+Четыре АДДИТИВНЫЕ вариации рядом с подписанными формами (никогда
+не замена — D1): `REGISTER_TLD_POW` (0x2A), `RENEW_TLD_POW`
+(0x57), `REGISTER_DOMAIN_POW` (0x84), `RENEW_DOMAIN_POW` (0xC3).
+Ни одна не несёт ключ подписанта НИ подписи: **замайненное
+доказательство работы и есть вся авторизация**.
+
+### Challenge привязывает бенефициара и сеть (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: тег семейства (SCONE-TLD-V1 для TLD,
+  SCONE-DOMAIN-V1 для доменов) — никакого кросс-типового replay;
+- `pubkey_dest`: ключ БЕНЕФИЦИАРА — переданное доказательство
+  потребляемо только этим ключом (никакой кражи доказательств,
+  безопасный делегированный майнинг);
+- `network_id`: доказательство devnet никогда не проигрывается
+  на testnet или mainnet.
+
+Формы ПРОДЛЕНИЯ добавляют анти-переиспользования суффикс подписанного
+семейства: `‖ current_valid_until` (BE, 8 байт) — одно замайненное
+доказательство оплачивает ровно один срок.
+
+### Структура тела
+
+Точные зеркала подписанных тел, `pubkey_dest` на месте ключа
+подписанта, БЕЗ хвостовой подписи:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖
+  open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest),
+  перевычисляется, никогда не доверяется (D4); open = рождение
+  OPEN (меньшая ставка); private = строгий 3-летний срок,
+  бенефициар становится местом PoS;
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ pubkey_dest — только OPEN TLD (private → TldClosed:
+  частное пространство сохраняет путь подписи владельцем);
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### Ограждения применения (D3)
+
+- Владелец в цепочке ТАКЖЕ ДОЛЖЕН быть бенефициаром challenge:
+  продление НИКОГДА не меняет владельца — только register
+  создаёт новую собственность;
+- сложности, окно эпохи, льготный период и сроки — собственные
+  подписанных форм (D5: стоимость входа не меняется);
+- ключ бенефициара узнаётся (разрешение пула PoS) точно как
+  ключ подписанта.
+
+### txid и сосуществование
+
+txid остаётся каноническим хешем содержимого; дискриминанты
+0x2A/0x57/0x84/0xC3 — маркер форка — старый узел отклоняет их как
+UnknownDiscriminant, новый узел декодирует формы v1 без изменений.
+`signing_payload` Н/Д для всех четырёх (типизированная ошибка
+`PowNotSignable`): они никогда не подписываются.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`,
+`scone domain mine <name> --mine-for <pubkey>`,
+`scone domain renew <name> --to`, `scone tld register/renew --to`.
+
 ## Выведение владельца
 
 Жёсткое правило: **владелец всегда перевычисляется, никогда
@@ -357,17 +425,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 Свойства:
@@ -525,8 +593,31 @@ TLD, ~6 М хешей/с): 1 символ = 42 бита (≥ 7 дней), 5 си
 
 Ветви состояния (M8b, поставлено): `RegisterTld` ВСЕГДА требует
 свой PoW; `RegisterDomain` требует его на **открытом** TLD
-(закрытый путь — только назначение — `AssignDomain`, без PoW,
-подписано владельцем TLD).
+(закрытый путь — только назначение — `AssignDomain`, подписано
+владельцем TLD, со своим собственным плоским анти-спам
+доказательством).
+
+**Цессионные и назначенческие доказательства (консенсусный
+анти-спам)**: `TransferTld`, `TransferDomain` и `AssignDomain`
+каждое несёт **плоское** доказательство работы —
+`transfer_pow_difficulty` для двух цессий (challenges
+`SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` для
+назначения (challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Те же
+соль эпохи и анти-премайнинг окно, что у регистраций; проверяется
+при допуске в мемпул (оценённая эпоха, best-effort), затем при
+применении (строго). Цель: чёрн передач и массовое создание под
+частным TLD стоят консенсусной работы, а не политики. Никакого
+подушного налогообложения по длине: для назначений
+эксклюзивность пространства была уже оплачена при создании
+частного TLD.
+
+**Пассивная цессия**: эти пути приобретения (`TransferTld`,
+`TransferDomain`, `AssignDomain`) подписываются одним лишь
+передающим — получателя никогда не спрашивают. Предполагаемый
+выбор (дары, dead drops, наследство), без навязываемого
+долга PoS: см. `security-model.md` (пассивное приобретение и
+допустимость).
 
 ## Правила валидации
 

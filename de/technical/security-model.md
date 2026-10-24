@@ -87,6 +87,36 @@ dem PoS-Pool (journliert, bei Reorg rückgängig). Die
 Domains/TLDs des Beschuldigten werden nicht eingezogen (minimale
 Sanktion — M9-Entscheidung).
 
+## Passiver Erwerb und PoS-Berechtigung
+
+**Frage**: kann ein Dritter mir einen Besitz aufzwingen — und damit
+eine PoS-Verpflichtung — ohne meine Zustimmung?
+
+**Ja zum Besitz, nein zur Schuld.** Ein Name kann passiv erworben
+werden: Abtretungstransaktionen (`TransferTld`, `TransferDomain`)
+werden vom **Übertragenden** allein signiert (der Empfänger ist nur
+eine opake `OwnerId`, nie konsultiert), `AssignDomain` wird vom
+TLD-Eigentümer signiert, und die Genesis-Allokationen landen auf dem
+Schlüssel des Manifests. Das ist ein abgesegnetes Feature: Geschenke,
+Dead Drops, Vermächtnisse. Die Anti-Sybil-Eigenschaft hängt nicht
+daran: ein Sitz pro **unterschiedlichem Owner eines lebenden Namens**
+(`owner_refcounts`), und jeder Besitz kostet jemanden Arbeit.
+
+**Keine auferlegbare Schuld**: Slashing bestraft nur **bewiesene
+Äquivokation** (zwei widersprüchliche Signaturen, `SlashTx`, Bann);
+ein passiver Schlüssel signiert nichts und kann daher nie geslasht
+werden. Das Fehlen eines gezogenen Mitglieds geht an **Recovery**
+(Neuziehung), ohne Sanktion. Ein unbeabsichtigt erhaltener Sitz
+bleibt abgebbar: Ablauf + GC, `SetTldOpen` (der Sitz wird bei der
+Öffnung freigegeben), `RevokeTld` oder Re-Transfer.
+
+**Dokumentierte Entscheidung — keine Erwerbs-Zustimmung**: ein
+zweiphasiger Claim (ausstehender Transfer, vom Empfänger signierte
+Annahme) wurde erwogen und abgelehnt — er bricht Dead Drops und
+„first applied wins“, fügt eine Zustandsmaschine über den Namen hin
+und schützt vor einem demonstrativ nicht existierenden Risiko (keine
+auferlegbare Schuld, siehe oben).
+
 ## Durch Tests verifizierte Eigenschaften
 
 - `checkpoint_hash_engages_signatures`: der Checkpoint-Hash deckt

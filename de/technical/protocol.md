@@ -96,8 +96,12 @@ Transaction = disc u8 || version u8 || payload
 | Diskriminant | Typ |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 Jeder Diskriminant ist eine beliebige opake Konstante (keine
 logische Sequenz; `0x00` nie gültig) — vollständige normative
@@ -105,15 +109,20 @@ Tabelle in `/docs/en/technical/transactions.md`.
 
 Auf den Diskriminanten folgt das Byte `version` (aktueller Wert
 `0x01`): jeder andere Wert wird ausdrücklich abgelehnt
-(`UnsupportedVersion(value)`). **Alle Transaktionen sind signiert**
-(Ed25519): vollständige Spezifikation, signierte Nutzlast und
+(`UnsupportedVersion(value)`). Die meisten Transaktionen sind
+signiert (Ed25519) — AUSSER den vier signaturlosen
+pow-to-owner-Formen (`0x2A`, `0x57`, `0x84`, `0xC3`): der
+geminte Beweis IST die Autorisierung, und seine Challenge bindet
+den Schlüssel des Begünstigten und das Netzwerk. Vollständige
+Spezifikation, signierte Nutzlast und
 Validierungsregeln in **`/docs/en/technical/transactions.md`**
 (normativ).
 
 Seit der Wire-Änderung 2026-09 **tragen Transaktionen kein Feld
-`network` mehr**: die `network_id` (`str` ≤ 16) wird **nur in die
-Signaturnutzlast** injiziert — eine für ein Netzwerk signierte Tx
-verifiziert nie auf einem anderen (siehe
+`network` mehr**: die `network_id` (`str` ≤ 16) wird in die
+**Signaturnutzlast** (signierte Formen) oder die **PoW-Challenge**
+(pow-to-owner-Formen) injiziert — eine für ein Netzwerk gemachte
+Tx geht nie auf ein anderes über (siehe
 `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
