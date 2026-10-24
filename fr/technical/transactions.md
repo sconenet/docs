@@ -550,10 +550,10 @@ est l'intégralité de l'autorisation**.
 ### Le challenge lie le bénéficiaire et le réseau (D2)
 
 ```
-challenge = tag_kind ‖ nom ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+challenge = kind_tag ‖ nom ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
 ```
 
-- `tag_kind` : le tag de la famille (SCONE-TLD-V1 pour les TLD,
+- `kind_tag` : le tag de la famille (SCONE-TLD-V1 pour les TLD,
   SCONE-DOMAIN-V1 pour les domaines) — pas de replay croisé entre
   kinds ;
 - `pubkey_dest` : la clé du BÉNÉFICIAIRE — une preuve rendue n'est

@@ -561,28 +561,6 @@ Comportement attendu :
 - domaine sans règle applicable → même question, comportement
   classique (NODATA : le GEOROUTE n'a pas de rdata A wire).
 
-### Délégation NS (`ns` records) — le owner choisit qui sert
-
-Le owner d'un domaine choisit le mode de serving par domaine :
-
-- **DHT (défaut)** — sans enregistrement NS, le réseau Scone sert les
-  A/AAAA on-chain (relais `--dns`, ou pont NSD via l'export) ;
-- **NS indépendant** — le owner pose des enregistrements
-  `ns <ip-ou-nom>` (SES nameservers, IP directe ou nom) : le domaine
-  est DÉLÉGUÉ — le réseau cesse de servir son contenu (A/AAAA →
-  NODATA + autorité NS), et quiconque résout suit les NS du owner.
-
-```
-scone domain set exemple.uip ns 203.0.113.7      # nameserver v4
-scone domain set exemple.uip ns 2001:db8::1      # nameserver v6
-scone domain set exemple.uip ns ns1.monsrv.net   # nameserver par nom
-```
-
-La borne : **12 NS distincts par domaine** (toutes formes, dédupliquées
-par valeur — le miroir des caps des registres réels). Le retrait d'un
-NS libère le slot. La délégation est réversible : supprimer tous les NS
-restaure le mode DHT.
-
 ### Options CLI (`scone relay`)
 
 | Option | Défaut | Rôle |
