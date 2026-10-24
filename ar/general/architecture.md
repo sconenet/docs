@@ -145,8 +145,7 @@ PoW التسجيل (mine/verify، صعوبات لكل شبكة) يعيش في
 جدول GeoIP مدمج، تراجع تكراري)، حلقة checkpoint/heartbeat
 للـ anchors (يتحدث CLI مباشرة عبر p2p QUIC إلى المُرحّل، لم يعد
 هناك RPC محلي). قابلية الوصول والاكتشاف: AutoNAT v2 (حكم
-قابل للوصول/خلف NAT)، circuit-relay v2 + DCUtR للعقد خلف NAT،
-mDNS (اكتشاف شبكة محلية دون إعداد، مفعّل افتراضيًا على devnet)
+قابل للوصول/خلف NAT)، circuit-relay v2 + DCUtR للعقد خلف NAT
 وUPnP (تخطيط منفذ QUIC من قبل الموجّه، opt-in). الإعداد عبر
 ملف `.env` (انظر `.env.example`). المرجع: `/docs/en/technical/relay.md`.
 
@@ -162,7 +161,9 @@ crate يملك نظام الملفات ليبقى `scone-crypto` نقيًا. ا�
 
 **scone-genesis** — أداة تنفيذية أحادية الاستخدام (kickstarter)
 لتحضير تكوين mainnet: manifest بإصدارات JSON، التخصيصات،
-كتلة حتمية.
+كتلة حتمية. الأداة تُنتج المُخرجات (artifacts)، والمستودع لا
+يضعها أبدًا تحت الإصدارات (يرفض الكتابة داخل workspace لـ
+Rust؛ التوزيع محفوظ للإطلاق، انظر `blockchain.md`).
 
 **scone** — الملف التنفيذي/CLI. يعتمد على الـ crate فقط عندما
 يستخدمه فعلًا (اليوم: scone-network للمُرحّل، scone-blockchain،

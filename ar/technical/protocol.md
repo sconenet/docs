@@ -95,8 +95,12 @@ Transaction = disc u8 || version u8 || payload
 | الـ discriminant | النوع |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 كل discriminant ثابت معتم اعتباطي (لا تسلسل منطقي؛
 `0x00` غير صالح أبدًا) — الجدول المعياري الكامل في
@@ -104,14 +108,18 @@ Transaction = disc u8 || version u8 || payload
 
 يتبع بايت `version` (القيمة الحالية `0x01`) الـ
 discriminant: أي قيمة أخرى تُرفض صراحةً
-(`UnsupportedVersion(value)`). **جميع المعاملات موقّعة**
-(Ed25519): المواصفة الكاملة، الحمولة الموقّعة وقواعد
-التحقق في **`/docs/en/technical/transactions.md`** (معيارية).
+(`UnsupportedVersion(value)`). أغلب المعاملات موقّعة
+(Ed25519) — عدا صيغ pow-to-owner الأربع بلا توقيع
+(`0x2A`، `0x57`، `0x84`، `0xC3`): الإثبات المُستخرَج بالتعدين هو
+التخويل نفسه، والـ challenge الخاص به يربط مفتاح المستفيد
+بالشبكة. المواصفة الكاملة، الحمولة الموقّعة وقواعد التحقق في
+**`/docs/en/technical/transactions.md`** (معيارية).
 
 منذ تغيير الـ wire بتاريخ 2026-09، **لم تعد المعاملات تحمل
-حقل `network`**: يُحقن `network_id` (`str` ≤ 16) **في حمولة
-التوقيع فقط** — المعاملة الموقّعة لشبكة واحدة لا تُتحقق
-أبدًا على أخرى (انظر `/docs/en/technical/blockchain.md`).
+حقل `network`**: يُحقن `network_id` (`str` ≤ 16) في **حمولة
+التوقيع** (الصيغ الموقّعة) أو **challenge الـ PoW**
+(صيغ pow-to-owner) — المعاملة المُعدّة لشبكة واحدة لا تنتقل
+أبدًا إلى أخرى (انظر `/docs/en/technical/blockchain.md`).
 
 ### REGISTER_DOMAIN (0x21)
 

@@ -74,7 +74,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 جمع ہوتے ہیں: `.env` میں فی قیمت ایک لائن (dotenvy جوڑتا ہے)۔
 
 `SCONE_*` متغیرات کا مکمل جدول (نیٹ ورک، P2P سننا،
-بوٹ اسٹریپ، جنسیس، mDNS، UPnP، DNS سطح، میٹرکس، ٹوپولوجی
+بوٹ اسٹریپ، جنسیس، UPnP، DNS سطح، میٹرکس، ٹوپولوجی
 پروفائل، اینکر) اور ہر ایک کے معنی
 [`relay.md`](relay.md#environment-configuration-env) میں ہیں؛
 تبصرہ شدہ ٹیمپلیٹ ریپوزٹوری روٹ پر `.env.example` ہے (`.env`
@@ -165,6 +165,35 @@ PoW آپ کے لیے مائن)، `scone tld transfer <tld> <owner>`،
 ریزولوشن `scone domain resolve <name>` میں منتقل (سابقہ `record
 get`)؛ ہیکس اشاعت چینل (`record put`) ختم — ترمیم
 `domain set` / `domain update` سے ہوتی ہے۔
+- `scone domain mine <name>` — صرف رجسٹریشن ثبوت مائن کرتا ہے
+  (کوئی شناخت نہیں، کوئی keystore نہیں، کوئی جمع کرانا نہیں):
+  `scone-domain-pow-v1` JSON `{type, name, network_id, epoch,
+  proof}` stdout پر چھاپتا ہے۔ وفاق شدہ مائننگ: دوسری مشین آپ
+  کے لیے مائن کرتی ہے، آپ کی کلیدیں کبھی آپ کے پاس سے نہیں
+  نکلتیں۔ پائپ کریں یا ری ڈائریکٹ کریں: `scone domain mine
+  n.tld | scone domain register n.tld --proof -` (یا
+  `--proof FILE`)۔ ثبوت نام اور نیٹ ورک سے باندھا ہوتا ہے؛
+  تازگی نوڈ اپلائی وقت پر نافذ کرتا ہے (ایپوک ولیدیت کھڑکی)۔
+  `--mine-for <pubkey>` کے ساتھ وہ اس کے بجائے اُس مستفید کے
+  لیے POW-TO-OWNER ثبوت مائن کرتا ہے اور
+  `scone-domain-pow-to-v1` JSON `{type, name, network_id,
+  epoch, pow_to, proof}` چھاپتا ہے — صرف `register --to` /
+  `renew --to` کے ذریعے بالکل اسی کلید کے لیے قابلِ استعمال
+  (challenge اُسے اپنے اندر رکھتا ہے؛ جمع کرانے پر کیس
+  انسنسیٹو جانچ)۔
+- Pow-to-owner جمع کرانا (کسی keystore کی ضرورت نہیں — `--to`
+  `--identity` کے ساتھ باہمی استثنا رکھتا ہے): `scone domain
+  register <name> --to <pubkey>` / `scone domain renew <name>
+  --to <pubkey>` اور `scone tld register <tld> --to <pubkey>` /
+  `scone tld renew <tld> --to <pubkey>` ایسا ثبوت جمع کراتے
+  ہیں جس کا challenge مستفید کی کلید کو باندھتا ہے؛ آن چین
+  `owner` بطور `hash(pubkey_dest)` دوبارہ حساب ہوتا ہے (تجدید
+  کبھی ہاتھ نہیں بدلتی)۔ `--proof` کے بغیر کمانڈ خود ثبوت
+  مائن کرتی ہے؛ `--proof -`/FILE کے ساتھ وہ
+  `scone-domain-pow-to-v1` پے لوڈ استعمال کرتی ہے اور کسی
+  دوسرے مستفید کے لیے مائن شدہ ثبوت مسترد کرتی ہے۔ پائپ انداز:
+  `scone domain mine n.tld --mine-for <pubkey> | scone domain
+  register n.tld --to <pubkey> --proof -`۔
 - `scone domain export <name> [--out FILE]` — چین سے تصدیق شدہ
   ریکارڈ سیٹ بالکل `update --file` فارمیٹ میں لکھتا ہے
   (گول ٹرپ کی ضمانت: export → ترمیم → update وہی
@@ -175,6 +204,24 @@ get`)؛ ہیکس اشاعت چینل (`record put`) ختم — ترمیم
   طور پر ایکسپورٹ ہوتے ہیں — کبھی چپکے سے نہیں گرائے جاتے۔
 
 `domain get` نیز `domain_id` اور `valid_until` چھاپتا ہے۔
+
+## PoW بینچ مارک (`scone bench-pow`)
+
+مشین کی Argon2id ہیش شرح ناپتا ہے (وہی ہیش جو کنسنسس تصدیق
+استعمال کرتی ہے) اور نیٹ ورک کی مشکلوں کا ٹھوس انتظار کے
+اوقات میں ترجمہ کرتا ہے:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+آؤٹ پٹ: کل اور فی ورکر H/s، پھر ہر عمل کا متوقع اوسط وقت —
+منتقلی/assign (فلیٹ شرح)، ذاتی TLD کھولنا، اور TLD/ڈومین
+رجسٹریشن فرورز (لمبائی وکر)۔ منتخب نیٹ ورک Argon2id
+پیرامیٹرز کا تعین کرتا ہے (مین نیٹ: 64 MiB، t=2 — اصل لاگت؛
+ٹیسٹ نیٹ/ڈیو نیٹ: ہلکا پروفائل، ملی سیکنڈ ثبوتیں)۔ ہر ورکر
+اپنی الگ 64 MiB Argon2id لین مختص کرتا ہے — دستیاب RAM کے
+مطابق `--cores` سائز کریں۔
 
 ## بلڈز: dev بمقابلہ mainnet-کندہ (mainnet-compile-gate)
 

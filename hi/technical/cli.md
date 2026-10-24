@@ -72,7 +72,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 जमा होते हैं: `.env` में प्रति मान एक पंक्ति (dotenvy append करता है)।
 
 `SCONE_*` वेरिएबलों की पूरी तालिका (नेटवर्क, P2P listen,
-bootstrap, genesis, mDNS, UPnP, DNS सतह, metrics, topology
+bootstrap, genesis, UPnP, DNS सतह, metrics, topology
 profile, anchor) और प्रत्येक की semantics
 [`relay.md`](relay.md#environment-configuration-env) में है;
 टिप्पणी किया गया टेम्पलेट रिपॉज़िटरी रूट पर `.env.example` है (इसे
@@ -165,6 +165,34 @@ PoW आपके लिए माइन), `scone tld transfer <tld> <owner>`,
 रिज़ॉल्यूशन `scone domain resolve <name>` में चला गया (पूर्व-`record
 get`); हेक्स प्रकाशन चैनल (`record put`) गायब —
 संपादन `domain set` / `domain update` से होता है।
+- `scone domain mine <name>` — केवल पंजीकरण प्रूफ माइन करता है
+  (कोई पहचान नहीं, कोई keystore नहीं, कोई जमा नहीं):
+  `scone-domain-pow-v1` JSON `{type, name, network_id, epoch,
+  proof}` stdout पर छापता है। प्रत्यायोजित माइनिंग: दूसरी मशीन
+  आपके लिए माइन करती है, आपकी कुंजियाँ कभी आपके पास से नहीं
+  जातीं। पाइप या रीडायरेक्ट करें: `scone domain mine n.tld |
+  scone domain register n.tld --proof -` (या `--proof FILE`)।
+  प्रूफ नाम और नेटवर्क से बँधा है; ताज़गी नोड लागू करने के समय
+  लागू करता है (epoch वैधता विंडो)। `--mine-for <pubkey>` के
+  साथ वह इसके बजाय उस लाभार्थी के लिए POW-TO-OWNER प्रूफ माइन
+  करता है और `scone-domain-pow-to-v1` JSON `{type, name,
+  network_id, epoch, pow_to, proof}` छापता है — केवल `register
+  --to` / `renew --to` द्वारा ठीक उसी कुंजी के लिए उपभोग
+  योग्य (challenge उसे अपने भीतर रखता है; जमा करते समय
+  केस-असंवेदनशील जाँच)।
+- Pow-to-owner जमा (किसी keystore की आवश्यकता नहीं — `--to`
+  `--identity` के साथ अनन्य है): `scone domain register <name>
+  --to <pubkey>` / `scone domain renew <name> --to <pubkey>` और
+  `scone tld register <tld> --to <pubkey>` / `scone tld renew
+  <tld> --to <pubkey>` ऐसा प्रूफ जमा करते हैं जिसका challenge
+  लाभार्थी की कुंजी को बाँधता है; ऑन-चेन `owner` को
+  `hash(pubkey_dest)` के रूप में पुनर्गणना किया जाता है (एक
+  renew कभी हाथ नहीं बदलता)। `--proof` के बिना कमांड स्वयं
+  प्रूफ माइन करती है; `--proof -`/FILE के साथ वह
+  `scone-domain-pow-to-v1` पेलोड उपभोग करती है और किसी दूसरे
+  लाभार्थी के लिए माइन किए प्रूफ को अस्वीकार करती है। पाइप
+  शैली: `scone domain mine n.tld --mine-for <pubkey> | scone
+  domain register n.tld --to <pubkey> --proof -`।
 - `scone domain export <name> [--out FILE]` — चेन-सत्यापित
   रिकॉर्ड समुच्चय ठीक `update --file` प्रारूप में लिखता है
   (round-trip गारंटीड: export → edit → update वही
@@ -174,6 +202,24 @@ get`); हेक्स प्रकाशन चैनल (`record put`) गा�
   वे टिप्पणी की गई चेतावनियों के रूप में निर्यात होते हैं — कभी मौन से नहीं छोड़े जाते।
 
 `domain get` साथ ही `domain_id` और `valid_until` छापता है।
+
+## PoW बेंचमार्क (`scone bench-pow`)
+
+मशीन की Argon2id हैश दर मापता है (वही हैश जो सहमति सत्यापन
+उपयोग करता है) और नेटवर्क की कठिनाइयों का ठोस प्रतीक्षा समय
+में अनुवाद करता है:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+आउटपुट: कुल और प्रति-वर्कर H/s, फिर प्रति संचालन अपेक्षित औसत
+समय — transfer/assign (समतल दर), निजी TLD खोलना, और TLD/डोमेन
+पंजीकरण फ़्लोर (लंबाई वक्र)। चयनित नेटवर्क Argon2id पैरामीटर
+निर्धारित करता है (मेननेट: 64 MiB, t=2 — वास्तविक लागत;
+testnet/devnet: हल्की प्रोफ़ाइल, मिलीसेकंड प्रूफ)। प्रत्येक
+वर्कर अपना अलग 64 MiB Argon2id लेन आवंटित करता है — उपलब्ध RAM
+के अनुसार `--cores` साइज़ करें।
 
 ## Builds: dev बनाम mainnet-सक्षम (mainnet-compile-gate)
 

@@ -151,7 +151,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | فیلڈ | قسم | پابندیاں |
@@ -159,6 +159,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 خام بائٹس | منتقل شدہ TLD |
 | `owner` | 32 خام بائٹس | `public_key` کا حصول (موجودہ مالک / دستخط کنندہ) |
 | `new_owner` | 32 خام بائٹس | وصول کنندہ کی شناخت (اپاہج: نحوی طور پر کوئی بھی قیمت درست؛ خرچ کرنے والی کلیدوں سے بندھنا M8b اسٹیٹ قاعدہ ہے) |
+| `proof` | محدود (varint ‖ بائٹس) | اینٹی چرن دستاویزی منتقلی ثبوت، چیلنج `SCONE-TLD-XFER-V1 ‖ tld_id`، فلیٹ مشکل `transfer_pow_difficulty`، ایپوک نمک |
 | `public_key` | 32 خام بائٹس | دستخط کنندہ کی Ed25519 عوامی کلید |
 | `signature` | **بالکل 64 بائٹس** | دستخط شدہ پے لوڈ کا Ed25519 دستخط |
 
@@ -198,14 +199,17 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 `RegisterDomain` کا عکس: کیننیکل نام صاف الفاظ میں لے جایا جاتا
 ہے اور `domain_id` لازماً `DomainId(name)` کے برابر ہو (ڈی کوڈنگ،
 انکوڈنگ اور تصدیق پر دوبارہ حساب)۔ **نام کی TLD کے مالک** کے
 دستخط شدہ (اطلاق پر چیک، M8b)؛ `assignee` ڈومین کا پہلا مالک
-بن جاتا ہے (اپاہج، `new_owner` کی طرح)۔
+بن جاتا ہے (اپاہج، `new_owner` کی طرح)۔ اپنا فلیٹ اینٹی اسپیم
+ثبوت رکھتا ہے (`assign_pow_difficulty`، چیلنج
+`SCONE-DOMAIN-ASSIGN-V1 ‖ name` — فیصلے سے فلیٹ: namespace کی
+انفرادیت TLD کی پیدائش پر ادا ہو چکی تھی)۔
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -296,6 +300,72 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 - `name`: لمبائی-varint + UTF-8 بائٹس، 253 پر capped
   (`MAX_NAME_LEN`)، `scone-core` نام کے قواعد سے دوبارہ تصدیق۔
 
+## POW-TO-OWNER — چار بغیر دستخط شکلیں (0x2A، 0x57، 0x84، 0xC3)
+
+دستخط شدہ شکلوں کے ساتھ چار ADDITIVE variants (کبھی متبادل
+نہیں — D1): `REGISTER_TLD_POW` (0x2A)، `RENEW_TLD_POW` (0x57)،
+`REGISTER_DOMAIN_POW` (0x84)، `RENEW_DOMAIN_POW` (0xC3)۔ ان
+میں سے کوئی بھی نہ signer کلید رکھتا ہے نہ دستخط: **مائن کیا
+گیا کام کا ثبوت پوری اجازت ہے**۔
+
+### چیلنج مستفید اور نیٹ ورک کو باندھتا ہے (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: خاندان کا ٹیگ (TLDs کے لیے SCONE-TLD-V1،
+  ڈومینز کے لیے SCONE-DOMAIN-V1) — اقسام کے درمیان کوئی
+  کراس-kind ری پلے نہیں؛
+- `pubkey_dest`: **مستفید** کی کلید — حوالے میں دیا گیا ثبوت
+  صرف اسی کلید استعمال کر سکتی ہے (ثبوت چوری ناممکن، محفوظ
+  وفاق شدہ مائننگ)؛
+- `network_id`: devnet ثبوت کبھی testnet یا مین نیٹ پر ری پلے
+  نہیں ہوتا۔
+
+تجدید کی شکلیں دستخط شدہ خاندان کا اینٹی ری یوز لاحقہ جوڑتی
+ہیں: `‖ current_valid_until` (BE، 8 بائٹس) — ایک مائن شدہ
+ثبوت بالکل ایک مدت ادا کرتا ہے۔
+
+### باڈی کی ساخت
+
+دستخط شدہ باڈیز کے بالکل عکس، signer کلید کی جگہ
+`pubkey_dest`، کوئی آخری دستخط نہیں:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` =
+  hash(pubkey_dest)، دوبارہ حساب، کبھی قابلِ اعتماد نہیں
+  (D4)؛ open = کھلی پیدائش (ہلکی شرح)؛ ذاتی = سخت 3 سالہ
+  مدت، مستفید PoS سیٹ بن جاتا ہے؛
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ pubkey_dest — صرف کھلی TLD (ذاتی →
+  TldClosed: ذاتی namespace مالک کے دستخطی راستہ رکھتا ہے)؛
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest۔
+
+### اطلاق کے محافظ (D3)
+
+- آن چین مالک چیلنج کا مستفید بھی ہونا چاہیے: تجدید کبھی
+  ہاتھ نہیں بدل سکتی — صرف register نئی ملکیت بناتا ہے؛
+- مشکلیں، ایپوک کھڑکی، رعایت اور مدتیں دستخط شدہ شکلوں کی
+  اپنی ہیں (D5: داخلے کی لاگت نہیں بدلتی)؛
+- مستفید کی کلید بالکل signer کی کلید جیسی سیکھی جاتی ہے
+  (PoS پول ریزولوشن)۔
+
+### txid اور بقائ باہم
+
+txid مواد کا کیننیکل ہیش رہتا ہے؛ discriminants
+0x2A/0x57/0x84/0xC3 فورک مارکر ہیں — پرانا نوڈ انہیں
+UnknownDiscriminant کے طور پر مسترد کرتا ہے، نیا نوڈ v1
+شکلیں بغیر تبدیلی ڈی کوڈ کرتا ہے۔ چاروں کے لیے
+`signing_payload` N/A ہے (ٹائپڈ `PowNotSignable` خرابی):
+ان پر کبھی دستخط نہیں ہوتے۔
+
+CLI: `scone domain register <name> --to <pubkey-hex>`،
+`scone domain mine <name> --mine-for <pubkey>`،
+`scone domain renew <name> --to`، `scone tld register/renew
+--to`۔
+
 ## مالک کا حصول
 
 سخت قاعدہ: **مالک ہمیشہ دوبارہ حساب ہوتا ہے، کبھی بھروسہ نہیں**۔
@@ -337,17 +407,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 خصوصیات:
@@ -492,8 +562,28 @@ TLD، ~6 M ہیش/s): 1 حرف = 42 بٹس (≥ 7 دن)، 5 حروف = 40 بٹس
 
 اسٹیٹ برانچز (M8b، شپ شدہ): `RegisterTld` ہمیشہ اپنا PoW مانگتا
 ہے؛ `RegisterDomain` **کھلی** TLD پر مانگتا ہے (بند پاتھ صرف
-assign ہے — `AssignDomain`، کوئی PoW نہیں، TLD کے مالک کے دستخط
-شدہ)۔
+assign ہے — `AssignDomain`، TLD کے مالک کے دستخط شدہ، اپنے
+فلیٹ اینٹی اسپیم ثبوت کے ساتھ)۔
+
+**دستاویزی منتقلی اور assign ثبوتیں (کنسنسس سطح اینٹی اسپیم)**:
+`TransferTld`، `TransferDomain` اور `AssignDomain` ہر ایک
+**فلیٹ** کام کا ثبوت رکھتا ہے — دو دستاویزی منتقلیوں کے لیے
+`transfer_pow_difficulty` (چیلنجز `SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`)، assign کے لیے
+`assign_pow_difficulty` (چیلنج `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)۔
+رجسٹریشنز جیسا ہی ایپوک نمک اور اینٹی پری مائننگ ونڈو؛ mempool
+داخلے پر (اندازہ شدہ ایپوک، best-effort) پھر اطلاق پر (سخت)
+تصدیق۔ مقصد: منتقلی کی آمدورفت اور ذاتی TLD تلے بڑے پیمانے پر
+تخلیق پر کنسنسس سطح کا کام لگے، پالیسی نہیں۔ کوئی فی لمبائی
+ٹیکس نہیں: assign کے لیے namespace کی انفرادیت ذاتی TLD کی
+پیدائش پر ادا ہو چکی تھی۔
+
+**غیر فعال دستاویزی منتقلی**: یہ حصول کے راستے (`TransferTld`،
+`TransferDomain`، `AssignDomain`) صرف منتقل کرنے والے کے دستخط
+شدہ ہیں — وصول کنندہ سے کبھی مشورہ نہیں مانگا جاتا۔ منظور
+شدہ انتخاب (تحائف، dead drops، وصیتیں)، کوئی عائد کیا جانے
+والا PoS قرض نہیں: دیکھیں `security-model.md` (غیر فعال حصول
+اور اہلیت)۔
 
 ## تصدیق کے قواعد
 

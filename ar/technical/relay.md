@@ -81,21 +81,7 @@ blockchain ← storage) يبقى متزامنًا ونقيًا.
    الإقلاع بلا بذرة وبلا bootstrap، يعاد تركيب الدليل: يجد
    المُرحّل أقرانه المعتادين دون إعداد. إنه ذاكرة مؤقتة:
    ملف غائب/تالف = دليل فارغ، وليس خطأً أبدًا.
-4. **mDNS محلي** (`--mdns`) — اكتشاف بلا إعداد على الوصلة
-   المحلية: المُرحّلات المجاورة على نفس مقطع الشبكة تجد
-   بعضها بلا أي بذرة (مسار devnet بلا إعداد). **الافتراضي:
-   مفعل على devnet، مغلق فيما عداها** (شبكة محلية قابلة
-   للتصفير شبكة اكتشاف بالتصميم؛ ونشر عام لا يبث
-   multicast). السلوك: ربط socket البث؛ فشل الربط (لا
-   multicast على الواجهة، بيئة معزولة) **يعطّل** mDNS مع
-   تحذير — ليس قاتلًا أبدًا (الاكتشاف رفاهية، وليس
-   حبل نجاة). كل جار `Discovered` يغذّي جدول Kademlia
-   (`kad.add_address`)، تمامًا كـ bootstrap صريح ناقص
-   الإعداد؛ مداخل `Expired` يتتبعها libp2p نفسه (يغلق
-   الاتصال بمهلة خاصة به). عضوا `mdns`/`upnp` في السلوك
-   `Toggle`s (تفعيل/تعطيل عند البناء،
-   `build_behaviour(key, enable_mdns, enable_upnp)`).
-5. **UPnP** (`--upnp`، opt-in) — تخطيط منفذ استماع QUIC من قبل
+4. **UPnP** (`--upnp`، opt-in) — تخطيط منفذ استماع QUIC من قبل
    موجّه المنزل: تصبح العقدة قابلة للوصول من الخارج **دون**
    مُرحّل دائرة. عند `NewExternalAddr`، يُسجَّل العنوان
    الخارجي كعنوان خارجي حقيقي للسرب
@@ -105,12 +91,13 @@ blockchain ← storage) يبقى متزامنًا ونقيًا.
    بسيط، ويُتخطى التخطيط — حالات عادية على شبكة منزلية.
    التخطيط المنتهي (فشل التجديد) تحذير.
 
-يتبع mDNS الشبكة (`--mdns`/`SCONE_MDNS` صريح يفوز دائمًا):
-**مفعل افتراضيًا على devnet**، مغلق على testnet/mainnet؛
-ويبقى UPnP **معطلًا افتراضيًا**
-(`enable_mdns`/`enable_upnp` = `false` في `config.rs`، يفعّل
-المُرحّل mDNS لـ devnet): نشر عام لا يبث شيئًا ولا يتحدث إلى
-أي موجّه.
+يبقى UPnP **معطلًا افتراضيًا**
+(`enable_upnp` = `false` في `config.rs`): نشر عام لا يتحدث
+إلى أي موجّه دون موافقة. **أُزيل اكتشاف mDNS**
+(remove-mdns-discovery، 2026-10-22): يأتي الـ peering
+حصريًا من bootstrap الصريح والبذور المدمجة وKademlia — لا
+يزال flag القديم `--mdns`/`SCONE_MDNS` مقبولًا بلا أثر
+(توافق السكربتات، نفس معاملة `--rpc`).
 
 ### تحسين الطوبولوجيا المحلية (مفعل دائمًا)
 
@@ -343,16 +330,37 @@ devnet الثابت، صالح ما دام مجموع المنتجين فارغ�
 `SCONE_ANCHOR_PASSPHRASE` لا يُبلَغ أبدًا عبر الملف التنفيذي،
 clap يتجاوزه دائمًا):
 
+- **تدوير المُقترِح**: عضو لجنة واحد بالضبط مُعيَّن يقدّم
+  اقتراحه الذاتي في كل epoch
+  (`committee[epoch % size]`، حتمي)؛ الأعضاء الآخرون لا
+  يوقّعون أبدًا قمتهم الخاصة — محتوى نقطة التفتيش يعتمد على
+  قمة المُقترِح، والاقتراحات الذاتية غير المُسيَّجة شظّت
+  الـ epoch إلى محتويات متنافسة يرفض كل حارس بحق كتقابل
+  مزدوج (testnet، 2026-10-21)؛
 - بعد كل كتلة مقبولة/منتجة، إن كانت هذه العقدة عضوًا في
   اللجنة الحالية **و**تصل اللجنة إلى
   `MIN_FINALITY_COMMITTEE_SIZE`، يوقّع المُرحّل نقطة التفتيش
   المقترحة عبر `SignerGuard` الخاص به
   (`signer-state.dat` في دليل البيانات — مفتاح واحد =
   صوت/epoch، آمن ضد التحطم fail-closed) وينشرها؛
+- **التصويت عند الاستلام**: اقتراح يكون محتواه صالحًا على
+  سلسلتنا (الكتلة المشار إليها موجودة، عند نفس الـ hash)
+  ويحمل توقيع عضو لجنة يحصل على توقيعنا أيضًا — بدونه، كان
+  كل anchor يوقّع محتوى قمته الخاصة فقط ولا يتشكل نصاب
+  أبدًا؛
 - التوقيعات المستقبلة (`Message::Checkpoint`) تتراكم بـ hash
   `CheckpointData` (محدودة بـ 256 مدخلًا)؛ عند تواقيع
   `quorum_for(حجم اللجنة)` عضوًا على نفس البيانات ←
   `accept_checkpoint` + بث نقطة التفتيش النهائية؛
+- **تخزين النهائية**: تُكتب نافذة نقاط التفتيش والقاعدة
+  المجمّدة إلى المخزن عند كل نهائية وتُعاد قراءتها عند
+  الإقلاع. نقاط التفتيش حالة gossip (لا تحملها الكتل أبدًا)
+  — إعادة تشغيل دون هذا التخزين كانت تبدأ من قاعدة فارغة
+  ولا يمكنها أبدًا ربط نافذة يخدمها نظير مجددًا (مراسي
+  الـ epoch أسفل نافذة الشبكة ذهبت)؛
+- **لحاق النهائية**: مُرحّل قاعدته فارغة (إقلاع عقدة جديدة)
+  يطلب `GetCheckpoints` من نظير عند كل tick حتى تُستعاد
+  القاعدة؛
 - المُرحّل بلا مفتاح anchor يبقى **سلبيًا**: يراكم، يُنهي،
   ويرحّل، لكنه لا يوقّع أبدًا؛
 - `GetCheckpoints` ← تُقدَّم نافذة `checkpoint_window()`؛
@@ -514,13 +522,11 @@ clap يتجاوزه دائمًا):
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -568,7 +574,7 @@ unreachable — is a relay running?"، خروج غير صفري. يُحتفظ
 | `SCONE_LISTEN` | `--listen` | multiaddr استماع P2P (الافتراضي: كل الواجهات، منفذ سريع) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | بذور bootstrap، **قابل للتكرار** (سطر لكل قيمة — dotenvy يراكم)؛ يستبدل البذور المدمجة |
 | `SCONE_GENESIS` | `--genesis` | ملف التكوين (عقد المؤسسين) |
-| `SCONE_MDNS` | `--mdns` | اكتشاف mDNS محلي (`true` = مفعل، `false` = مغلق؛ الافتراضي: مفعل على devnet، مغلق فيما عداها) |
+| `SCONE_MDNS` | `--mdns` | (متقادم — أُزيل اكتشاف mDNS؛ مقبول، مُهمَل) |
 | `SCONE_UPNP` | `--upnp` | تخطيط منافذ UPnP (`true` = مفعل) |
 | `SCONE_DNS_ADDR` | `--dns` | عنوان ربط خادم DNS عبر UDP |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | تراجعات تكرارية، **قابلة للتكرار** |
@@ -612,13 +618,14 @@ unreachable — is a relay running?"، خروج غير صفري. يُحتفظ
 `domain transfer`. مطالبات `register` تعدّن الـ PoW الخاص بها
 عند صعوبة الشبكة (ميلي ثوانٍ على devnet).
 
-تضبط الخيارات `--geo-*`/`--health-*` الـ GeoDNS وفحص الصحة
-**لمحلّل DNS المدمج**: الدلالات الكاملة، ترتيب الأسبقية،
-وجدول GeoIP المحلي موثّقة في
-[`dns.md`](dns.md#geodns-geographic-routing) — التوجيه
-الجغرافي **مفعل دائمًا** (جدول GeoIP مدمج، لا خيار مطلوب)؛
-و`--health-check` مغلق افتراضيًا، والمسار الكلاسيكي دون
-تغيير.
+**لا خيار geo أو health موجود**: الـ geozone
+**مفروضة من البناء** (جدول DB-IP Lite مدمج — الدلالات
+الكاملة في
+[`dns.md`](dns.md#geodns-geographic-routing))؛ التوجيه
+الجغرافي **مفعل دائمًا** دون أي خيار، والمحلّل لا يجري أي
+فحص صحة — يقدّم مجموعة السجلات الموقّعة كما هي (توافر
+الـ endpoints شأن مشغّلي الـ endpoints). أي
+flag من `--geo-*`/`--health-*` رفض صارم من clap.
 
 ### `domain register|update` (M5) — معاملات موقّعة في أمر واحد
 

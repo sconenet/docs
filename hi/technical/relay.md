@@ -81,22 +81,7 @@ storage) समकालिक और शुद्ध रहता है।
    निर्देशिका से पुनर्गठित: रिले बिना
    विन्यास अपने सामान्य पीयर ढूँढ लेता है। यह कैश है: गायब/भ्रष्ट
    फ़ाइल = खाली निर्देशिका, कभी त्रुटि नहीं।
-4. **LAN mDNS** (`--mdns`) — स्थानीय
-   लिंक पर ज़ीरो-कॉन्फ़िग खोज: एक ही नेटवर्क खंड के पड़ोसी रिले
-   बिना किसी seed के एक-दूसरे ढूँढ लेते हैं (ज़ीरो-कॉन्फ़िग devnet
-   पथ)। **डिफ़ॉल्ट: devnet पर चालू, और जगह बंद** (रीसेट करने योग्य
-   स्थानीय नेटवर्क डिज़ाइन से खोज नेटवर्क है; सार्वजनिक
-   परिनियोजन कुछ भी multicast नहीं करता)। व्यवहार: multicast
-   socket का bind; bind विफलता (इंटरफ़ेस पर कोई multicast नहीं,
-   sandboxed वातावरण) mDNS को चेतावनी के साथ **अक्षम** कर देती
-   है — कभी घातक नहीं (खोज सुविधा है, जीवनरेखा कभी नहीं)। प्रत्येक
-   `Discovered` पड़ोसी Kademlia तालिका में जाता है
-   (`kad.add_address`), बिल्कुल स्पष्ट bootstrap जैसा विन्यास
-   छोड़कर; `Expired` प्रविष्टियाँ libp2p स्वयं ट्रैक करता है (कनेक्शन
-   अपने टाइमआउट पर बंद)। व्यवहार के `mdns`/`upnp` सदस्य `Toggle` हैं
-   (निर्माण पर सक्षम/अक्षम,
-   `build_behaviour(key, enable_mdns, enable_upnp)`)।
-5. **UPnP** (`--upnp`, ऑप्ट-इन) — होम राउटर द्वारा QUIC
+4. **UPnP** (`--upnp`, ऑप्ट-इन) — होम राउटर द्वारा QUIC
    सुनने-पोर्ट का मैपिंग: नोड बिना
    circuit relay के बाहर से पहुँच योग्य हो जाता है। `NewExternalAddr`
    पर, बाहरी पता स्वॉर्म के वास्तविक बाहरी पते के रूप में पंजीकृत
@@ -106,12 +91,13 @@ storage) समकालिक और शुद्ध रहता है।
    लॉग, मैपिंग छोड़ दिया — होम LAN पर सामान्य स्थितियाँ। समाप्त
    मैपिंग (नवीनीकरण विफल) चेतावनी है।
 
-mDNS नेटवर्क का अनुसरण करता है (स्पष्ट `--mdns`/`SCONE_MDNS`
-सदा जीतता है): **devnet पर डिफ़ॉल्ट चालू**, testnet/mainnet पर
-बंद; UPnP **डिफ़ॉल्ट रूप से अक्षम** रहता है
-(`config.rs` में `enable_mdns`/`enable_upnp` = `false`, रिले
-devnet के लिए mDNS चालू करता है): सार्वजनिक परिनियोजन कुछ
-multicast नहीं करता और किसी राउटर से बात नहीं करता।
+UPnP **डिफ़ॉल्ट रूप से अक्षम** रहता है
+(`config.rs` में `enable_upnp` = `false`): सार्वजनिक परिनियोजन
+सहमति के बिना किसी राउटर से बात नहीं करता। **mDNS खोज हटा दी
+गई** (remove-mdns-discovery, 2026-10-22): peering केवल स्पष्ट
+bootstrap, बिल्ट-इन seeds और Kademlia से आता है — पुराना
+`--mdns`/`SCONE_MDNS` flag बिना प्रभाव स्वीकार किया जाता है
+(स्क्रिप्ट संगतता, `--rpc` जैसा ही व्यवहार)।
 
 ### स्थानीय टोपोलॉजी अनुकूलन (हमेशा चालू)
 
@@ -345,16 +331,37 @@ feed पर **प्राधिकारी DNS स्नैपशॉट** प�
 `scone-network` लाइब्रेरी डिफ़ॉल्ट `SCONE_ANCHOR_PASSPHRASE` तक
 बाइनरी से कभी नहीं पहुँचता, clap सदा बदल देता है):
 
+- **प्रस्तावक रोटेशन**: ठीक एक नामित समिति सदस्य प्रत्येक
+  epoch में स्व-प्रस्ताव देता है (`committee[epoch % size]`,
+  नियतिवादी); बाकी सदस्य कभी अपनी टिप हस्ताक्षरित नहीं करते —
+  चेकपॉइंट की सामग्री प्रस्तावक की टिप पर निर्भर है, और बिना
+  गेट की स्व-प्रस्तावनाएँ epoch को प्रतिद्वंद्वी सामग्रियों में
+  चीर देती थीं जिन्हें हर रक्षक ठीक ही इक्विवोकेशन के रूप में
+  अस्वीकार करता (testnet, 2026-10-21);
 - प्रत्येक स्वीकृत/उत्पादित ब्लॉक के बाद, यदि यह नोड वर्तमान
   समिति का सदस्य है **और** समिति
   `MIN_FINALITY_COMMITTEE_SIZE` छूती है, रिले अपने
   `SignerGuard` से प्रस्तावित चेकपॉइंट हस्ताक्षरित करता है
   (data-dir में `signer-state.dat` — एक कुंजी = एक वोट/epoch,
   crash-safe fail-closed) और उसे gossip करता है;
+- **प्राप्ति पर वोट**: ऐसा प्रस्ताव जिसकी सामग्री हमारी चेन पर
+  वैध हो (संदर्भित ब्लॉक मौजूद, उसी हैश पर) और समिति सदस्य के
+  हस्ताक्षर से सुसज्जित हो, हमारा हस्ताक्षर भी पाता है — उसके
+  बिना हर एंकर केवल अपनी टिप की सामग्री हस्ताक्षरित करता और
+  कोई कोरम कभी नहीं बनता था;
 - प्राप्त हस्ताक्षर (`Message::Checkpoint`) `CheckpointData`
   हैश से संचित (256 प्रविष्टियों तक सीमित); एक ही
   डेटा पर `quorum_for(समिति आकार)` सदस्य हस्ताक्षर →
   `accept_checkpoint` + फ़ाइनल चेकपॉइंट का प्रसारण;
+- **फ़ाइनलिटी पर्सिस्टेंस**: चेकपॉइंट विंडू और जमा बेस हर
+  फ़ाइनलाइज़ेशन पर स्टोर में लिखे और बूट पर पुनः लोड जाते
+  हैं। चेकपॉइंट gossip अवस्था हैं (कभी ब्लॉक नहीं लाते) — इस
+  पर्सिस्टेंस के बिना रीस्टार्ट खाली बेस से शुरू होता और
+  पीयर-सेव विंडू दोबारा कभी श्रृंखलित नहीं कर सकता था
+  (नेटवर्क की विंडू के नीचे के epoch एंकर गायब);
+- **फ़ाइनलिटी कैच-अप**: जिस रिले का बेस खाली हो (नए नोड का
+  बूट) हर tick पर पीयर से `GetCheckpoints` माँगता है जब तक
+  बेस बहाल न हो जाए;
 - बिना एंकर कुंजी वाला रिले **निष्क्रिय** रहता है: संचित
   करता है, फ़ाइनल करता है, रिले करता है, पर कभी हस्ताक्षर नहीं;
 - `GetCheckpoints` → `checkpoint_window()` विंडू सेव;
@@ -522,13 +529,11 @@ DHT waiter नहीं — `dns.md` देखें)।
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -576,7 +581,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_LISTEN` | `--listen` | P2P सुनने का multiaddr (डिफ़ॉल्ट: सभी इंटरफ़ेस, अल्पकालिक पोर्ट) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds, **दोहराने योग्य** (प्रति मान एक पंक्ति — dotenvy जमा करता है); builtin seeds बदलता है |
 | `SCONE_GENESIS` | `--genesis` | जेनेसिस फ़ाइल (संस्थापक नोड) |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS खोज (`true` = सक्षम, `false` = बंद; डिफ़ॉल्ट: devnet पर चालू, और जगह बंद) |
+| `SCONE_MDNS` | `--mdns` | (पुराना — mDNS खोज हटा दी गई; स्वीकृत, उपेक्षित) |
 | `SCONE_UPNP` | `--upnp` | UPnP पोर्ट मैपिंग (`true` = सक्षम) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS सर्वर bind पता |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | रिकर्सिव फ़ॉलबैक, **दोहराने योग्य** |
@@ -620,12 +625,14 @@ data-dir (`~/.scone/<network>/`) सेट करता है; दूसरे 
 `register` दावे अपनी PoW नेटवर्क कठिनाई पर माइन करते हैं
 (devnet पर मिलीसेकंड)।
 
-`--geo-*`/`--health-*` विकल्प **एम्बेडेड DNS रिज़ॉल्वर** की
-GeoDNS और health जाँच विन्यस्त करते हैं: पूरी semantics,
-प्राथमिकता क्रम और स्थानीय GeoIP तालिका
-[`dns.md`](dns.md#geodns-geographic-routing) में प्रलेखित — भौगोलिक
-रूटिंग **हमेशा चालू** है (एम्बेडेड GeoIP तालिका, कोई विकल्प ज़रूरी
-नहीं); `--health-check` डिफ़ॉल्ट बंद, क्लासिक पथ अपरिवर्तित।
+**कोई geo या health विकल्प मौजूद नहीं**: geozone
+**बिल्ड-लागू** है (एम्बेडेड DB-IP Lite तालिका — पूरी semantics
+[`dns.md`](dns.md#geodns-geographic-routing) में प्रलेखित);
+भौगोलिक रूटिंग बिना किसी विकल्प के **हमेशा चालू** है, और
+रिज़ॉल्वर कोई health जाँच नहीं करता — यह हस्ताक्षरित रिकॉर्ड
+समुच्चय जों का त्यों सेव करता है (endpoint उपलब्धता endpoint
+ऑपरेटरों का विषय है)। कोई भी
+`--geo-*`/`--health-*` flag कठोर clap अस्वीकृति है।
 
 ### `domain register|update` (M5) — एक कमांड में हस्ताक्षरित लेनदेन
 

@@ -95,8 +95,12 @@ Transaction = disc u8 || version u8 || payload
 | ڈسکریمیننٹ | نوعیت |
 |---|---|
 | `0x21` | `RegisterDomain` |
+| `0x2A` | `RegisterTldPow` |
 | `0x52` | `UpdateDomain` |
+| `0x57` | `RenewTldPow` |
+| `0x84` | `RegisterDomainPow` |
 | `0x93` | `RegisterTld` |
+| `0xC3` | `RenewDomainPow` |
 
 ہر ڈسکریمیننٹ ایک غیر متعین اپاہج مستقل ہے (کوئی منطقی
 تسلسل نہیں؛ `0x00` کبھی درست نہیں) — مکمل نافذہ جدول
@@ -104,14 +108,19 @@ Transaction = disc u8 || version u8 || payload
 
 `version` بائٹ (موجودہ قیمت `0x01`) ڈسکریمیننٹ کے پیچھے آتی ہے:
 کوئی اور قیمت واضح طور پر مسترد
-(`UnsupportedVersion(value)`)۔ **تمام ٹرانزیکشنز دستخط شدہ
-ہیں** (Ed25519): مکمل تفصیل، دستخط شدہ پے لوڈ اور تصدیق کے قواعد
+(`UnsupportedVersion(value)`)۔ اکثر ٹرانزیکشنز دستخط شدہ
+ہیں (Ed25519) — سوائے چار بغیر دستخط pow-to-owner شکلیں کے
+(`0x2A`، `0x57`، `0x84`، `0xC3`): مائن کیا گیا ثبوت ہی
+اجازت نامہ ہے، اور اس کا challenge مستفید کلید اور نیٹ ورک کو
+باندھتا ہے۔ مکمل تفصیل، دستخط شدہ پے لوڈ اور تصدیق کے قواعد
 **`/docs/en/technical/transactions.md`** (نافذہ) میں۔
 
 2026-09 وائر تبدیلی سے، **ٹرانزیکشنز میں اب کوئی `network`
-فیلڈ نہیں**: `network_id` (`str` ≤ 16) صرف **دستخطی پے لوڈ**
-میں ڈالا جاتا ہے — ایک نیٹ ورک کے لیے دستخط شدہ tx کبھی
-دوسرے پر تصدیق نہیں ہوتی (دیکھیں `/docs/en/technical/blockchain.md`)۔
+فیلڈ نہیں**: `network_id` (`str` ≤ 16) **دستخطی پے لوڈ**
+میں (دستخط شدہ شکلیں) یا **PoW challenge** میں
+(pow-to-owner شکلیں) ڈالا جاتا ہے — ایک نیٹ ورک کے لیے بنائی
+گئی tx کبھی دوسرے پر منتقل نہیں ہوتی (دیکھیں
+`/docs/en/technical/blockchain.md`)۔
 
 ### REGISTER_DOMAIN (0x21)
 

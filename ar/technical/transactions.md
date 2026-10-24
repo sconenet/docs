@@ -149,7 +149,7 @@ TLD حرًا (سجل منفصل عن سجل النطاقات).
 ### TRANSFER_TLD (0x47)
 
 ```text
-tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
+tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 ```
 
 | الحقل | النوع | القيود |
@@ -157,6 +157,7 @@ tld_id[32] owner[32] new_owner[32] public_key[32] signature[64]
 | `tld_id` | 32 بايت خام | الـ TLD المنقول |
 | `owner` | 32 بايت خام | اشتقاق `public_key` (المالك الحالي / الموقّع) |
 | `new_owner` | 32 بايت خام | هوية المستلم (معتمة: أي قيمة صالحة نحويًا؛ الربط بالمفاتيح القادرة على إنفاقه قاعدة حالة M8b) |
+| `proof` | محدود (varint ‖ بايتات) | إثبات تنازل مضاد للتبديل المتكرر (anti-churn)، التحدي `SCONE-TLD-XFER-V1 ‖ tld_id`، صعوبة مسطّحة `transfer_pow_difficulty`، ملح الحقبة |
 | `public_key` | 32 بايت خام | مفتاح Ed25519 العام للموقّع |
 | `signature` | **64 بايتًا بالضبط** | توقيع Ed25519 للحمولة الموقّعة |
 
@@ -195,14 +196,17 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 ### ASSIGN_DOMAIN (0xD4)
 
 ```text
-name(str ≤ 253) domain_id[32] owner[32] assignee[32] public_key[32] signature[64]
+name(str ≤ 253) domain_id[32] owner[32] assignee[32] proof.v public_key[32] signature[64]
 ```
 
 مرآة `RegisterDomain`: يُحمَل الاسم القانوني بصيغة واضحة
 ويجب أن يساوي `domain_id` قيمة `DomainId(name)` (يُعاد حسابه
 عند فك الترميز والترميز والتحقق). موقّع من **مالك الـ TLD
 الخاص بالاسم** (يُفحص عند التطبيق، M8b)؛ ويصبح `assignee`
-المالك الأول للنطاق (معتم، مثل `new_owner`).
+المالك الأول للنطاق (معتم، مثل `new_owner`). يحمل إثباته
+المسطّح الخاص المضاد للإغراق (`assign_pow_difficulty`،
+التحدي `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — مسطّح بقرار:
+حصرية الـ namespace دُفعت عند إنشاء الـ TLD).
 
 ### RENEW_DOMAIN (0x3C)
 
@@ -293,6 +297,72 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
   (`MAX_NAME_LEN`)، يعاد التحقق منه بقواعد التسمية في
   `scone-core`.
 
+## POW-TO-OWNER — أربع صيغ بلا توقيع (0x2A، 0x57، 0x84، 0xC3)
+
+أربع صيغ إضافية (ADDITIVE) إلى جانب الصيغ الموقّعة (لا بديلة
+أبدًا — D1): `REGISTER_TLD_POW` (0x2A)، `RENEW_TLD_POW` (0x57)،
+`REGISTER_DOMAIN_POW` (0x84)، `RENEW_DOMAIN_POW` (0xC3). لا
+تحمل أيٌّ منها مفتاح موقّع ولا توقيعًا: **إثبات العمل
+المُستخرَج بالتعدين هو التخويل بكامله**.
+
+### الـ challenge يربط المستفيد والشبكة (D2)
+
+```
+challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ network_id
+```
+
+- `kind_tag`: وسم العائلة (SCONE-TLD-V1 للـ TLDs،
+  SCONE-DOMAIN-V1 للنطاقات) — لا إعادة تشغيل متقاطعة بين
+  الأنواع؛
+- `pubkey_dest`: مفتاح **المستفيد** — الإثبات المُسلَّم لا
+  يستهلكه سوى ذلك المفتاح (لا سرقة إثبات، تعدين مفوَّض آمن)؛
+- `network_id`: إثبات devnet لا يُعاد تشغيله أبدًا على
+  testnet أو mainnet.
+
+تضيف صيغتا **التجديد** لاحقة منع إعادة الاستخدام الخاصة
+بعائلة الصيغ الموقّعة: `‖ current_valid_until` (BE، 8
+بايتات) — الإثبات المستخرَج يدفع مدة واحدة بالضبط.
+
+### بنية الجسم
+
+مرايا دقيقة للأجسام الموقّعة، `pubkey_dest` مكان مفتاح
+الموقّع، **دون** توقيع ختامي:
+
+- `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖
+  proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` =
+  hash(pubkey_dest)، يُعاد حسابه، لا يوثق أبدًا (D4)؛ open =
+  ولادة OPEN (معدل أخف)؛ خاص = مدة 3 سنوات صارمة، والمستفيد
+  يصبح مقعد PoS؛
+- `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖
+  timestamp.v ‖ proof ‖ pubkey_dest — TLD **مفتوح** فقط
+  (خاص ← TldClosed: الـ namespace الخاص يحتفظ بمسار توقيع
+  المالك)؛
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
+  valid_until.v ‖ proof ‖ pubkey_dest.
+
+### حراس التطبيق (D3)
+
+- المالك على السلسلة يجب أن يكون هو أيضًا مستفيد الـ
+  challenge: التجديد لا يمكنه **أبدًا** تغيير الملكية — فقط
+  التسجيل ينشئ ملكية جديدة؛
+- الصعوبات ونافذة الحقبة والسماح والمدد هي تلك الخاصة بالصيغ
+  الموقّعة (D5: تكلفة الدخول لا تتغير)؛
+- مفتاح المستفيد يُتعلَّم (حل مجموع PoS) تمامًا كمفتاح
+  موقّع.
+
+### txid والتعايش
+
+يبقى txid الـ hash القانوني للمحتوى؛ discriminants
+0x2A/0x57/0x84/0xC3 هي علامة التفرع — عقدة قديمة ترفضها
+كتطبيق UnknownDiscriminant، وعقدة جديدة تفك صيغ v1 دون
+تغيير. `signing_payload` غير متاح (N/A) للأربعة كلها (خطأ
+مصنَّف `PowNotSignable`): لا توقَّع أبدًا.
+
+CLI: `scone domain register <name> --to <pubkey-hex>`،
+`scone domain mine <name> --mine-for <pubkey>`،
+`scone domain renew <name> --to`، `scone tld register/renew
+--to`.
+
 ## اشتقاق المالك
 
 قاعدة صارمة: **يُعاد حساب المالك دائمًا، ولا يُوثق أبدًا**.
@@ -334,17 +404,17 @@ REGISTER_TLD_no_sig    = disc(0x93) version(0x01) network tld tld_id[32] owner[3
 UPDATE_DOMAIN_no_sig   = disc(0x52) version(0x01) network domain_id[32] owner[32]
                             sequence.v record_hash[32] public_key[32]
 TRANSFER_TLD_no_sig    = disc(0x47) version(0x01) network tld_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 REVOKE_TLD_no_sig      = disc(0x6B) version(0x01) network tld_id[32] owner[32]
                             public_key[32]
 SET_TLD_OPEN_no_sig    = disc(0xB8) version(0x01) network tld_id[32] owner[32]
                             open(0x00|0x01) open_proof(proof) public_key[32]
 ASSIGN_DOMAIN_no_sig   = disc(0xD4) version(0x01) network name domain_id[32] owner[32]
-                            assignee[32] public_key[32]
+                            assignee[32] proof public_key[32]
 RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] owner[32]
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
-                            new_owner[32] public_key[32]
+                            new_owner[32] proof public_key[32]
 ```
 
 الخصائص:
@@ -492,8 +562,28 @@ difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
 
 تفرعات الحالة (M8b، مُسلَّمة): تتطلب `RegisterTld` الـ PoW
 الخاص بها دائمًا؛ وتتطلبه `RegisterDomain` على TLD **مفتوح**
-(المسار المغلق assign فقط — `AssignDomain`، بلا PoW، موقّعة
-من مالك الـ TLD).
+(المسار المغلق assign فقط — `AssignDomain`، موقّعة من مالك
+الـ TLD، مع إثباتها المسطّح الخاص المضاد للإغراق).
+
+**إثباتات التنازل والإسناد (مكافحة إغراق على مستوى
+التوافق)**: تحمل `TransferTld` و`TransferDomain`
+و`AssignDomain` كلٌّ منها إثبات عمل **مسطّحًا** —
+`transfer_pow_difficulty` للتنازلين (التحديان
+`SCONE-TLD-XFER-V1 ‖ tld_id` /
+`SCONE-DOMAIN-XFER-V1 ‖ domain_id`)، و`assign_pow_difficulty`
+للإسناد (التحدي `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). نفس ملح
+الحقبة ونافذة منع التعدين المسبق كالتسجيلات؛ تُتحقق عند قبو
+الـ mempool (حقبة مقدَّرة، best-effort) ثم عند التطبيق
+(صارم). الهدف: تذبذب التنازلات والإنشاء الجماهيري تحت TLD
+خاص يكلّف عملًا على مستوى التوافق، لا سياسة. لا ضريبة حسب
+الطول: للإسناد، حصرية الـ namespace دُفعت أصلًا عند إنشاء
+الـ TLD الخاص.
+
+**تنازل سلبي**: مسارات الاستحواذ هذه (`TransferTld`،
+`TransferDomain`، `AssignDomain`) يوقّعها المتنازل وحده —
+المستفيد لا يُستشار أبدًا. خيار مقصود (هدايا، dead drops،
+وصايا)، بلا دَّين PoS مفروض: انظر `security-model.md`
+(الاستحواذ السلبي والأهلية).
 
 ## قواعد التحقق
 

@@ -84,22 +84,7 @@ storage) ہم وقتی اور خالص رہتا ہے۔
    ہے: ریلے بغیر
    کنفیگریشن کے اپنے عام پیرز ڈھونڈ لیتا ہے۔ یہ کیش ہے: غائب/خراب
    فائل = خالی ڈائریکٹری، کبھی خرابی نہیں۔
-4. **LAN mDNS** (`--mdns`) — مقامی لنک پر زیرو کنفیگ دریافت:
-   اسی نیٹ ورک سیگمنٹ پر پڑوسی ریلے بغیر کسی
-   seed کے ایک دوسرے ڈھونڈتے ہیں (زیرو کنفیگ ڈیو نیٹ
-   پاتھ)۔ **ڈیفالٹ: ڈیو نیٹ پر آن، باقی جگہ آف** (ایک ری سیٹ قابل
-   مقامی نیٹ ورک ڈیزائن کے مطابق دریافت نیٹ ورک ہے؛ عوامی
-   تعیناتی کچھ بھی ملٹی کاسٹ نہیں کرتی)۔ رویہ: ملٹی کاسٹ ساکٹ کا بائنڈ؛ بائنڈ ناکامی
-   (انٹرفیس پر کوئی ملٹی کاسٹ نہیں، سینڈ باکسڈ ماحول)
-   mDNS کو ایک تنبیہ کے ساتھ **بند** کر دیتی ہے — کبھی مہلک نہیں (دریافت
-   ایک سہولت ہے، کبھی lifeline نہیں)۔ ہر `Discovered` پڑوسی
-   Kademlia ٹیبل میں داخل ہوتا ہے (`kad.add_address`)، بالکل واضح
-   bootstrap جیسا مائنس کنفیگریشن؛ `Expired` اندراجات
-   libp2p خود ٹریک کرتا ہے (کنکشن اپنے
-   ٹائم آؤٹ پر بند)۔ رویہ کے `mdns`/`upnp` ممبران `Toggle`s
-   ہیں (تعمیر پر فعال/بند،
-   `build_behaviour(key, enable_mdns, enable_upnp)`)۔
-5. **UPnP** (`--upnp`، آپٹ اِن) — ہوم روٹر کے ذریعے QUIC
+4. **UPnP** (`--upnp`، آپٹ اِن) — ہوم روٹر کے ذریعے QUIC
    سننے کے پورٹ کی میپنگ: نوڈ بغیر
    سرکٹ ریلے کے باہر سے قابلِ رسائی بن جاتا ہے۔ `NewExternalAddr`
    پر، بیرونی پتہ سوارم کے اصل بیرونی پتے کے طور پر رجسٹر ہوتا ہے
@@ -109,12 +94,13 @@ storage) ہم وقتی اور خالص رہتا ہے۔
    لاگ، میپنگ چھوڑی جاتی ہے — ہوم LAN پر عام معاملات۔ میعاد
    ختم میپنگ (ناکام تجدید) ایک تنبیہ ہے۔
 
-mDNS نیٹ ورک کی پیروی کرتا ہے (واضح `--mdns`/`SCONE_MDNS`
-ہمیشہ جیتتا ہے): **ڈیو نیٹ پر بطور ڈیفالٹ آن**، ٹیسٹ
-نیٹ/مین نیٹ پر آف؛ UPnP **بطور ڈیفالٹ بند** رہتا ہے
-(`enable_mdns`/`enable_upnp` = `false` در `config.rs`، ریلے
-ڈیو نیٹ کے لیے mDNS آن کرتا ہے): عوامی تعیناتی کچھ بھی ملٹی کاسٹ
-نہیں کرتی اور کسی روٹر سے نہیں بولتی۔
+UPnP **بطور ڈیفالٹ بند** رہتا ہے
+(`enable_upnp` = `false` در `config.rs`): عوامی تعیناتی
+رضامندی کے بغیر کسی روٹر سے نہیں بولتی۔ **mDNS دریافت ہٹا
+دی گئی** (remove-mdns-discovery، 2026-10-22): peering صرف
+واضح bootstrap، بلٹ ان seeds اور Kademlia سے آتا ہے — پرانا
+flag `--mdns`/`SCONE_MDNS` بلا اثر قبول کیا جاتا ہے
+(اسکرپٹ مطابقت، `--rpc` جیسی ہی معاملت)۔
 
 ### مقامی ٹوپولوجی بہتری (ہمیشہ آن)
 
@@ -350,6 +336,13 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
 بائنری کے ذریعے کبھی نہیں پہنچتا، clap ہمیشہ اسے override کرتا
 ہے):
 
+- **مجوز کی گردش**: بالکل ایک نامزد کمیٹی ممبر ہر ایپوک میں
+  خود تجویز پیش کرتا ہے (`committee[epoch % size]`، متعین)؛
+  باقی ممبران کبھی اپنی ٹِپ پر دستخط نہیں کرتے — چیک پوائنٹ
+  کا مواد مجوز کی ٹِپ پر منحصر ہے، اور بغیر گیٹ کی خود
+  تجویزیں ایپوک کو مخالف موادوں میں چیر دیتی تھیں جنہیں ہر
+  گارڈ حق کے ساتھ غلط بیانی کے طور پر مسترد کرتا (ٹیسٹ نیٹ،
+  2026-10-21)؛
 - ہر قبول/پیدا شدہ بلاک کے بعد، اگر یہ نوڈ موجودہ کمیٹی کا رکن
    ہو **اور** کمیٹی
    `MIN_FINALITY_COMMITTEE_SIZE` تک پہنچے، ریلے اپنے
@@ -357,11 +350,25 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
    چیک پوائنٹ پر دستخط کرتا ہے (ڈیٹا ڈائر میں `signer-state.dat`
    — ایک کلید = ایک ووٹ/epoch، crash-محفوظ fail-closed) اور
    اسے گوسپ کرتا ہے؛
+- **موصولی پر ووٹ**: ایسی تجویز جس کا مواد ہماری چین پر درست
+   ہو (مشار شدہ بلاک موجود، اسی ہیش پر) اور کمیٹی ممبر کے
+   دستخط سے سرفراز ہو، ہماری دستخط بھی پاتی ہے — اس کے بغیر
+   ہر اینکر صرف اپنی ٹِپ کا مواد دستخط کرتا اور کوئی قورم
+   کبھی نہیں بنتی تھی؛
 - موصول دستخط (`Message::Checkpoint`) `CheckpointData` ہیش کے
    ذریعے جمع ہوتے ہیں (256 اندراجات تک محدود)؛ اسی
    ڈیٹا پر `quorum_for(committee size)` ممبر دستخطوں پر →
    `accept_checkpoint` + فائنل شدہ
    چیک پوائنٹ کی نشریات؛
+- **فائنلٹی پرسسٹنس**: چیک پوائنٹ ونڈو اور منجمد بیس ہر
+   فائنلائزیشن پر اسٹور میں لکھی جاتیں اور بوٹ پر دوبارہ لوڈ
+   ہوتی ہیں۔ چیک پوائنٹس گوسپ اسٹیٹ ہیں (کبھی بلاکس نہیں
+   اٹھاتے) — اس پرسسٹنس کے بغیر ری اسٹارٹ خالی بیس سے شروع
+   ہوتا اور پیر کی کھلائی ونڈو دوبارہ کبھی زنجیر نہیں کر
+   سکتا تھا (نیٹ ورک کی ونڈو سے نیچے کے ایپوک اینکرز ختم)؛
+- **فائنلٹی کیچ اپ**: جس ریلے کا بیس خالی ہو (نئے نوڈ کا
+   بوٹ) ہر tick پر پیر سے `GetCheckpoints` مانگتا ہے جب تک
+   بیس بحال نہ ہو جائے؛
 - اینکر کلید کے بغیر ریلے **غیر فعال** رہتا ہے: جمع کرتا،
    فائنل کرتا، ریلے کرتا ہے، مگر کبھی دستخط نہیں؛
 - `GetCheckpoints` → `checkpoint_window()` ونڈو دی جاتی ہے؛
@@ -529,13 +536,11 @@ stdout پر `p2p:` لائن کے ذریعے اعلان کرتا ہے)۔
 ## CLI
 
 ```
-scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR] [--bootstrap MULTIADDR]... [--no-builtin-seeds]
-            [--mdns] [--upnp] [--rpc ADDR (obsolete, ignored)]
+scone relay [--network testnet|mainnet|devnet] [--data-dir DIR] [--listen MULTIADDR]
+            [--bootstrap MULTIADDR]... [--upnp]
             [--anchor-key PATH] [--no-anchor-auto] [--anchor-passphrase-env VAR] [--genesis FILE]
-            [--geo-config FILE] [--geo-ip-table PATH] [--geo-country U16] [--geo-continent U16] [--geo-asn U32] [--geo-region U32]
-            [--health-check] [--no-health-check] [--health-ttl-secs U64] [--health-port U16]
             [--topology-profile tiny|small|default|high|very-high|devtest]
-            [--dns ADDR] [--dns-upstream ADDR]... [--dns-cache-limit U] [--dns-cache-max-mem SIZE] [--dns-max-inflight U]
+            [--dns ADDR] [--dns-upstream ADDR]...
             [--metrics-addr ADDR:PORT] [--metrics-token TOKEN]
 scone status [--peer MULTIADDR]
 scone domains [--identity ID | --pubkey HEX] [--peer MULTIADDR]
@@ -584,7 +589,7 @@ explicit CLI flag  >  .env variable  >  built-in default
 | `SCONE_LISTEN` | `--listen` | P2P سننے کا multiaddr (ڈیفالٹ: تمام انٹرفیس، عارضی پورٹ) |
 | `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds، **دہرایا جانے والا** (فی قیمت ایک لائن — dotenvy جمع کرتا ہے)؛ builtin seeds کی جگہ لیتا ہے |
 | `SCONE_GENESIS` | `--genesis` | جنسیس فائل (بانی نوڈز) |
-| `SCONE_MDNS` | `--mdns` | LAN mDNS دریافت (`true` = فعال، `false` = آف؛ ڈیفالٹ: ڈیو نیٹ پر آن، باقی جگہ آف) |
+| `SCONE_MDNS` | `--mdns` | (متروک — mDNS دریافت ہٹا دی گئی؛ قبول، نظر انداز) |
 | `SCONE_UPNP` | `--upnp` | UPnP پورٹ میپنگ (`true` = فعال) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS سرور بائنڈ پتہ |
 | `SCONE_DNS_UPSTREAM` | `--dns-upstream` | ریکرسو فال بیکس، **دہرایا جانے والا** |
@@ -629,12 +634,14 @@ explicit CLI flag  >  .env variable  >  built-in default
 `register` دعوے اپنی PoW نیٹ ورک مشکل پر مائن کرتے ہیں
 (ڈیو نیٹ پر ملی سیکنڈ)۔
 
-`--geo-*`/`--health-*` آپشنز ایمبیڈڈ DNS ریزالور کی GeoDNS اور
-health جانچ کنفیگر کرتے ہیں: مکمل معنی،
-ترجیح ترتیب، اور مقامی GeoIP ٹیبل [`dns.md`](dns.md#geodns-geographic-routing)
-میں دستاویز شدہ — جغرافیائی روٹنگ **ہمیشہ آن** ہے (ایمبیڈڈ
-GeoIP ٹیبل، کوئی آپشن ضروری نہیں)؛
-`--health-check` بطور ڈیفالٹ آف، کلاسک پاتھ بے تبدیل۔
+**کوئی geo یا health آپشن موجود نہیں**: geozone
+**بلڈ سے عائد** ہے (ایمبیڈڈ DB-IP Lite ٹیبل — مکمل معنی
+[`dns.md`](dns.md#geodns-geographic-routing) میں دستاویز)؛
+جغرافیائی روٹنگ بغیر کسی آپشن کے **ہمیشہ آن** ہے، اور
+ریزالور کوئی health جانچ نہیں کرتا — یہ دستخط شدہ ریکارڈ
+سیٹ جوں کی توں خدمت کرتا ہے (endpoint دستیابی endpoint
+آپریٹرز کا معاملہ ہے)۔ کوئی بھی
+`--geo-*`/`--health-*` flag سخت clap مستردی ہے۔
 
 ### `domain register|update` (M5) — ایک کمانڈ میں دستخط شدہ ٹرانزیکشنز
 

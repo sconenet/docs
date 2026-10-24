@@ -75,7 +75,7 @@ RUST_LOG=scone_network=trace,info scone relay   # حسب الـ target
 (dotenvy يضيف).
 
 الجدول الكامل لمتغيرات `SCONE_*` (الشبكة، الاستماع P2P،
-الـ bootstrap، التكوين، mDNS، UPnP، سطح DNS، المقاييس، ملف
+الـ bootstrap، التكوين، UPnP، سطح DNS، المقاييس، ملف
 الطوبولوجيا، الـ anchor) ودلالة كل منها يعيش في
 [`relay.md`](relay.md#environment-configuration-env)؛ والقالب
 المُعلَّق هو `.env.example` في جذر المستودع (انسخه إلى
@@ -169,6 +169,32 @@ build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):
 <name>` (السابق `record get`)؛ وقناة النشر السداسية
 (`record put`) اختفت — التحرير يمر عبر `domain set` /
 `domain update`.
+- `scone domain mine <name>` — يستخرج بالتعدين **فقط** إثبات
+  التسجيل (بلا هوية، بلا keystore، بلا إرسال): يطبع JSON
+  `scone-domain-pow-v1` `{type, name, network_id, epoch, proof}`
+  على stdout. تعدين مفوَّض: آلة أخرى تعدّن لأجلك، مفاتيحك لا
+  تغادر جهازك أبدًا. مرِّره عبر أنبوب أو أعِد توجيهه:
+  `scone domain mine n.tld | scone domain register n.tld
+  --proof -` (أو `--proof FILE`). الإثبات مرتبط بالاسم
+  والشبكة؛ والطزاجة يفرضها العقدة عند التطبيق (نافذة صلاحية
+  الحقبة). مع `--mine-for <pubkey>` يستخرج بدلًا من ذلك إثبات
+  POW-TO-OWNER لذلك المستفيد ويطبع JSON
+  `scone-domain-pow-to-v1` `{type, name, network_id, epoch,
+  pow_to, proof}` — قابل للاستهلاك **فقط** عبر `register --to` /
+  `renew --to` لذلك المفتاح تحديدًا (الـ challenge يتضمّنه؛
+  فحص غير حساس لحالة الأحرف عند الإرسال).
+- إرسال pow-to-owner (لا حاجة لأي keystore — `--to` حصري مع
+  `--identity`): `scone domain register <name> --to <pubkey>` /
+  `scone domain renew <name> --to <pubkey>`
+  و`scone tld register <tld> --to <pubkey>` / `scone tld renew
+  <tld> --to <pubkey>` يرسلون إثباتًا يربط الـ challenge الخاص
+  به مفتاح **المستفيد**؛ ويُعاد حساب الـ `owner` على السلسلة
+  كـ `hash(pubkey_dest)` (التجديد لا يغيّر الملكية أبدًا). دون
+  `--proof` يستخرج الأمر الإثبات بنفسه؛ ومع `--proof -`/FILE
+  يستهلك حمولة `scone-domain-pow-to-v1` ويرفض إثباتًا مستخرجًا
+  لمستفيد **آخر**. نمط الأنابيب: `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --to
+  <pubkey> --proof -`.
 - `scone domain export <name> [--out FILE]` — يكتب مجموعة
   السجلات المتحقق منها ضد السلسلة بالصيغة الدقيقة لـ
   `update --file` (ذهاب-إياب مضمون: export ← تحرير ←
@@ -179,6 +205,23 @@ build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):
   مُعلَّقة — لا تُهمَل بصمت أبدًا.
 
 يطبع `domain get` أيضًا الـ `domain_id` و`valid_until`.
+
+## قياس أداء PoW (`scone bench-pow`)
+
+يقيس معدل hashing Argon2id للآلة (نفس الـ hash الذي يستخدمه
+تحقق التوافق) ويترجم صعوبات الشبكة إلى أزمنة انتظار ملموسة:
+
+```
+scone bench-pow --network mainnet [--seconds 5] [--cores N]
+```
+
+الناتج: H/s الكلي ولكل worker، ثم الزمن المتوسط المتوقع لكل
+عملية — التنازل/الإسناد (معدل مسطّح)، فتح TLD خاص، وأرضيات
+تسجيل TLD/نطاق (منحنى الطول). الشبكة المختارة تحدد معاملات
+Argon2id (mainnet: 64 MiB، t=2 — التكلفة الحقيقية؛
+testnet/devnet: الملف الشخصي الخفيف، إثباتات بالميلي ثانية).
+كل worker يخصّص مسار Argon2id خاصًا به بحجم 64 MiB — اضبط
+`--cores` حسب الذاكرة المتاحة.
 
 ## البُنى: dev مقابل mainnet مفعّلة (mainnet-compile-gate)
 
