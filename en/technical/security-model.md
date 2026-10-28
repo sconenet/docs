@@ -116,6 +116,47 @@ non-existent risk (no imposable debt, see above).
 - e2e 4 relays: a checkpoint finalizes and propagates, same epoch
   on all nodes.
 
+## Replay attacks on delegated authority (counter bindings)
+
+Five transactions mutate WHO may act on a namespace: `TransferTld`,
+`TransferDomain` (ownership), `SetRecordDelegates` (record-delegate
+keys), `SetTldOperator` / `SetDomainOperator` (operation delegates).
+A recorded transaction of these flavors stays cryptographically valid
+FOREVER (the signature covers static fields; the cession PoW solves a
+challenge derived from the namespace itself). The only thing that
+ages out is the bounded replay window (last 256 blocks). Beyond it,
+re-arm analysis:
+
+- **Cession A→B→A**: A transfers to B, B transfers back to A — the
+  state returned to a former configuration. Replaying the ORIGINAL
+  A→B transaction re-executes the transfer without consent (the
+  owner check passes again; a static-challenge proof still solves).
+- **Delegate-set cycle**: delegates set to `{9,10}`, cleared to `∅`,
+  then ANY transaction that restores `{9,10}` — a replay of the
+  first `SetRecordDelegates` resurrects revoked keys.
+
+A binding computed as a pure function of CURRENT state (owner, set
+contents, ...) returns to its old value exactly when the state does —
+it would re-arm the very replay it must kill. The defense is a
+MONOTONIC generation: every namespace carries `mutations: u64`,
+incremented by each of the five guarded transactions; a transaction
+binds to the counter of the generation it was built on
+(`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖ generation ‖
+counter)`) and application verifies that binding against the CURRENT
+counter. Counters never return; therefore no replay re-arms. The
+generation marker (`registered_at` for domains, `valid_until` for
+TLDs) keeps previous LIVES of a re-registered namespace disjoint.
+
+Residual edge (documented): the binding does not depend on the
+signer's KEY. All five guarded transactions are signed by the
+namespace's CURRENT owner, so a cross-life replay additionally
+requires the same owner to hold the namespace in both generations
+and the counter to re-attain the recorded value — a self-controlled
+scenario for delegates/operators, and an owner-victim case for
+cessions that requires the victim to have re-claimed their own dead
+namespace years later. Accepted pre-mainnet; revisit if transfer
+volume or namespace recycling makes it material.
+
 ## Known limits (documented, unfixed)
 
 - The eligible pool includes owners of live TLDs (claim = PoW

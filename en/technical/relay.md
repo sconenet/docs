@@ -440,11 +440,12 @@ if:
 
 Otherwise: silent rejection on the P2P side, explicit error on the
 CLI side. The record's Ed25519 signature is **verified on receipt**
-by the relay (`ResolveLocal`: the owner's public key is known
-on-chain, the signature must unlock — a record signed by another
-key is rejected, `record rejected`); it is also transported for
-future verifiers — the on-chain commitment remains the primary
-integrity control.
+by the relay (`ResolveLocal`): the signature must unlock against
+the owner's learned public key OR any of the domain's
+record-delegate keys (KSK/ZSK-lite — a delegate publishes on the
+owner's behalf; a record signed by an unrelated key is rejected,
+`record rejected`); it is also transported for future verifiers —
+the on-chain commitment remains the primary integrity control.
 
 ## Prometheus metrics
 

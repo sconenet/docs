@@ -449,11 +449,13 @@ Un `SignedDnsRecord` résolu ou reçu n'est accepté/retourné que si :
 
 Sinon : rejet silencieux côté P2P, erreur explicite côté CLI. La
 signature Ed25519 de l'enregistrement est **vérifiée à la réception**
-par le relais (`ResolveLocal` : la clé publique du propriétaire est
-connue on-chain, la signature doit déverrouiller — un enregistrement
-signé par une autre clé est rejeté, `record rejected`) ; elle est aussi
-transportée pour les vérificateurs futurs — l'engagement on-chain reste
-le contrôle d'intégrité primaire.
+par le relais (`ResolveLocal`) : la signature doit déverrouiller
+contre la clé publique apprise du propriétaire OU l'une des clés
+déléguées de records du domaine (KSK/ZSK-lite — un délégué publie
+pour le compte du propriétaire ; un enregistrement signé par une clé
+sans rapport est rejeté, `record rejected`) ; elle est aussi
+transportée pour les vérificateurs futurs — l'engagement on-chain
+reste le contrôle d'intégrité primaire.
 
 ## Métriques Prometheus
 

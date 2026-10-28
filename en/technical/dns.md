@@ -136,10 +136,12 @@ Validation client: `dig <name> --dns 127.0.0.1:5353
    (subnames included — implicit wildcard behavior, open
    decision).
 4. **`resolve_local` (internal channel)**: a single round trip, never
-   a DHT waiter. On-chain state (`registered`, owner, sequence) +
-   local DHT cache record **re-verified** (owner, sequence,
-   record_hash == on-chain commitment). A non-conforming record
-   never answers — availability ≠ authority.
+   a DHT waiter. On-chain state (`registered`, owner, sequence,
+   mutations) + local DHT cache record **re-verified** (owner,
+   sequence, record_hash == on-chain commitment; the record's
+   signature may come from the owner or a record delegate — same
+   rule as the relay's verification). A non-conforming record never
+   answers — availability ≠ authority.
    - unregistered → NXDOMAIN;
    - registered without a valid record → NODATA (NOERROR, 0
      answers);

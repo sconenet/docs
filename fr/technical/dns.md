@@ -139,10 +139,13 @@ Client de validation : `dig <name> --dns 127.0.0.1:5353
    (sous-noms compris — comportement wildcard implicite, décision
    ouverte).
 4. **`resolve_local` (canal interne)** : un seul aller-retour, jamais
-   d'attente DHT. État on-chain (`registered`, owner, sequence) +
-   enregistrement du cache DHT local **revérifié** (owner, sequence,
-   record_hash == engagement on-chain). Un enregistrement non
-   conforme ne répond jamais — disponibilité ≠ autorité.
+   d'attente DHT. État on-chain (`registered`, owner, sequence,
+   mutations) + enregistrement du cache DHT local **revérifié**
+   (owner, sequence, record_hash == engagement on-chain ; la
+   signature de l'enregistrement peut venir du propriétaire ou d'un
+   délégué de records — même règle que la vérification du relais).
+   Un enregistrement non conforme ne répond jamais — disponibilité
+   ≠ autorité.
    - non enregistré → NXDOMAIN ;
    - enregistré sans enregistrement valide → NODATA (NOERROR, 0
      réponses) ;

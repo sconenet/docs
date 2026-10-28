@@ -49,17 +49,18 @@ inutilisée, documentée une fois pour toutes dans ce tableau.
 | `0x21` | `RegisterDomain` | réclamation d'un domaine |
 | `0x52` | `UpdateDomain` | nouvelle version des données DNS d'un domaine |
 | `0x93` | `RegisterTld` | réclamation d'un domaine de premier niveau (M7) |
-| `0x47` | `TransferTld` | transfert d'un TLD vers un nouveau propriétaire (M8a) |
+| `0x47` | `TransferTld` | transfert d'un TLD vers un nouveau propriétaire (M8a ; preuve de cession liée au compteur) |
 | `0x6B` | `RevokeTld` | abandon d'un TLD (M8a) |
 | `0xB8` | `SetTldOpen` | ouverture **irréversible** d'un TLD à l'auto-enregistrement (à sens unique, owner-option ; `open=false` est un rejet typé) |
 | `0xD4` | `AssignDomain` | attribution directe d'un domaine par le propriétaire du TLD (M8a) |
 | `0x3C` | `RenewDomain` | prolongation de l'enregistrement d'un domaine (M8a ; porte le nom canonique depuis owner-option — un TLD ouvert suit l'expiration) |
 | `0x8F` | `RenewTld` | renouvellement du terme de 3 ans d'un TLD PRIVÉ (PoW égal à la création) |
 | `0x15` | `SlashTx` | preuve d'équivoque d'ancre + bannissement (M9) |
-| `0xE2` | `TransferDomain` | transfert d'un domaine vers un nouveau propriétaire (M8c) |
+| `0xE2` | `TransferDomain` | transfert d'un domaine vers un nouveau propriétaire (M8c ; preuve de cession liée au compteur) |
 | `0x71` | `Heartbeat` | preuve de vivacité d'un opérateur (RFC proof-of-service) |
-| `0xA9` | `SetTldOperator` | délégation de l'exploitation d'un TLD privé (RFC proof-of-service) |
-| `0x5E` | `SetDomainOperator` | délégation de l'exploitation d'un domaine (RFC proof-of-service) |
+| `0xA9` | `SetTldOperator` | délégation de l'exploitation d'un TLD privé (RFC proof-of-service ; lié au compteur) |
+| `0x5E` | `SetDomainOperator` | délégation de l'exploitation d'un domaine (RFC proof-of-service ; lié au compteur) |
+| `0x66` | `SetRecordDelegates` | clés déléguées de records d'un domaine — KSK/ZSK-lite : exactement ces clés, aux côtés du propriétaire, peuvent signer `UpdateDomain` (lié au compteur) |
 
 Tout octet de version autre que `0x01` est explicitement rejeté
 (`UnsupportedVersion(valeur reçue)`) : un format inconnu ou obsolète
@@ -163,7 +164,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 octets bruts | le TLD transféré |
 | `owner` | 32 octets bruts | dérivation de `public_key` (propriétaire actuel / signataire) |
 | `new_owner` | 32 octets bruts | identité du destinataire (opaque : toute valeur est syntaxiquement valide ; le lien vers les clés pouvant le dépenser est une règle d'état M8b) |
-| `proof` | borné (varint ‖ octets) | preuve de cession anti-churn, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, difficulté plate `transfer_pow_difficulty`, sel d'époque |
+| `proof` | borné (varint ‖ octets) | preuve de cession anti-churn minée pour le binding de compteur ACTUEL du namespace (voir [Le compteur de mutations](#le-compteur-de-mutations)), difficulté plate `transfer_pow_difficulty`, sel d'époque |
 | `public_key` | 32 octets bruts | clé publique Ed25519 du signataire |
 | `signature` | **exactement 64 octets** | signature Ed25519 de la charge signée |
 
@@ -277,6 +278,84 @@ d'application :
 - le renouvellement n'est PAS gelé pendant la grâce — c'est la seule
   opération de gestion encore disponible pour un propriétaire expiré.
 
+## La famille à autorité déléguée — liée au compteur (0xE2, 0xA9, 0x5E, 0x66)
+
+Quatre transactions délègent ou réattribuent l'autorité sur un
+namespace. Elles partagent une discipline anti-replay : chacune
+porte ou mine un **binding de compteur** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64 ‖
+counter_be64)` — calculé sur le compteur de mutations ACTUEL du
+namespace (voir [Le compteur de mutations](#le-compteur-de-mutations)).
+Une transaction construite contre une génération périmée est refusée
+même si sa signature ou sa preuve reste cryptographiquement valide.
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+Miroir de `TransferTld` pour un domaine : signé par le propriétaire
+actuel, `new_owner` opaque. La `proof` est le PoW de cession
+anti-churn (difficulté plate `transfer_pow_difficulty`, sel
+d'époque) miné pour `mutations_binding(domain_id, counter)` — le
+challenge de la génération d'état transférée. Règles
+d'application : check propriétaire d'abord (`NotOwner`), puis le
+PoW contre le binding du compteur ACTUEL (une cession rejouée
+résout un challenge plus ancien — rejet typé), puis le compteur
+s'incrémente. Le jeu de délégués de records est le don de l'ANCIEN
+propriétaire : un transfert le vide. `TransferTld` (0x47) est la
+forme TLD symétrique : sa preuve de cession est minée pour
+`mutations_binding(tld_id, counter)`.
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| Champ | Type | Contraintes |
+|---|---|---|
+| `id` | 32 octets bruts | `tld_id` (0xA9) ou `domain_id` (0x5E) |
+| `owner` | 32 octets bruts | dérivation de `public_key` (propriétaire actuel / signataire) |
+| `operator.option` | `0x00` ou `0x01 ‖ clé[32]` | opérateur délégué, ou `0x00` pour revenir à l'auto-exploitation |
+| `state_binding` | **exactement 32 octets bruts** | hash canonique du binding de compteur ACTUEL : `mutations_binding(id, generation, counter)` (génération = `valid_until` pour un TLD, `registered_at` pour un domaine) — un binding périmé est un rejet typé (`StaleStateBinding`) même avec une signature valide |
+| `public_key` | 32 octets bruts | clé publique Ed25519 du signataire (le propriétaire du namespace) |
+| `signature` | **exactement 64 octets** | signature Ed25519 de la charge signée |
+
+Signé par le propriétaire actuel (un TLD privé pour 0xA9 ; un
+domaine enregistré pour 0x5E). Borne anti-location : un opérateur
+délégué ne sert qu'un seul siège (`OperatorAlreadyDelegated`).
+L'application vérifie le binding puis incrémente le compteur — une
+re-délégation vers le MÊME opérateur est un changement de
+génération, pas un no-op.
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| Champ | Type | Contraintes |
+|---|---|---|
+| `domain_id` | 32 octets bruts | domaine visé |
+| `owner` | 32 octets bruts | dérivation de `public_key` — le propriétaire ACTUEL du domaine |
+| `count` | 1 octet | au plus 3 (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count octets bruts | les clés publiques déléguées, **strictement croissantes** (ordre canonique ; un doublon ou une clé hors ordre est une erreur de décodage) |
+| `state_binding` | **exactement 32 octets bruts** | hash canonique du compteur ACTUEL : `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 octets bruts | clé publique Ed25519 du signataire — le propriétaire du domaine |
+| `signature` | **exactement 64 octets** | signature Ed25519 de la charge signée |
+
+KSK/ZSK-lite : l'ensemble porté REMPLACE intégralement le précédent
+(pas de fusion) et — aux côtés du propriétaire du domaine —
+exactement ces clés peuvent signer `UpdateDomain` pour ce domaine.
+Exclusif au propriétaire : un délégué ne peut jamais gérer le jeu.
+Le jeu meurt avec le domaine et est vidé par un transfert.
+L'application vérifie le binding contre le compteur courant et
+l'incrémente : le cycle `∅ → {9,10} → ∅ → rejeu` ne peut pas
+ressusciter une clé révoquée (voir `security-model.md`, attaques
+par rejeu).
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -295,6 +374,22 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 Note : `UpdateDomain` ne porte **aucun** `timestamp` — l'ordonnancement
 passe par `sequence`. Il ne porte pas non plus le nom : le domaine est
 déjà enregistré, l'id suffit.
+
+#### Règle d'autorité — propriétaire ou délégués de records
+
+Le champ `owner` est le propriétaire on-chain du DOMAINE (l'update
+est POUR ce namespace) ; `public_key` est le signataire RÉEL — le
+propriétaire OU l'une des clés déléguées de records du domaine
+(KSK/ZSK-lite, voir `SetRecordDelegates`). Contrairement à toute
+autre transaction signée, la dérivation propriétaire↔clé n'est
+volontairement PAS appliquée pour cette saveur
+(`validate_transaction` l'exempte) : la règle d'autorité de la
+couche état — signataire ∈ {propriétaire} ∪ délégués,
+`sequence == current + 1` — est l'unique liaison. La signature couvre
+bien le champ `owner` via la charge signée : un délégué signe « pour
+» un namespace précis. Caveat : la table propriétaire→clé est
+apprise en première occurrence (enregistrement/assignation), une
+update par délégué ne l'écrase jamais.
 
 ### Bornes strictes
 
@@ -323,7 +418,44 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 Une transaction dont le `owner` ne correspond pas à la dérivation de
 sa propre `public_key` est invalide (`InvalidOwner` côté core,
 `OwnerKeyMismatch` côté chaîne), rejetée à l'encodage, au décodage
-**et** à la validation de chaîne (défense en profondeur).
+**et** à la validation de chaîne (défense en profondeur). L'exception
+: `UpdateDomain` — sous le modèle des délégués de records, son champ
+`owner` est le propriétaire on-chain du DOMAINE tandis que le
+signataire peut être un délégué de records ; la règle d'autorité de
+la couche état lie signataire et namespace.
+
+## Le compteur de mutations
+
+Chaque namespace porte un compteur de mutations MONOTONE
+(`mutations : u64`) — la génération CAS anti-replay de ses
+opérations gardées.
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **Transactions gardées** (vérifient le binding, puis incrémentent
+  le compteur) : `SetRecordDelegates`, `SetTldOperator`,
+  `SetDomainOperator`, `TransferTld`, `TransferDomain`.
+- **Marqueur de génération** : `registered_at` pour les domaines
+  (figé pour toute la vie du namespace), `valid_until` pour les TLD
+  (structurellement différent à chaque vie — une re-claim n'arrive
+  qu'après un terme pluriannuel complet plus la grâce). Sans lui, un
+  namespace mort puis re-enregistré (compteur remis à zéro) pourrait
+  ré-armer une transaction d'une vie précédente dès que le compteur
+  atteindrait la même valeur.
+- **Vérification** : l'application re-dérive le binding depuis
+  l'état ACTUEL et le compare à la valeur portée (set-types) ou
+  vérifie le PoW contre lui (transferts). Un écart est un rejet
+  typé (`StaleStateBinding` / preuve non résolue) qui ne mute rien.
+- **Pourquoi un compteur** : une fonction pure de l'état courant
+  retrouve une valeur passée quand l'état y revient légitimement —
+  une cession A→B→A, un jeu de délégués `∅ → {9,10} → ∅`. Le rejeu
+  se ré-armerait tout seul. Un compteur ne revient jamais. Le
+  compteur est engagé dans la feuille SMT du namespace (V4) et
+  exposé dans la réponse name-state pour un fetch-then-bind sans
+  confiance.
 
 ## Charge signée
 
@@ -522,8 +654,9 @@ TLD, avec sa propre preuve plate anti-spam).
 **Preuves de cession et d'assignation (anti-spam consensus)** :
 `TransferTld`, `TransferDomain` et `AssignDomain` portent chacune une
 preuve de travail **plate** — `transfer_pow_difficulty` pour les deux
-cessions (challenge `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` pour
+cessions (challenge = le binding de compteur ACTUEL du namespace,
+[Le compteur de mutations](#le-compteur-de-mutations) — les tags
+plats `SCONE-*-XFER-V1` sont retirés), `assign_pow_difficulty` pour
 l'assignation (challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ nom`). Même sel
 d'époque et fenêtre anti-préminage que les enregistrements ; vérifiées
 à l'admission mempool (époque estimée, best-effort) puis à
@@ -733,4 +866,4 @@ quelconque entrée.
 |---|---|---|
 | 1 | `public_key` + `signature` embarqués, charge `SCONE-TX-SIG-V1`, octet de version `0x01`, `RegisterDomain` porte le nom, `RegisterTld` (0x93), famille M8a : `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — formats wire normatifs ; M8b : champ `network` signé en tête de toute charge, `RegisterTld` porte le nom, règles d'état complètes, difficultés PoW par réseau | remplacée |
 | 1 (2026-09, wire sans réseau) | **retrait du champ `network` du wire de toutes les transactions** : le network_id vit uniquement dans la charge de signature (`signing_payload(tx, network)` l'injecte en tête) ; la séparation des réseaux repose sur la signature (`InvalidSignature` sur une charge étrangère, l'erreur `WrongNetwork` disparaît) ; `TX_FORMAT_VERSION` reste `0x01` (testnet relançable, pas de coexistence) ; **tous les TxId changent** (le TxId est le hachage de l'encodage wire signé, qui perd 14–15 octets) ; condensé PoW, genèse et répertoires de données par réseau inchangés | remplacée |
-| 1 (2026-10, sel d'époque PoW) | **condensé PoW anti pré-minage** : sel `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + cœur Argon2id sur `nonce_le`, avec `epoch = block_height / 144` du bloc qui APPLIQUE la tx ; charge wire de preuve 12 → **20 octets** (`nonce_le ‖ epoch_le ‖ difficulty_le`), l'époque déclarée est vérifiée contre la fenêtre de validité d'époque du bloc appliquant (rejet typé `ProofEpochMismatch`), au mieux `(height+1)/144` à l'admission mempool, drapeau CLI `--epoch` sur les chemins hors-ligne ; changement cassant pré-mainnet : l'ancienne charge de 12 octets est rejetée, **tous les TxId changent** (le champ `proof` grandit de 8 octets) | actuelle |
+| 1 (2026-10, sel d'époque PoW) | **condensé PoW anti pré-minage** : sel `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + cœur Argon2id sur `nonce_le`, avec `epoch = block_height / 144` du bloc qui APPLIQUE la tx ; charge wire de preuve 12 → **20 octets** (`nonce_le ‖ epoch_le ‖ difficulty_le`), l'époque déclarée est vérifiée contre la fenêtre de validité d'époque du bloc appliquant (rejet typé `ProofEpochMismatch`), au mieux `(height+1)/144` à l'admission mempool, drapeau CLI `--epoch` sur les chemins hors-ligne ; changement cassant pré-mainnet : l'ancienne charge de 12 octets est rejetée, **tous les TxId changent** (le champ `proof` grandit de 8 octets) | remplacée |

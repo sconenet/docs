@@ -121,6 +121,53 @@ cf. ci-dessus).
 - e2e 4 relais : un point de contrôle finalise et se propage, même époque
   sur tous les nœuds.
 
+## Attaques par rejeu sur l'autorité déléguée (bindings de compteur)
+
+Cinq transactions mutent QUI peut agir sur un namespace :
+`TransferTld`, `TransferDomain` (propriété), `SetRecordDelegates`
+(clés déléguées de records), `SetTldOperator` / `SetDomainOperator`
+(délégués d'exploitation). Une transaction enregistrée de ces
+saveurs reste cryptographiquement valide POUR TOUJOURS (la signature
+couvre des champs statiques ; le PoW de cession résout un challenge
+dérivé du namespace lui-même). La seule chose qui vieillit est la
+fenêtre de rejeu bornée (256 derniers blocs). Au-delà, analyse de
+ré-armement :
+
+- **Cession A→B→A** : A transfère à B, B re-transfère à A — l'état
+  est revenu à une configuration antérieure. Rejouer la transaction
+  A→B ORIGINALE ré-exécute le transfert sans consentement (le check
+  propriétaire repasse ; une preuve à challenge statique se résout
+  encore).
+- **Cycle de délégués** : délégués posés à `{9,10}`, vidés vers
+  `∅`, puis N'IMPORTE QUELLE transaction restaurant `{9,10}` — le
+  rejeu du premier `SetRecordDelegates` ressuscite des clés
+  révoquées.
+
+Un binding calculé comme fonction pure de l'état COURANT
+(propriétaire, contenu du jeu, ...) retrouve sa valeur passée
+exactement quand l'état y revient — il ré-armerait le rejeu qu'il
+doit tuer. La défense est une génération MONOTONE : chaque namespace
+porte `mutations : u64`, incrémenté par chacune des cinq
+transactions gardées ; une transaction se lie au compteur de la
+génération pour laquelle elle a été construite
+(`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖ generation ‖
+counter)`) et l'application vérifie ce binding contre le compteur
+COURANT. Les compteurs ne reviennent jamais ; donc aucun rejeu ne
+se ré-arme. Le marqueur de génération (`registered_at` pour les
+domaines, `valid_until` pour les TLD) maintient disjointes les vies
+précédentes d'un namespace re-enregistré.
+
+Résidu documenté : le binding ne dépend pas de la CLÉ du signataire.
+Les cinq transactions gardées sont signées par le propriétaire
+ACTUEL du namespace, donc un rejeu inter-générations exige en plus
+que le même propriétaire détienne le namespace aux deux générations
+et que le compteur retrouve la valeur enregistrée — scénario
+auto-contrôlé pour délégués/opérateurs, et cas victime-propriétaire
+pour les cessions qui exige que la victime ait re-claimé son propre
+namespace mort des années plus tard. Accepté pré-mainnet ; à
+réévaluer si le volume de transferts ou le recyclage de namespaces
+rend la chose matérielle.
+
 ## Limites connues (documentées, non corrigées)
 
 - Le pool éligible inclut les propriétaires de TLDs vivants (claim = PoW

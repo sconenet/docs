@@ -321,7 +321,7 @@ not exceed `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0c` | `GetStatus` | both | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finality, fresh operators) | — | — |
 | `0x0e` | `LookupName` | both | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | both | on-chain state of the name + TLD | — | — |
+| `0x0f` | `NameState` | both | on-chain state of the name + TLD, incl. the CAS generation (mutations counters, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | both | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | both | owner's live domains + TLDs | — | — |
 | `0x12` | `Error` | reply | application-level error message (`str`) | — | — |

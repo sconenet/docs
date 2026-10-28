@@ -159,6 +159,35 @@ De même, `scone domain register <nom>` sur un nom que vous
 possédez et qui expire sous 90 jours propose le renouvellement
 au lieu d'échouer.
 
+## Délégués de records (KSK/ZSK-lite)
+
+Le propriétaire d'un domaine peut accorder à D'AUTRES clés le droit
+de signer `domain update` en son nom — le jeu de délégués de records
+(au plus 3 clés, remplacement intégral à chaque `set`) :
+
+```bash
+# octroi (signé par le propriétaire ; le CLI récupère la génération
+# CAS du namespace et lie la transaction à elle) :
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# consultation (aucune identité requise) :
+scone domain delegates list example.uip
+
+# tout révoquer :
+scone domain delegates clear example.uip --identity alice
+```
+
+Un délégué signe ensuite `domain update` exactement comme le
+ferait le propriétaire (`--identity deleg`) — on-chain le champ
+`owner` de la tx est le propriétaire du DOMAINE tandis que la
+signature vient du délégué. Le don est exclusif au propriétaire (un
+délégué ne peut pas gérer le jeu), vidé par un transfert, et chaque
+`set`/`clear` incrémente le compteur de mutations du namespace (CAS
+anti-replay — voir `transactions.md`) : un `set` rejoué ne peut pas
+ressusciter des clés révoquées. L'update d'un délégué révoqué est
+refusée localement (« neither the owner nor a record delegate »).
+
 ## Commandes avancées
 
 Les défauts ci-dessus couvrent l'usage quotidien. Pour les

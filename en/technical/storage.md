@@ -113,16 +113,22 @@ hash is always re-derived
 
 ## `DomainStateBytes` encoding format (M8b)
 
-57 or 89 bytes depending on the leading version tag, fixed-width
+65 or 97 bytes depending on the leading version tag, fixed-width
 big-endian integers (canonical, byte-by-byte comparable):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` is the namespace's monotonic mutation counter (CAS
+anti-replay generation — see `transactions.md`, The mutation
+counter). The M8b encodings (57/89 bytes, no counter) are
+**illegitimate**: strict decoding → `Corrupted` (testnet reset; a
+pre-counter store regenerates via replay).
 
 - `registered_at` / `valid_until` (M8b): the registration's
   expiration (1 year at claim, renewable, see
@@ -144,19 +150,21 @@ panic.
 
 ## `TldStateBytes` encoding format (owner-option)
 
-Variable length depending on the enum variant — 34 bytes for a
-**private** TLD, 2 for an **open** TLD (neither sequence nor
+Variable length depending on the enum variant — 50 bytes for a
+**private** TLD, 10 for an **open** TLD (neither sequence nor
 record hash):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (owner-option, `TldState` enum): `0x00` =
   `TldState::Open` (nobody — self-service + PoW, no owner bytes),
-  `0x01` = `TldState::Private` (32 owner bytes follow). Strictly
-  canonical — any other byte → `Corrupted`. The invariant "open ⟺
-  no owner" is STRUCTURAL: the two states cannot be confused.
+  `0x01` = `TldState::Private` (32 owner bytes + 8 counter bytes
+  follow). Strictly canonical — any other byte → `Corrupted`. The
+  invariant "open ⟺ no owner" is STRUCTURAL: the two states cannot
+  be confused.
 - **`until` (8 bytes, BE64)**: the TLD's own clock — the private
   term end (claim/renewal + 3 years) or the open death schedule
   (1-year floor at birth, pushed by every living domain). It is
@@ -167,8 +175,9 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   TLDs as a continuous node.
 
 The M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag `0x02`, boolean
-`open`), and the legacy tag `0x03` (embedded `until`) encodings are
-**illegitimate**: strict decoding → `Corrupted` (pre-mainnet,
+`open`), the legacy tag `0x03` (embedded `until`) and the
+pre-counter tag `0x04` layouts (42/2 bytes, no counter) encodings
+are **illegitimate**: strict decoding → `Corrupted` (pre-mainnet,
 regeneration via replay is the migration path).
 
 The tag exists only for format evolution: a future layout bumps

@@ -343,7 +343,7 @@ de transport ne devrait pas dépasser `MAX_MESSAGE_LEN`
 | `0x0c` | `GetStatus` | les deux | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | les deux | état du nœud (réseau, pointe, hauteur, NAT, domaines, mempool, pairs, finalité, opérateurs frais) | — | — |
 | `0x0e` | `LookupName` | les deux | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | les deux | état on-chain du nom + TLD | — | — |
+| `0x0f` | `NameState` | les deux | état on-chain du nom + TLD, incl. la génération CAS (compteurs de mutations, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | les deux | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | les deux | domaines + TLD vivants du propriétaire | — | — |
 | `0x12` | `Error` | réponse | message d'erreur applicatif (`str`) | — | — |

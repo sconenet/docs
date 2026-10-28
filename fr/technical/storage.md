@@ -113,20 +113,25 @@ genèse est toujours re-dérivé
 
 ## Format d'encodage `DomainStateBytes` (M8b)
 
-57 ou 89 octets selon le tag de version de tête, entiers big-endian à
+65 ou 97 octets selon le tag de version de tête, entiers big-endian à
 largeur fixe (canonique, comparable octet par octet) :
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash présent → exactement 89 octets
-tag = 0x02 : record_hash absent  → exactement 57 octets
+tag = 0x01 : record_hash présent → exactement 97 octets
+tag = 0x02 : record_hash absent  → exactement 65 octets
 ```
 
 - `registered_at` / `valid_until` (M8b) : l'expiration de
   l'enregistrement (1 an au claim, renouvelable, voir
   `/docs/en/technical/blockchain.md`).
+- `mutations` (V3) : le compteur de mutations monotone du namespace
+  (génération CAS anti-replay — voir `transactions.md`, Le compteur
+  de mutations). Les encodages M8b (57/89 octets, sans compteur)
+  sont **illégitimes** : décodage strict → `Corrupted` (reset
+  testnet ; un store pré-compteur se régénère par rejeu).
 
 Les encodages M7 (41/73 octets, sans expiration) sont **illégitimes**
 depuis M8b : décodage strict → `Corrupted`. (Un store M7 se régénère
@@ -156,9 +161,10 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
 - `flag` (owner-option, énum `TldState`) : `0x00` =
   `TldState::Open` (à personne — libre-service + PoW, aucun octet de
   propriétaire), `0x01` = `TldState::Private` (32 octets de
-  propriétaire suivent). Strictement canonique — tout autre octet →
-  `Corrupted`. L'invariant « ouvert ⟺ pas de propriétaire » est
-  STRUCTUREL : les deux états ne peuvent pas être confondus.
+  propriétaire + 8 octets de compteur suivent). Strictement
+  canonique — tout autre octet → `Corrupted`. L'invariant « ouvert ⟺
+  pas de propriétaire » est STRUCTUREL : les deux états ne peuvent
+  pas être confondus.
 - **`until` (8 octets, BE64)** : l'horloge propre du TLD — la fin du
   terme privé (claim/renouvellement + 3 ans) ou l'échéancier de mort
   ouvert (plancher 1 an à la naissance, poussé par chaque domaine
@@ -168,8 +174,9 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   reconstruits au replay et restaurés au démarrage — un nœud redémarré
   tue les mêmes TLDs qu'un nœud continu.
 
-Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag `0x02`,
-booléen `open`) et le tag legacy `0x03` (`until` embarqué) sont
+Les encodages M7d (33 octets, tag `0x01`), M8b (34 octets, tag `0x02`),
+les layouts pré-compteur tag `0x04` (42/2 octets, sans compteur), le
+tag legacy `0x03` (`until` embarqué) sont
 **illégitimes** : décodage strict → `Corrupted` (pré-mainnet, la
 régénération par replay est le chemin de migration).
 

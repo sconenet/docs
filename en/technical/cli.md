@@ -145,6 +145,35 @@ scone tld renew mytld               # explicit renewal
 Likewise, `scone domain register <name>` on a name you own that
 expires within 90 days proposes the renewal instead of failing.
 
+## Record delegates (KSK/ZSK-lite)
+
+A domain's owner can grant OTHER keys the right to sign
+`domain update` on its behalf — the record-delegate set (at most 3
+keys, full replacement on every `set`):
+
+```bash
+# grant (owner-signed; the CLI fetches the namespace's CAS
+# generation and binds the transaction to it):
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# inspect (no identity needed):
+scone domain delegates list example.uip
+
+# revoke everything:
+scone domain delegates clear example.uip --identity alice
+```
+
+A delegate then signs `domain update` exactly like the owner would
+(`--identity deleg`) — on-chain the tx's `owner` field is the
+DOMAIN's owner while the signature comes from the delegate. The
+grant is owner-exclusive (a delegate cannot manage the set), cleared
+by a transfer, and every `set`/`clear` bumps the namespace's
+mutation counter (CAS anti-replay — see `transactions.md`): a
+replayed `set` cannot resurrect revoked keys. A revoked delegate's
+update is refused locally ("neither the owner nor a record
+delegate").
+
 ## Advanced commands
 
 The defaults above cover everyday use. For scripts and web/API

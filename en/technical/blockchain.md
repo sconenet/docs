@@ -162,8 +162,9 @@ carries only the `tld_id`, the name paid its length at creation.
 **Two more flat proofs** complete the family (consensus-level
 anti-spam, same epoch salt and window as registrations):
 `transfer_pow_difficulty` for cessions (`TransferTld`/
-`TransferDomain`, challenges `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`) and `assign_pow_difficulty` for
+`TransferDomain`, challenge = the namespace's CURRENT counter
+binding — see `transactions.md`, The mutation counter) and
+`assign_pow_difficulty` for
 creation under a private TLD (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flat by decision: the namespace's
 exclusivity was paid at TLD creation, no per-length double taxation).
@@ -240,8 +241,8 @@ local iteration:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -250,6 +251,19 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` is the namespace's MONOTONIC mutation counter — the CAS
+anti-replay generation of its guarded operations (`SetRecordDelegates`,
+`SetTldOperator`, `SetDomainOperator`, `TransferTld`, `TransferDomain`
+verify-then-increment; renewal preserves it, transfer bumps it). It is
+committed in the namespace's SMT leaf — domain leaf
+`SCONE-LEAF-DOM-V4` (counter between the lifetime fields and the
+record commitment), TLD leaf `SCONE-LEAF-TLD-V4` (injective variant
+byte; counter for `Private`) — and exposed in the name-state response.
+Clients fetch-then-bind: a transaction built against a stale
+generation is a typed rejection (`StaleStateBinding`) that mutates
+nothing. Full derivation and rationale: `transactions.md`,
+"The mutation counter"; security analysis: `security-model.md`.
 
 * `registered_at` / `valid_until` (M8b): registration expiry,
   evaluated against the **parent block's timestamp** (deterministic,

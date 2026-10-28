@@ -248,8 +248,8 @@ l'itération locale rapide :
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -258,6 +258,21 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` est le compteur de mutations MONOTONE du namespace — la
+génération CAS anti-replay de ses opérations gardées
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` vérifient-puis-incrémentent ; le
+renouvellement le préserve, un transfert l'incrémente). Il est
+engagé dans la feuille SMT du namespace — feuille domaine
+`SCONE-LEAF-DOM-V4` (compteur entre les champs de durée de vie et
+l'engagement de records), feuille TLD `SCONE-LEAF-TLD-V4` (octet de
+variante injectif ; compteur pour `Private`) — et exposé dans la
+réponse name-state. Les clients font du fetch-then-bind : une
+transaction construite contre une génération périmée est un rejet
+typé (`StaleStateBinding`) qui ne mute rien. Dérivation complète et
+rationnel : `transactions.md`, « Le compteur de mutations » ;
+analyse sécurité : `security-model.md`.
 
 * `registered_at` / `valid_until` (M8b) : expiration de
   l'enregistrement, évaluée par rapport à l'**horodatage du bloc
