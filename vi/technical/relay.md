@@ -447,8 +447,10 @@ chấp nhận/trả về nếu:
 
 Ngược lại: từ chối âm thầm phía P2P, lỗi tường minh phía CLI.
 Chữ ký Ed25519 của bản ghi được **xác minh lúc nhận** bởi relay
-(`ResolveLocal`: khóa công khai của chủ biết on-chain, chữ ký
-phải mở khóa — một bản ghi ký bởi khóa khác bị từ chối,
+(`ResolveLocal`): chữ ký phải mở khóa đối với khóa công khai của
+chủ đã được học HOẶC bất kỳ khóa nào trong các khóa ủy nhiệm bản
+ghi của tên miền (KSK/ZSK-lite — một ủy nhiệm xuất bản nhân danh
+chủ; một bản ghi ký bởi một khóa không liên quan bị từ chối,
 `record rejected`); nó cũng được vận chuyển cho các bên xác
 minh tương lai — cam kết on-chain vẫn là kiểm soát toàn vẹn
 chính.

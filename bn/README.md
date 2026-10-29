@@ -24,13 +24,13 @@
 | ডকুমেন্ট | বিষয়বস্তু |
 |---|---|
 | [protocol.md](technical/protocol.md) | ক্যানোনিকাল ওয়্যার বাইনারি ফরম্যাট: LEB128 ভ্যারিন্ট, শনাক্তকারী, DNS রেকর্ড, ব্লক, P2P বার্তা, সীমা, ভার্সনিং |
-| [transactions.md](technical/transactions.md) | লেনদেন ফরম্যাট v1: স্বাক্ষরিত রূপগুলি (ফিল্ড, ওয়্যার ক্রম — RegisterDomain নাম বহন করে, স্বেচ্ছাসেবী ডিসক্রিমিন্যান্ট, owner ডেরিভেশন, স্বাক্ষরিত পেলোড `SCONE-TX-SIG-V1`) এবং চারটি স্বাক্ষর-বিহীন pow-to-owner রূপ (খনন করা প্রুফই অনুমোদন), ভ্যালিডেশন নিয়ম |
+| [transactions.md](technical/transactions.md) | লেনদেন ফরম্যাট v1: স্বাক্ষরিত রূপগুলি (ফিল্ড, ওয়্যার ক্রম — RegisterDomain নাম বহন করে, স্বেচ্ছাসেবী ডিসক্রিমিন্যান্ট, owner ডেরিভেশন, স্বাক্ষরিত পেলোড `SCONE-TX-SIG-V1`) এবং চারটি স্বাক্ষর-বিহীন pow-to-owner রূপ (খনন করা প্রুফই অনুমোদন), ডেলিগেটেড-অথরিটি পরিবার (কাউন্টার-আবদ্ধ: TransferDomain, অপারেটর, রেকর্ড ডেলিগেট), মিউটেশন কাউন্টার, ভ্যালিডেশন নিয়ম |
 | [blockchain.md](technical/blockchain.md) | ব্লকচেইন স্তর: `TxId`, মার্কেল ট্রি, `BlockHash`, জেনেসিস, ক্যানোনিকাল অবস্থা, ব্লক ভ্যালিডেশন, কনসেনসাস অ্যাবস্ট্রাকশন |
 | [keystore.md](technical/keystore.md) | `.sconekey` কী-ফাইল ফরম্যাট (Argon2id + XChaCha20-Poly1305), `scone-keystore` API, `identity` কমান্ড |
 | [storage.md](technical/storage.md) | লোকাল redb পারসিস্টেন্স: টেবিল স্কিমা, অ্যাটমিক ডেল্টা, মেমরি নীতি, ট্রাস্ট মডেল, DoS সীমা |
 | [relay.md](technical/relay.md) | নেটওয়ার্ক রিলে (`scone-network`): libp2p প্রোটোকল, পিয়ার ডিসকভারি (সিড, ডিরেক্টরি, UPnP), রিচেবিলিটি (AutoNAT, circuit-relay, DCUtR), মেমপুল, সিঙ্ক, Kademlia DHT, লোকাল টোপোলজি, Prometheus মেট্রিক্স, DNS স্ন্যাপশট, সম্পূর্ণ CLI, `.env` কনফিগারেশন |
 | [dns.md](technical/dns.md) | UDP + TCP DNS সার্ভার (M6/M7b): অথরিটেটিভ DNS স্ন্যাপশট, ১৬-মুখী শার্ডেড হট-পাথ ক্যাশ (শেয়ার্ড এন্ট্রি, অ্যালোকেশন-মুক্ত লুকআপ, প্যাকড রেকর্ড, নেম কমপ্রেশন), RFC 1035 কোডেক, TCP RFC 7766 (৫১২-বাইট UDP / 64 KiB TCP বাজেট, TC বিট), DHT নেগেটিভ ক্যাশ, রিকার্সিভ ফলব্যাক, সীমা |
-| [cli.md](technical/cli.md) | `scone` বাইনারি: লগিং ও ভার্বোসিটি (stdout/stderr, `-v` স্তর, `RUST_LOG`), `.env`-এর মাধ্যমে এনভায়রনমেন্ট কনফিগারেশন (অগ্রাধিকার ফ্ল্যাগ > `.env` > ডিফল্ট) |
+| [cli.md](technical/cli.md) | `scone` বাইনারি: লগিং ও ভার্বোসিটি (stdout/stderr, `-v` স্তর, `RUST_LOG`), `.env`-এর মাধ্যমে এনভায়রনমেন্ট কনফিগারেশন (অগ্রাধিকার ফ্ল্যাগ > `.env` > ডিফল্ট), রেকর্ড ডেলিগেট (`domain delegates set/clear/list`), ডেলিগেট-স্বাক্ষরিত আপডেট |
 | [security-model.md](technical/security-model.md) | সিকিউরিটি মডেল: কমিটি নির্বাচন, সিড অ্যান্টি-গ্রাইন্ডিং (বিশ্লেষণ: VRF অপ্রয়োজনীয়), ইকুইভোকেশন ও স্ল্যাশিং |
 | [audit-methodologie.md](technical/audit-methodologie.md) | সিকিউরিটি অডিট পদ্ধতি: বৈপরীত্য, সত্যের উৎস, সংশোধনী পাস |
 | [rfc-proof-of-service.md](technical/rfc-proof-of-service.md) | প্রুফ-অব-সার্ভিস RFC: অপারেটর হার্টবিট, অপারেশন ডেলিগেশন, ফ্রেশ সিটের মধ্যে কমিটি নির্বাচন |

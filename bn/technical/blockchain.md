@@ -163,8 +163,8 @@ TLD প্রাইভেট apex − ১-এ; একটি ডোমেইন �
 করেছে। **আরও দুটি সমতল প্রুফ** পরিবারটি সম্পূর্ণ করে (কনসেনসাস-স্তরের
 অ্যান্টি-স্প্যাম, রেজিস্ট্রেশনের মতোই এপোক সল্ট ও উইন্ডো):
 `transfer_pow_difficulty` ট্রান্সফারের জন্য (`TransferTld`/
-`TransferDomain`, challenge `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`) এবং `assign_pow_difficulty`
+`TransferDomain`, challenge = নেমস্পেসের **বর্তমান** কাউন্টার বাঁধাই —
+দেখুন `transactions.md`, "মিউটেশন কাউন্টার") এবং `assign_pow_difficulty`
 প্রাইভেট TLD-র নিচে সৃষ্টির জন্য (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — সিদ্ধান্ততঃ সমতল: namespace-এর
 একচেটিয়া অধিকার TLD সৃষ্টির সময়ই পরিশোধিত, দৈর্ঘ্য-প্রতি দ্বিগুণ
@@ -245,8 +245,8 @@ devnet (`scone-devnet`) হলো তৃতীয় নেটওয়ার্
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -255,6 +255,20 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` হলো নেমস্পেসের একমুখী বর্ধনশীল (MONOTONIC) মিউটেশন
+কাউন্টার — এর সুরক্ষিত অপারেশনগুলোর CAS অ্যান্টি-রিপ্লে জেনারেশন
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` verify-then-increment; নবায়ন এটি
+অক্ষুণ্ণ রাখে, ট্রান্সফার বৃদ্ধি করে)। এটি নেমস্পেসের SMT লিফে
+কমিট করা হয় — ডোমেইন লিফ `SCONE-LEAF-DOM-V4` (লাইফটাইম ফিল্ড ও
+রেকর্ড কমিটমেন্টের মাঝে কাউন্টার), TLD লিফ `SCONE-LEAF-TLD-V4`
+(ইনজেক্টিভ ভ্যারিয়েন্ট বাইট; `Private`-এর জন্য কাউন্টার) — এবং
+name-state রেসপন্সে প্রকাশিত হয়। ক্লায়েন্টরা fetch-then-bind করে:
+একটি বাসি জেনারেশনের বিরুদ্ধে তৈরি লেনদেন একটি টাইপড প্রত্যাখ্যান
+(`StaleStateBinding`), যা কিছুই পরিবর্তন করে না। সম্পূর্ণ ডেরিভেশন
+ও যুক্তি: `transactions.md`, "মিউটেশন কাউন্টার"; নিরাপত্তা বিশ্লেষণ:
+`security-model.md`।
 
 * `registered_at` / `valid_until` (M8b): রেজিস্ট্রেশন মেয়াদ,
   **প্যারেন্ট ব্লকের টাইমস্ট্যাম্পের** বিরুদ্ধে মূল্যায়িত (ডিটারমিনিস্টিক,

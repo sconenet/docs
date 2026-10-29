@@ -92,6 +92,25 @@ scone tld renew mytld               # 明示的な更新
 
 同様に、所有している名前に対する `scone domain register <name>` は、90日以内に失効する場合、失敗する代わりに更新を提案します。
 
+## レコードデリゲート(KSK/ZSK-lite)
+
+ドメインの所有者は、**他の**キーに自分の代わりに `domain update` に署名する権限を与えられます — レコードデリゲートセット(最大3キー、`set` のたびに完全な置き換え):
+
+```bash
+# 許可(所有者署名。CLIは名前空間のCAS世代をフェッチし、
+# トランザクションをそれに束縛します):
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# 検査(識別情報は不要):
+scone domain delegates list example.uip
+
+# すべて取り消す:
+scone domain delegates clear example.uip --identity alice
+```
+
+デリゲートは、所有者が行うのとまったく同じように `domain update` に署名します(`--identity deleg`)— オンチェーンでは、txの `owner` フィールドはドメインの所有者である一方、署名はデリゲートから来ます。許可は所有者専用です(デリゲートはセットを管理できず)、移転によってクリアされ、すべての `set`/`clear` が名前空間のミューテーションカウンターを上方に動かします(CASアンチリプレイ — `transactions.md` 参照): リプレイされた `set` は、取り消されたキーを復活させられません。取り消されたデリゲートの更新はローカルで拒否されます(「所有者でもレコードデリゲートでもない」)。
+
 ## 高度なコマンド
 
 上記のデフォルトは日常の使用をカバーします。スクリプトやWeb/API相互運用のために、完全なサーフェスは引き続き利用可能です:

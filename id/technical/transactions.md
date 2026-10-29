@@ -50,17 +50,18 @@ tabel ini.
 | `0x21` | `RegisterDomain` | klaim sebuah domain |
 | `0x52` | `UpdateDomain` | versi baru data DNS sebuah domain |
 | `0x93` | `RegisterTld` | klaim domain tingkat atas (M7) |
-| `0x47` | `TransferTld` | transfer TLD ke owner baru (M8a) |
+| `0x47` | `TransferTld` | transfer TLD ke owner baru (M8a; PoW transfer terikat-penghitung) |
 | `0x6B` | `RevokeTld` | pelepasan TLD (M8a) |
 | `0xB8` | `SetTldOpen` | pembukaan **tak dapat dibatalkan** TLD ke registrasi mandiri (satu arah, opsi owner; `open=false` adalah penolakan bertipe) |
 | `0xD4` | `AssignDomain` | penugasan langsung domain oleh owner TLD (M8a) |
 | `0x3C` | `RenewDomain` | perpanjangan registrasi domain (M8a; membawa nama kanonik sejak opsi owner — TLD terbuka mengikuti kedaluwarsa) |
 | `0x8F` | `RenewTld` | perpanjangan masa 3 tahun TLD PRIVAT (PoW setara penciptaan) |
 | `0x15` | `SlashTx` | bukti ekuivokasi anchor + banning (M9) |
-| `0xE2` | `TransferDomain` | transfer domain ke owner baru (M8c) |
+| `0xE2` | `TransferDomain` | transfer domain ke owner baru (M8c; PoW transfer terikat-penghitung) |
 | `0x71` | `Heartbeat` | bukti kehidupan operator (RFC proof-of-service) |
-| `0xA9` | `SetTldOperator` | delegasi operasi TLD privat (RFC proof-of-service) |
-| `0x5E` | `SetDomainOperator` | delegasi operasi domain (RFC proof-of-service) |
+| `0xA9` | `SetTldOperator` | delegasi operasi TLD privat (RFC proof-of-service; terikat-penghitung) |
+| `0x5E` | `SetDomainOperator` | delegasi operasi domain (RFC proof-of-service; terikat-penghitung) |
+| `0x66` | `SetRecordDelegates` | kunci-kunci delegasi record sebuah domain — KSK/ZSK-lite: tepat kunci-kunci ini, di samping owner, boleh menandatangani `UpdateDomain` (terikat-penghitung) |
 
 Byte versi selain `0x01` ditolak secara eksplisit
 (`UnsupportedVersion(nilai yang diterima)`): format tak dikenal
@@ -166,7 +167,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 byte mentah | TLD yang ditransfer |
 | `owner` | 32 byte mentah | derivasi dari `public_key` (owner saat ini / penandatangan) |
 | `new_owner` | 32 byte mentah | identitas penerima (opaque: nilai apa pun valid secara sintaks; pengikatan ke kunci yang bisa membelanjakannya adalah aturan state M8b) |
-| `proof` | berbatas (varint ‖ byte) | bukti transfer anti-churn, tantangan `SCONE-TLD-XFER-V1 ‖ tld_id`, kesulitan datar `transfer_pow_difficulty`, salt epoch |
+| `proof` | berbatas (varint ‖ byte) | bukti transfer anti-churn yang ditambang untuk ikatan penghitung SAAT INI dari namespace (lihat [Penghitung mutasi](#penghitung-mutasi)), kesulitan datar `transfer_pow_difficulty`, salt epoch |
 | `public_key` | 32 byte mentah | kunci publik Ed25519 penandatangan |
 | `signature` | **tepat 64 byte** | tanda tangan Ed25519 atas payload bertanda tangan |
 
@@ -281,6 +282,85 @@ Ditandatangani oleh owner **privat** TLD saat ini. Aturan apply:
   satunya operasi manajemen yang masih tersedia bagi owner
   kedaluwarsa.
 
+## Keluarga otoritas-terdelegasi — terikat-penghitung (0xE2, 0xA9, 0x5E, 0x66)
+
+Empat transaksi mendelegasikan atau menugaskan ulang otoritas atas
+sebuah namespace. Semuanya berbagi satu disiplin anti-replay: tiap
+transaksi membawa atau menambang sebuah **ikatan penghitung** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖
+generation_be64 ‖ counter_be64)` — yang dihitung atas penghitung
+mutasi SAAT INI dari namespace (lihat
+[Penghitung mutasi](#penghitung-mutasi)). Transaksi yang dibangun
+atas generasi usang ditolak meskipun tanda tangan atau buktinya
+masih valid secara kriptografis.
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+Cermin `TransferTld` untuk domain: ditandatangani owner saat ini,
+`new_owner` opaque. `proof` adalah PoW transfer anti-churn (datar
+`transfer_pow_difficulty`, salt epoch) yang ditambang untuk
+`mutations_binding(domain_id, counter)` — tantangan generasi state
+yang ditransfer. Aturan penerapan: pemeriksaan owner dulu
+(`NotOwner`), lalu PoW terhadap ikatan penghitung SAAT INI
+(transfer yang di-replay memecahkan tantangan yang lebih lama —
+penolakan bertipe), lalu penghitung bertambah. Himpunan delegasi
+record adalah pemberian owner LAMA: sebuah transfer
+menghapusnya. `TransferTld` (0x47) adalah bentuk TLD yang
+simetris: bukti transfernya ditambang untuk
+`mutations_binding(tld_id, counter)`.
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| Field | Tipe | Batasan |
+|---|---|---|
+| `id` | 32 byte mentah | `tld_id` (0xA9) atau `domain_id` (0x5E) |
+| `owner` | 32 byte mentah | derivasi dari `public_key` (owner saat ini / penandatangan) |
+| `operator.option` | `0x00` atau `0x01 ‖ key[32]` | operator yang didelegasikan, atau `0x00` untuk kembali mengoperasikan sendiri |
+| `state_binding` | **tepat 32 byte mentah** | hash kanonik ikatan penghitung SAAT INI: `mutations_binding(id, generation, counter)` (generation = `valid_until` untuk TLD, `registered_at` untuk domain) — ikatan usang adalah penolakan bertipe (`StaleStateBinding`) meski tanda tangan valid |
+| `public_key` | 32 byte mentah | kunci publik Ed25519 penandatangan (owner namespace) |
+| `signature` | **tepat 64 byte** | tanda tangan Ed25519 atas payload bertanda tangan |
+
+Ditandatangani oleh owner saat ini (TLD privat untuk 0xA9; domain
+terdaftar untuk 0x5E). Terikat anti-sewa: satu operator yang
+didelegasikan paling banyak melayani satu kursi
+(`OperatorAlreadyDelegated`). Penerapan memverifikasi ikatan, lalu
+menaikkan penghitung — delegasi ulang kepada operator YANG SAMA
+adalah perubahan generasi, bukan no-op.
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| Field | Tipe | Batasan |
+|---|---|---|
+| `domain_id` | 32 byte mentah | domain target |
+| `owner` | 32 byte mentah | derivasi dari `public_key` — owner SAAT INI dari DOMAIN |
+| `count` | 1 byte | paling banyak 3 (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count byte mentah | kunci-kunci publik delegasi, **menaik ketat** (urutan kanonik; kunci duplikat atau tak terurut adalah error dekode) |
+| `state_binding` | **tepat 32 byte mentah** | hash kanonik penghitung SAAT INI: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 byte mentah | kunci publik Ed25519 penandatangan — owner DOMAIN |
+| `signature` | **tepat 64 byte** | tanda tangan Ed25519 atas payload bertanda tangan |
+
+KSK/ZSK-lite: himpunan yang dibawa MENGGANTIKAN penuh himpunan
+sebelumnya (tanpa penggabungan) dan — di samping owner domain —
+tepat kunci-kunci inilah yang boleh menandatangani `UpdateDomain`
+untuk domain tersebut. Eksklusif owner: seorang delegasi tidak
+pernah bisa mengelola himpunannya. Himpunan mati bersama domain
+dan dihapus oleh sebuah transfer. Penerapan memverifikasi ikatan
+terhadap penghitung saat ini dan menaikkannya: siklus
+`∅ → {9,10} → ∅ → replay` tidak bisa menghidupkan kembali kunci
+yang dicabut (lihat `security-model.md`, serangan replay).
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -299,6 +379,22 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 Catatan: `UpdateDomain` membawa **tanpa** `timestamp` — pengurutan
 lewat `sequence`. Ia juga tidak membawa nama: domain sudah
 terdaftar, id saja cukup.
+
+#### Aturan otoritas — owner atau delegasi record
+
+Field `owner` adalah owner on-chain dari DOMAIN (pembaruan itu
+UNTUK namespace tersebut); `public_key` adalah penandatangan
+SEBENARNYA — owner ATAU salah satu kunci delegasi record domain
+(KSK/ZSK-lite, lihat `SetRecordDelegates`). Berbeda dari semua
+transaksi bertanda tangan lain, derivasi owner↔kunci sengaja TIDAK
+dipaksakan untuk varian ini (`validate_transaction` mengecualikannya):
+aturan otoritas lapisan state — penandatangan ∈ {owner} ∪ delegasi,
+`sequence == current + 1` — adalah satu-satunya pengikat. Tanda
+tangan tetap mencakup field `owner` melalui payload penandatanganan,
+sehingga seorang delegasi menandatangani "untuk" namespace tertentu.
+Catatan: peta owner→kunci dipelajari atas dasar kemunculan pertama
+(registrasi/penugasan), sehingga pembaruan oleh delegasi tidak
+pernah menimpanya.
 
 ### Batas ketat
 
@@ -327,7 +423,45 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 Transaksi yang `owner`-nya tidak cocok dengan derivasi
 `public_key`-nya sendiri tidak valid (`InvalidOwner` di sisi
 core, `OwnerKeyMismatch` di sisi chain), ditolak saat enkode,
-dekode **dan** validasi chain (pertahanan berlapis).
+dekode **dan** validasi chain (pertahanan berlapis). SATU
+pengecualian: `UpdateDomain` — di bawah model delegasi record,
+field `owner`-nya adalah owner on-chain dari DOMAIN sementara
+penandatangannya bisa berupa delegasi record; aturan otoritas
+lapisan state mengikat penandatangan ke namespace.
+
+## Penghitung mutasi
+
+Setiap namespace membawa penghitung mutasi MONOTON
+(`mutations: u64`) — generasi anti-replay CAS dari operasi-
+operasi yang dijaganya.
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **Transaksi terjaga** (memverifikasi ikatan, lalu menaikkan
+  penghitung): `SetRecordDelegates`, `SetTldOperator`,
+  `SetDomainOperator`, `TransferTld`, `TransferDomain`.
+- **Penanda generasi**: `registered_at` untuk domain (tetap untuk
+  seluruh masa hidup namespace), `valid_until` untuk TLD (secara
+  struktural berbeda di setiap masa hidup — klaim ulang hanya
+  terjadi setelah masa multi-tahun penuh plus masa tenggang).
+  Tanpanya, namespace yang mati dan didaftarkan ulang (penghitung
+  di-reset) bisa menyiapkan ulang transaksi dari masa hidup
+  sebelumnya begitu penghitung mencapai nilai yang sama.
+- **Verifikasi**: penerapan menurunkan ulang ikatan dari state
+  SAAT INI dan membandingkannya dengan nilai yang dibawa
+  (set-types) atau memverifikasi PoW terhadapnya (transfer).
+  Ketidakcocokan adalah penolakan bertipe (`StaleStateBinding` /
+  bukti tak terpecahkan) yang tidak mengubah apa pun.
+- **Mengapa penghitung**: fungsi murni dari state saat ini
+  kembali ke nilai lama ketika state secara sah berputar balik —
+  transfer A→B→A, himpunan delegasi `∅ → {9,10} → ∅`. Replay akan
+  menyiapkan ulang dirinya sendiri. Sebuah penghitung tidak pernah
+  kembali. Penghitung dikomitmen di daun SMT namespace (V4) dan
+  diekspos dalam respons name-state agar klien bisa
+  fetch-then-bind tanpa kepercayaan.
 
 ## POW-TO-OWNER — empat bentuk tanpa tanda tangan (0x2A, 0x57, 0x84, 0xC3)
 
@@ -599,8 +733,9 @@ oleh owner TLD, dengan bukti anti-spam datarnya sendiri).
 **Bukti transfer dan penugasan (anti-spam tingkat konsensus)**:
 `TransferTld`, `TransferDomain` dan `AssignDomain` masing-masing
 membawa bukti kerja **datar** — `transfer_pow_difficulty` untuk
-dua transfer (tantangan `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty`
+dua transfer (tantangan = ikatan penghitung SAAT INI dari
+namespace, [Penghitung mutasi](#penghitung-mutasi) — tag datar
+`SCONE-*-XFER-V1` dipensiunkan), `assign_pow_difficulty`
 untuk penugasan (tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖ name`).
 Salt epoch dan jendela anti-premining yang sama dengan
 registrasi; diverifikasi saat admisi mempool (estimasi epoch,
@@ -749,4 +884,5 @@ pun.
 |---|---|---|
 | 1 | `public_key` + `signature` tertanam, payload `SCONE-TX-SIG-V1`, byte versi `0x01`, `RegisterDomain` membawa nama, `RegisterTld` (0x93), keluarga M8a: `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — format wire normatif; M8b: field `network` ditandatangani di kepala tiap payload, `RegisterTld` membawa nama, aturan state lengkap, kesulitan PoW per-jaringan | digantikan |
 | 1 (2026-09, wire tanpa network) | **penghapusan field `network` dari wire semua transaksi**: network_id hidup hanya dalam payload penandatanganan (`signing_payload(tx, network)` menyuntikkannya di kepala); pemisahan jaringan bersandar pada tanda tangan (`InvalidSignature` pada payload asing, error `WrongNetwork` hilang); `TX_FORMAT_VERSION` tetap `0x01` (testnet relaunchable, tanpa koeksistensi); **semua TxId berubah** (TxId adalah hash enkode wire bertanda tangan, yang kehilangan 14–15 byte); digest PoW, genesis dan data-dir per-jaringan tak berubah | digantikan |
-| 1 (2026-10, salt epoch PoW) | **digest PoW anti pre-mining**: salt `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + inti Argon2id atas `nonce_le`, dengan `epoch = block_height / 144` dari blok yang MENERAPKAN tx; payload wire bukti 12 → **20 byte** (`nonce_le ‖ epoch_le ‖ difficulty_le`), epoch yang dideklarasikan diverifikasi terhadap jendela validitas epoch blok penerap (penolakan bertipe `ProofEpochMismatch`), best-effort `(height+1)/144` saat admisi mempool, flag CLI `--epoch` pada jalur offline; perubahan merusak pra-mainnet: payload 12-byte lama ditolak, **semua TxId berubah** (field `proof` membesar 8 byte) | kini |
+| 1 (2026-10, salt epoch PoW) | **digest PoW anti pre-mining**: salt `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + inti Argon2id atas `nonce_le`, dengan `epoch = block_height / 144` dari blok yang MENERAPKAN tx; payload wire bukti 12 → **20 byte** (`nonce_le ‖ epoch_le ‖ difficulty_le`), epoch yang dideklarasikan diverifikasi terhadap jendela validitas epoch blok penerap (penolakan bertipe `ProofEpochMismatch`), best-effort `(height+1)/144` saat admisi mempool, flag CLI `--epoch` pada jalur offline; perubahan merusak pra-mainnet: payload 12-byte lama ditolak, **semua TxId berubah** (field `proof` membesar 8 byte) | digantikan |
+| 1 (2026-10, penghitung mutasi) | **ikatan anti-replay CAS**: penghitung mutasi monoton per-namespace (`DomainState`/`TldState::Private`), lima transaksi terjaga verify-then-increment (`SetRecordDelegates` 0x66 BARU, `SetTldOperator`, `SetDomainOperator`, `TransferTld`, `TransferDomain`); PoW transfer ditambang untuk ikatan penghitung (tantangan statis `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` dipensiunkan); set-types membawa field wire `state_binding` 32 byte bertanda tangan; daun SMT V4 mengomitmenkan penghitung (V2/V3 dipensiunkan — V3 tidak pernah dirilis); kodek storage +8 byte per domain / +8 per TLD privat; `NameState` mengekspos penghitung dan `registered_at`; perubahan merusak pra-mainnet: format state + wire berubah, **reset testnet**, snapshot lama ditolak saat import | kini |

@@ -144,6 +144,35 @@ scone tld renew mytld               # gia hạn tường minh
 Tương tự, `scone domain register <name>` trên một tên bạn sở hữu
 mà hết hạn trong vòng 90 ngày sẽ đề xuất gia hạn thay vì thất bại.
 
+## Ủy nhiệm bản ghi (KSK/ZSK-lite)
+
+Chủ của một tên miền có thể cấp cho CÁC KHÁC quyền ký
+`domain update` nhân danh mình — tập ủy nhiệm bản ghi (tối đa 3
+khóa, thay thế trọn vẹn ở mỗi lần `set`):
+
+```bash
+# cấp (chủ-signed; CLI lấy thế hệ CAS của namespace
+# và gắn giao dịch vào nó):
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# kiểm tra (không cần identity):
+scone domain delegates list example.uip
+
+# thu hồi tất cả:
+scone domain delegates clear example.uip --identity alice
+```
+
+Một ủy nhiệm sau đó ký `domain update` đúng như chủ sẽ làm
+(`--identity deleg`) — trên chuỗi, trường `owner` của tx là chủ
+của TÊN MIỀN trong khi chữ ký đến từ ủy nhiệm. Việc cấp là độc
+quyền của chủ (một ủy nhiệm không thể quản lý tập), bị xóa bởi
+một chuyển nhượng, và mỗi lần `set`/`clear` tăng bộ đếm biến đổi
+của namespace (chống phát lại CAS — xem `transactions.md`): một
+lần `set` bị phát lại không thể hồi sinh các khóa đã thu hồi.
+Cập nhật của một ủy nhiệm đã bị thu hồi bị từ chối cục bộ ("không
+phải chủ cũng không phải ủy nhiệm bản ghi").
+
 ## Các lệnh nâng cao
 
 Các mặc định ở trên phủ việc dùng hằng ngày. Cho script và tương

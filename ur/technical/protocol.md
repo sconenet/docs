@@ -319,7 +319,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | دونوں | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | دونوں | نوڈ اسٹیٹ (نیٹ ورک، ٹِپ، اونچائی، NAT، ڈومینز، mempool، پیرز، فائنلٹی، تازہ آپریٹرز) | — | — |
 | `0x0e` | `LookupName` | دونوں | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | دونوں | نام + TLD کی آن چین اسٹیٹ | — | — |
+| `0x0f` | `NameState` | دونوں | نام + TLD کی آن چین اسٹیٹ، بشمول CAS generation (عدّادِ طفرات، registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | دونوں | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | دونوں | مالک کی زندہ ڈومینز + TLDs | — | — |
 | `0x12` | `Error` | جواب | ایپلیکیشن سطح کا خرابی پیغام (`str`) | — | — |

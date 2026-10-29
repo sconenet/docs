@@ -142,8 +142,10 @@ Klien validasi: `dig <name> --dns 127.0.0.1:5353
    terbuka).
 4. **`resolve_local` (kanal internal)**: satu putaran, tidak
    pernah penunggu DHT. State on-chain (`registered`, owner,
-   sequence) + record cache DHT lokal **diverifikasi ulang**
-   (owner, sequence, record_hash == komitmen on-chain). Record
+   sequence, mutations) + record cache DHT lokal **diverifikasi
+   ulang** (owner, sequence, record_hash == komitmen on-chain;
+   tanda tangan record bisa berasal dari owner atau delegasi
+   record — aturan yang sama dengan verifikasi relay). Record
    yang tidak sesuai tidak pernah menjawab — ketersediaan ≠
    otoritas.
    - tidak terdaftar → NXDOMAIN;

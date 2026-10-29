@@ -151,6 +151,36 @@ scone tld renew mytld               # explicit renewal
 `scone domain register <name>` 會提議續期而非
 失敗。
 
+## 記錄委派（KSK/ZSK-lite）
+
+網域的擁有者可以授權**其他**金鑰代它簽署
+`domain update` — 記錄委派集（至多 3 把
+金鑰、每次 `set` 完整取代）：
+
+```bash
+# 授與（由擁有者簽署；CLI 讀取命名空間的
+# CAS 世代並將交易綁定到它）：
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# 檢視（無需身分）：
+scone domain delegates list example.uip
+
+# 撤銷一切：
+scone domain delegates clear example.uip --identity alice
+```
+
+委派者隨後以與擁有者完全相同的方式簽署
+`domain update`（`--identity deleg`）— 鏈上
+交易的 `owner` 欄位是**網域**的擁有者、而
+簽章來自委派者。授與是擁有者獨佔的（委派
+者不能管理該集合）、被轉移清空、且每次
+`set`／`clear` 都提高命名空間的變更計數器
+（CAS 反重播 — 見 `transactions.md`）：被
+重播的 `set` 無法復活被撤銷的金鑰。被撤銷
+委派者的更新在本機被拒（「既非擁有者亦非
+記錄委派」）。
+
 ## 進階指令
 
 上述預設涵蓋日常使用。供腳本與 web/API

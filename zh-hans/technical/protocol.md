@@ -322,7 +322,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | 双向 | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | 双向 | 节点状态（网络、tip、高度、NAT、域名、内存池、对等节点、终局性、新鲜运营者） | — | — |
 | `0x0e` | `LookupName` | 双向 | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | 双向 | 名称 + TLD 的链上状态 | — | — |
+| `0x0f` | `NameState` | 双向 | 名称 + TLD 的链上状态，含 CAS 世代（变异计数器、registered_at） | — | — |
 | `0x10` | `GetOwnedNames` | 双向 | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | 双向 | 所有者的存活域名 + TLD | — | — |
 | `0x12` | `Error` | 回复 | 应用级错误消息（`str`） | — | — |

@@ -330,7 +330,7 @@ sebaiknya tidak melebihi `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0c` | `GetStatus` | dua arah | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | dua arah | state node (jaringan, tip, tinggi, NAT, domain, mempool, peer, finalitas, operator segar) | — | — |
 | `0x0e` | `LookupName` | dua arah | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | dua arah | state on-chain nama + TLD | — | — |
+| `0x0f` | `NameState` | dua arah | state on-chain nama + TLD, termasuk generasi CAS (penghitung mutasi, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | dua arah | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | dua arah | domain + TLD hidup milik owner | — | — |
 | `0x12` | `Error` | balasan | pesan error level aplikasi (`str`) | — | — |

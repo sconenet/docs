@@ -24,13 +24,13 @@
 | दस्तावेज़ | सामग्री |
 |---|---|
 | [protocol.md](technical/protocol.md) | कैननिकल वायर बाइनरी प्रारूप: LEB128 varint, पहचानकर्ता, DNS रिकॉर्ड, ब्लॉक, P2P संदेश, सीमाएँ, संस्करणीकरण |
-| [transactions.md](technical/transactions.md) | लेनदेन प्रारूप v1: हस्ताक्षरित रूप (फ़ील्ड, वायर क्रम — RegisterDomain नाम ले जाता है, मनमाने डिस्क्रिमिनेंट, स्वामी व्युत्पत्ति, हस्ताक्षरित पेलोड `SCONE-TX-SIG-V1`) और चार बिना-हस्ताक्षर pow-to-owner रूप (माइन किया गया प्रूफ ही प्राधिकरण है), सत्यापन नियम |
+| [transactions.md](technical/transactions.md) | लेनदेन प्रारूप v1: हस्ताक्षरित रूप (फ़ील्ड, वायर क्रम — RegisterDomain नाम ले जाता है, मनमाने डिस्क्रिमिनेंट, स्वामी व्युत्पत्ति, हस्ताक्षरित पेलोड `SCONE-TX-SIG-V1`) और चार बिना-हस्ताक्षर pow-to-owner रूप (माइन किया गया प्रूफ ही प्राधिकरण है), प्रतिनिधि-प्राधिकरण परिवार (काउंटर-बंधित: TransferDomain, ऑपरेटर, रिकॉर्ड प्रतिनिधि), mutation काउंटर, सत्यापन नियम |
 | [blockchain.md](technical/blockchain.md) | ब्लॉकचेन परत: `TxId`, मर्कल ट्री, `BlockHash`, जेनेसिस, कैननिकल अवस्था, ब्लॉक सत्यापन, सहमति अमूर्तन |
 | [keystore.md](technical/keystore.md) | `.sconekey` कीफ़ाइल प्रारूप (Argon2id + XChaCha20-Poly1305), `scone-keystore` API, `identity` कमांड |
 | [storage.md](technical/storage.md) | स्थानीय redb स्थिरता: तालिका स्कीमा, परमाणु डेल्टा, मेमोरी नीति, ट्रस्ट मॉडल, DoS सीमाएँ |
 | [relay.md](technical/relay.md) | नेटवर्क रिले (`scone-network`): libp2p प्रोटोकॉल, पीयर खोज (seeds, directory, UPnP), पहुँच (AutoNAT, circuit-relay, DCUtR), मेमपूल, सिंक, Kademlia DHT, स्थानीय टोपोलॉजी, Prometheus मेट्रिक्स, DNS स्नैपशॉट, पूर्ण CLI, `.env` विन्यास |
 | [dns.md](technical/dns.md) | UDP + TCP DNS सर्वर (M6/M7b): प्राधिकारी DNS स्नैपशॉट, 16-तरफ़ा शार्डेड हॉट-पाथ कैश (साझा प्रविष्टियाँ, बिना-आवंटन लुकअप, पैक किए रिकॉर्ड, नाम संपीड़न), RFC 1035 कोडेक, TCP RFC 7766 (512-बाइट UDP / 64 KiB TCP बजट, TC बिट), DHT निगेटिव कैश, रिकर्सिव फ़ॉलबैक, सीमाएँ |
-| [cli.md](technical/cli.md) | `scone` बाइनरी: लॉगिंग और वर्बोसिटी (stdout/stderr, `-v` स्तर, `RUST_LOG`), `.env` के माध्यम से वातावरण विन्यास (प्राथमिकता flag > `.env` > डिफ़ॉल्ट) |
+| [cli.md](technical/cli.md) | `scone` बाइनरी: लॉगिंग और वर्बोसिटी (stdout/stderr, `-v` स्तर, `RUST_LOG`), `.env` के माध्यम से वातावरण विन्यास (प्राथमिकता flag > `.env` > डिफ़ॉल्ट), रिकॉर्ड प्रतिनिधि (`domain delegates set/clear/list`), प्रतिनिधि-हस्ताक्षरित अद्यतन |
 | [security-model.md](technical/security-model.md) | सुरक्षा मॉडल: समिति चयन, सीड एंटी-ग्राइंडिंग (विश्लेषण: VRF आवश्यक नहीं), इक्विवोकेशन और स्लैशिंग |
 | [audit-methodologie.md](technical/audit-methodologie.md) | सुरक्षा ऑडिट पद्धति: विचलन, सत्य का स्रोत, सुधार पास |
 | [rfc-proof-of-service.md](technical/rfc-proof-of-service.md) | प्रूफ-ऑफ़-सर्विस RFC: ऑपरेटर हार्टबीट, संचालन प्रतिनिधित्व, ताज़ा सीटों के बीच समिति चुनाव |

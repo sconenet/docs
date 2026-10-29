@@ -339,7 +339,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | 雙向 | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | 雙向 | 節點狀態（網路、尖端、高度、NAT、網域、記憶體池、peer、最終性、新鮮營運者） | — | — |
 | `0x0e` | `LookupName` | 雙向 | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | 雙向 | 名稱 + TLD 的鏈上狀態 | — | — |
+| `0x0f` | `NameState` | 雙向 | 名稱 + TLD 的鏈上狀態、含 CAS 世代（變更計數器、registered_at） | — | — |
 | `0x10` | `GetOwnedNames` | 雙向 | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | 雙向 | 擁有者的活躍網域 + TLD | — | — |
 | `0x12` | `Error` | 回覆 | 應用層錯誤訊息（`str`） | — | — |

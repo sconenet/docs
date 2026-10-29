@@ -47,17 +47,18 @@ Transaction = disc u8 || version u8 || payload
 | `0x21` | `RegisterDomain` | 域名声明 |
 | `0x52` | `UpdateDomain` | 域名 DNS 数据的新版本 |
 | `0x93` | `RegisterTld` | 顶级域声明（M7） |
-| `0x47` | `TransferTld` | 将 TLD 转移给新所有者（M8a） |
+| `0x47` | `TransferTld` | 将 TLD 转移给新所有者（M8a；绑定计数器的转让 PoW） |
 | `0x6B` | `RevokeTld` | 放弃一个 TLD（M8a） |
 | `0xB8` | `SetTldOpen` | 向自助注册**不可逆地**开放一个 TLD（单向、所有者选项；`open=false` 是类型化拒绝） |
 | `0xD4` | `AssignDomain` | 由 TLD 所有者直接分配域名（M8a） |
 | `0x3C` | `RenewDomain` | 延长域名的注册期（M8a；因所有者选项而携带规范名称 —— 开放 TLD 跟随到期时间） |
 | `0x8F` | `RenewTld` | 私有 TLD 3 年期限的续期（与创建等量的 PoW） |
 | `0x15` | `SlashTx` | 锚节点歧义行为的证据 + 封禁（M9） |
-| `0xE2` | `TransferDomain` | 将域名转移给新所有者（M8c） |
+| `0xE2` | `TransferDomain` | 将域名转移给新所有者（M8c；绑定计数器的转让 PoW） |
 | `0x71` | `Heartbeat` | 运营者的存活证明（服务证明 RFC） |
-| `0xA9` | `SetTldOperator` | 私有 TLD 运营的委托（服务证明 RFC） |
-| `0x5E` | `SetDomainOperator` | 域名运营的委托（服务证明 RFC） |
+| `0xA9` | `SetTldOperator` | 私有 TLD 运营的委托（服务证明 RFC；绑定计数器） |
+| `0x5E` | `SetDomainOperator` | 域名运营的委托（服务证明 RFC；绑定计数器） |
+| `0x66` | `SetRecordDelegates` | 域名的记录委托密钥 —— KSK/ZSK-lite：恰好这些密钥与所有者一起可以签署 `UpdateDomain`（绑定计数器） |
 
 任何非 `0x01` 的版本字节都被显式拒绝
 （`UnsupportedVersion(收到的值)`）：未知或过时的格式
@@ -160,7 +161,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 裸字节 | 被转移的 TLD |
 | `owner` | 32 裸字节 | `public_key` 的派生（当前所有者 / 签名者） |
 | `new_owner` | 32 裸字节 | 接收方身份（不透明：任何值在语法上都有效；与可花费密钥的绑定是 M8b 状态规则） |
-| `proof` | 有界（varint ‖ 字节） | 反频繁倒手的转让证明、挑战 `SCONE-TLD-XFER-V1 ‖ tld_id`、扁平难度 `transfer_pow_difficulty`、纪元盐 |
+| `proof` | 有界（varint ‖ 字节） | 为命名空间**当前**计数器绑定挖出的反频繁倒手转让证明（见[变异计数器](#变异计数器)）、扁平难度 `transfer_pow_difficulty`、纪元盐 |
 | `public_key` | 32 裸字节 | 签名者的 Ed25519 公钥 |
 | `signature` | **恰好 64 字节** | 签名载荷的 Ed25519 签名 |
 
@@ -274,6 +275,80 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
 - 宽限期内续期不被冻结 —— 它是过期的
   所有者仅存的可用管理操作。
 
+## 委托权威家族 —— 绑定计数器（0xE2、0xA9、0x5E、0x66）
+
+四种交易对一个命名空间的权威进行委托或重新指派。
+它们共享同一套防重放纪律：每一笔都携带或挖出
+一个**计数器绑定** —— `BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖
+id[32] ‖ generation_be64 ‖ counter_be64)` —— 按命名空间
+**当前**的变异计数器计算（见
+[变异计数器](#变异计数器)）。针对过时世代构建的
+交易会被拒绝，即使其签名或证明在密码学上
+仍然有效。
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+`TransferTld` 在域名侧的镜像：由当前所有者签名，
+`new_owner` 不透明。`proof` 是反频繁倒手的转让
+PoW（扁平 `transfer_pow_difficulty`、纪元盐），为
+`mutations_binding(domain_id, counter)` —— 被转移状态
+世代的挑战 —— 挖出。应用规则：先检查所有者
+（`NotOwner`），再对照**当前**计数器的绑定验证
+PoW（重放的转让解出的是一个更旧的挑战 ——
+类型化拒绝），然后计数器递增。记录委托集合是
+旧所有者的授权：一次转移将其清空。`TransferTld`
+（0x47）是 TLD 侧的对称形式：其转让证明为
+`mutations_binding(tld_id, counter)` 挖出。
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `id` | 32 裸字节 | `tld_id`（0xA9）或 `domain_id`（0x5E） |
+| `owner` | 32 裸字节 | `public_key` 的派生（当前所有者 / 签名者） |
+| `operator.option` | `0x00` 或 `0x01 ‖ key[32]` | 委托的运营者，或 `0x00` 以回到自营 |
+| `state_binding` | **恰好 32 裸字节** | **当前**计数器绑定的规范哈希：`mutations_binding(id, generation, counter)`（generation 对 TLD 为 `valid_until`、对域名为 `registered_at`）—— 过时的绑定即类型化拒绝（`StaleStateBinding`），即使签名有效 |
+| `public_key` | 32 裸字节 | 签名者的 Ed25519 公钥（命名空间的所有者） |
+| `signature` | **恰好 64 字节** | 签名载荷的 Ed25519 签名 |
+
+由当前所有者签名（0xA9 为私有 TLD；0x5E 为已
+注册域名）。反出租绑定：一个被委托的运营者
+至多服务一个席位（`OperatorAlreadyDelegated`）。
+应用先验证绑定，然后递增计数器 —— 对**同一**
+运营者的再次委托也是一次世代变更，而非空操作。
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `domain_id` | 32 裸字节 | 目标域名 |
+| `owner` | 32 裸字节 | `public_key` 的派生 —— **域名**的当前所有者 |
+| `count` | 1 字节 | 至多 3（`MAX_RECORD_DELEGATES`） |
+| `keys` | 32 × count 裸字节 | 委托公钥，**严格升序**（规范顺序；重复或乱序的密钥是解码错误） |
+| `state_binding` | **恰好 32 裸字节** | **当前**计数器的规范哈希：`mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 裸字节 | 签名者的 Ed25519 公钥 —— **域名**的所有者 |
+| `signature` | **恰好 64 字节** | 签名载荷的 Ed25519 签名 |
+
+KSK/ZSK-lite：所携带的集合**整体替换**前一个集合
+（无合并），且 —— 与域名所有者一起 —— 恰好这些
+密钥可以为该域名签署 `UpdateDomain`。所有者独占：
+委托永远无法管理该集合。集合随域名消亡，并被
+一次转移清空。应用对照当前计数器验证绑定并
+递增它：`∅ → {9,10} → ∅ → 重放`循环无法复活一个
+被吊销的密钥（见 `security-model.md`，重放攻击）。
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -292,6 +367,21 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 注意：`UpdateDomain` **不携带** `timestamp` —— 顺序
 经由 `sequence`。它也不携带名称：域名已经
 注册，id 足矣。
+
+#### 权威规则 —— 所有者或记录委托
+
+`owner` 字段是**域名**的链上所有者（更新是**为**
+该命名空间做的）；`public_key` 是**实际**签名者 ——
+所有者**或**该域名的记录委托密钥之一
+（KSK/ZSK-lite，见 `SetRecordDelegates`）。与其他所有
+已签名交易不同，所有者↔密钥派生对此变体被
+刻意**不**强制（`validate_transaction` 将其豁免）：
+状态层的权威规则 —— 签名者 ∈ {owner} ∪ 委托、
+`sequence == current + 1` —— 是唯一的绑定。签名仍
+经由签名载荷覆盖 `owner` 字段，因此委托是**为**
+一个特定命名空间签署。注意：所有者→密钥映射
+按首次出现学习（注册/指派时），因此委托的
+更新绝不会覆盖它。
 
 ### 严格边界
 
@@ -389,7 +479,45 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 `owner` 与其自身 `public_key` 的派生不匹配的
 交易无效（核心侧 `InvalidOwner`、
 链侧 `OwnerKeyMismatch`），在编码、解码
-**以及**链验证时拒绝（纵深防御）。
+**以及**链验证时拒绝（纵深防御）。唯一的
+例外：`UpdateDomain` —— 在记录委托模型下，其
+`owner` 字段是**域名**的链上所有者，而签名者
+可以是记录委托；状态层的权威规则将签名者
+绑定到命名空间。
+
+## 变异计数器
+
+每个命名空间都携带一个**单调**变异计数器
+（`mutations: u64`）—— 其受防护操作的 CAS 防重放
+世代。
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **受防护的交易**（验证绑定，然后递增计数器）：
+  `SetRecordDelegates`、`SetTldOperator`、
+  `SetDomainOperator`、`TransferTld`、`TransferDomain`。
+- **世代标记**：域名用 `registered_at`（对命名空间
+  整个生命周期固定），TLD 用 `valid_until`（在每一
+  次生命中结构性不同 —— 重新声明只发生在完整的
+  多年任期加宽限期之后）。没有它，一个死亡后被
+  重新注册的命名空间（计数器重置）可能在计数器
+  再次达到同一值时，重新武装来自前一次生命的
+  交易。
+- **验证**：应用从**当前**状态重新推导绑定，并与
+  携带的值（set 类）比较，或对照它验证 PoW
+  （转让）。不匹配即类型化拒绝
+  （`StaleStateBinding` / 未解出的证明），不改变任何
+  状态。
+- **为什么要计数器**：当前状态的纯函数会在状态
+  合法地循环回原点时返回先前的值 —— 一次
+  A→B→A 的转让、一个 `∅ → {9,10} → ∅` 的委托
+  集合。重放会自我重新武装。计数器永不回头。
+  计数器被提交在命名空间的 SMT 叶子中（V4），
+  并在 name-state 响应中暴露，让客户端无需信任
+  地"先取再绑"（fetch-then-bind）。
 
 ## 签名载荷
 
@@ -592,9 +720,9 @@ x86-64 上单线程吞吐约 7.7 M H/s）：
 **转让与指派证明（共识级反垃圾）**：
 `TransferTld`、`TransferDomain` 与 `AssignDomain`
 各自携带**扁平**的工作量证明 —— 两次转让用
-`transfer_pow_difficulty`（挑战
-`SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`）、指派用
+`transfer_pow_difficulty`（挑战 = 命名空间**当前**的
+计数器绑定，见[变异计数器](#变异计数器) —— 扁平的
+`SCONE-*-XFER-V1` 标签已退役）、指派用
 `assign_pow_difficulty`（挑战
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name`）。与注册相同
 的纪元盐与防预挖窗口；在内存池准入时验证
@@ -740,4 +868,5 @@ scone domains                            # what you own
 |---|---|---|
 | 1 | 内嵌 `public_key` + `signature`、载荷 `SCONE-TX-SIG-V1`、版本字节 `0x01`、`RegisterDomain` 携带名称、`RegisterTld` (0x93)、M8a 家族：`TransferTld` (0x47)、`RevokeTld` (0x6B)、`SetTldOpen` (0xB8)、`AssignDomain` (0xD4)、`RenewDomain` (0x3C) —— 规范线上格式；M8b：`network` 字段签入每个载荷的头部、`RegisterTld` 携带名称、完整状态规则、按网络 PoW 难度 | 已被取代 |
 | 1（2026-09，线上无 network） | **从所有交易的线上格式中移除 `network` 字段**：network_id 只存在于签名载荷中（`signing_payload(tx, network)` 将其注入头部）；网络分离依赖签名（外部载荷 `InvalidSignature`，`WrongNetwork` 错误消失）；`TX_FORMAT_VERSION` 保持 `0x01`（可重启的测试网、无共存）；**所有 TxId 改变**（TxId 是已签名线上编码的哈希，减少 14–15 字节）；PoW 摘要、创世与按网络的 data-dir 不变 | 已被取代 |
-| 1（2026-10，PoW 纪元加盐） | **防预挖 PoW 摘要**：盐 `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + 基于 `nonce_le` 的 Argon2id 核心，`epoch = block_height / 144` 取自应用该交易的区块；证明线上载荷 12 → **20 字节**（`nonce_le ‖ epoch_le ‖ difficulty_le`），声明的纪元对照应用区块的纪元有效窗口验证（类型化拒绝 `ProofEpochMismatch`）、内存池准入时尽力的 `(height+1)/144`、离线路径上的 `--epoch` CLI 标志；主网前的破坏性变更：旧的 12 字节载荷被拒绝，**所有 TxId 改变**（`proof` 字段增长 8 字节） | 当前 |
+| 1（2026-10，PoW 纪元加盐） | **防预挖 PoW 摘要**：盐 `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + 基于 `nonce_le` 的 Argon2id 核心，`epoch = block_height / 144` 取自应用该交易的区块；证明线上载荷 12 → **20 字节**（`nonce_le ‖ epoch_le ‖ difficulty_le`），声明的纪元对照应用区块的纪元有效窗口验证（类型化拒绝 `ProofEpochMismatch`）、内存池准入时尽力的 `(height+1)/144`、离线路径上的 `--epoch` CLI 标志；主网前的破坏性变更：旧的 12 字节载荷被拒绝，**所有 TxId 改变**（`proof` 字段增长 8 字节） | 已被取代 |
+| 1（2026-10，变异计数器） | **CAS 防重放绑定**：按命名空间的单调变异计数器（`DomainState`/`TldState::Private`），五种受防护的交易先验证后递增（`SetRecordDelegates` 0x66 新增、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain`）；转让 PoW 为计数器绑定挖出（静态的 `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` 挑战退役）；set 类交易携带已签名的 32 字节 `state_binding` 线上字段；SMT 叶子 V4 提交计数器（V2/V3 退役 —— V3 从未发布）；存储编解码每个域名 +8 字节 / 每个私有 TLD +8 字节；`NameState` 暴露计数器与 `registered_at`；主网前的破坏性变更：状态格式 + 线上格式变更，**测试网重置**，旧快照在导入时被拒绝 | 当前 |

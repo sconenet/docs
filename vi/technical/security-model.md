@@ -120,6 +120,50 @@ chống một rủi ro được chứng minh là không tồn tại (không có 
 - e2e 4 relay: một checkpoint hoàn tất và lan truyền, cùng epoch
   trên mọi nút.
 
+## Các tấn công phát lại lên thẩm quyền ủy nhiệm (các ràng buộc bộ đếm)
+
+Năm giao dịch biến đổi AI được hành động trên một namespace:
+`TransferTld`, `TransferDomain` (quyền sở hữu), `SetRecordDelegates`
+(các khóa ủy nhiệm bản ghi), `SetTldOperator` / `SetDomainOperator`
+(các ủy nhiệm vận hành). Một giao dịch đã ghi nhận của các dạng này
+vẫn hợp lệ về mặt mật mã MÃI MÃI (chữ ký phủ các trường tĩnh; PoW
+chuyển nhượng giải một challenge dẫn xuất từ chính namespace). Thứ
+duy nhất bị loại dần theo thời gian là cửa sổ phát lại có giới hạn
+(256 khối cuối). Vượt qua nó, phân tích tái kích hoạt:
+
+- **Chuyển nhượng A→B→A**: A chuyển cho B, B chuyển lại cho A —
+  trạng thái quay về một cấu hình cũ. Phát lại giao dịch A→B
+  GỐC tái thực thi chuyển nhượng mà không có sự đồng thuận (kiểm
+  tra chủ lại thông qua; một bằng chứng challenge-tĩnh vẫn giải
+  được).
+- **Chu kỳ tập ủy nhiệm**: ủy nhiệm được đặt thành `{9,10}`, xóa
+  thành `∅`, rồi BẤT KỲ giao dịch nào khôi phục `{9,10}` — một
+  phát lại của `SetRecordDelegates` đầu tiên hồi sinh các khóa đã
+  thu hồi.
+
+Một ràng buộc được tính như một hàm thuần túy của trạng thái HIỆN
+TẠI (chủ, nội dung tập, ...) quay về giá trị cũ của nó đúng khi
+trạng thái quay về như vậy — nó sẽ tự tái kích hoạt chính lệnh phát
+lại mà nó phải tiêu diệt. Phòng thủ là một thế hệ MONOTONIC: mọi
+namespace mang `mutations: u64`, được tăng bởi mỗi trong năm giao
+dịch được bảo vệ; một giao dịch gắn với bộ đếm của thế hệ mà nó
+được dựng trên (`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖
+generation ‖ counter)`) và ứng dụng xác minh ràng buộc đó đối với
+bộ đếm HIỆN TẠI. Các bộ đếm không bao giờ quay lại; do đó không có
+phát lại nào tái kích hoạt. Dấu thế hệ (`registered_at` cho tên
+miền, `valid_until` cho TLD) giữ các ĐỜI SỐNG trước đó của một
+namespace được đăng ký lại tách rời nhau.
+
+Cạnh dư (được ghi tài liệu): ràng buộc không phụ thuộc vào KHÓA
+của người ký. Cả năm giao dịch được bảo vệ được ký bởi chủ HIỆN
+TẠI của namespace, nên một phát lại chéo-đời đòi hỏi thêm cùng chủ
+nắm giữ namespace trong cả hai thế hệ và bộ đếm đạt lại giá trị
+đã ghi nhận — một kịch bản tự kiểm soát đối với ủy nhiệm/vận hành
+viên, và một trường hợp chủ-là-nạn nhân đối với chuyển nhượng đòi
+hỏi nạn nhân tự tuyên bố lại namespace đã chết của chính họ nhiều
+năm sau. Được chấp nhận trước-mainnet; xem xét lại nếu khối lượng
+chuyển nhượng hay tái sử dụng namespace khiến nó trở nên đáng kể.
+
 ## Giới hạn đã biết (được ghi nhận, chưa sửa)
 
 - Tập hợp hợp lệ bao gồm các chủ sở hữu TLD còn sống (tuyên bố =

@@ -127,16 +127,23 @@
 
 ## `DomainStateBytes` 編碼格式（M8b）
 
-依開頭版本標籤為 57 或 89 位元組、固定寬度
+依開頭版本標籤為 65 或 97 位元組、固定寬度
 大端整數（正典、可逐位元組比較）：
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` 是命名空間單調的變更計數器
+（CAS 反重播世代 — 見 `transactions.md`、
+變更計數器）。M8b 的編碼（57/89 位元組、
+無計數器）**不合法**：嚴格解碼 →
+`Corrupted`（testnet 重置；計數器前的
+儲存庫經重播再生）。
 
 - `registered_at`／`valid_until`（M8b）：
   註冊的到期（聲明時 1 年、可續期、見
@@ -160,21 +167,22 @@ M7 編碼（41/73 位元組、無到期）自 M8b 起
 ## `TldStateBytes` 編碼格式（owner-option）
 
 依枚舉變體而定的可變長度 — **私有** TLD
-34 位元組、**開放** TLD 2 位元組（兩者皆
+50 位元組、**開放** TLD 10 位元組（兩者皆
 無序號也無記錄雜湊）：
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag`（owner-option、`TldState` 枚舉）：
   `0x00` = `TldState::Open`（無主 — 自助 +
   PoW、無擁有者位元組）、`0x01` =
   `TldState::Private`（後接 32 個擁有者
-  位元組）。嚴格正典 — 任何其他位元組 →
-  `Corrupted`。「開放 ⟺ 無擁有者」的
-  不變量是**結構性的**：兩種狀態不可能
-  混淆。
+  位元組 + 8 個計數器位元組）。嚴格正典 —
+  任何其他位元組 → `Corrupted`。「開放 ⟺
+  無擁有者」的不變量是**結構性的**：兩種
+  狀態不可能混淆。
 - **`until`（8 位元組、BE64）**：TLD 自己的
   時鐘 — 私有任期結束（聲明／續期 + 3 年）
   或開放死亡時程（誕生時 1 年下限、被每個
@@ -186,10 +194,11 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   與連續節點相同的 TLD。
 
 M7d（33 位元組、標籤 `0x01`）、M8b（34
-位元組、標籤 `0x02`、布林 `open`）與舊標籤
-`0x03`（內嵌 `until`）的編碼都**不合法**：
-嚴格解碼 → `Corrupted`（主網前、經重播
-再生即為遷移路徑）。
+位元組、標籤 `0x02`、布林 `open`）、舊標籤
+`0x03`（內嵌 `until`）與計數器前的標籤
+`0x04` 佈局（42/2 位元組、無計數器）的
+編碼都**不合法**：嚴格解碼 → `Corrupted`
+（主網前、經重播再生即為遷移路徑）。
 
 標籤只是為了格式演進：未來的佈局提高
 標籤、舊讀取器以 `Corrupted` 失敗而非

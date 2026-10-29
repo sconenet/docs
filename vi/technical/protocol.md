@@ -326,7 +326,7 @@ vận chuyển không nên vượt `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0c` | `GetStatus` | hai chiều | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | hai chiều | trạng thái nút (mạng, đỉnh, chiều cao, NAT, tên miền, mempool, peer, tính cuối, vận hành viên còn mới) | — | — |
 | `0x0e` | `LookupName` | hai chiều | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | hai chiều | trạng thái on-chain của tên + TLD | — | — |
+| `0x0f` | `NameState` | hai chiều | trạng thái on-chain của tên + TLD, gồm thế hệ CAS (các bộ đếm biến đổi, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | hai chiều | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | hai chiều | tên miền + TLD còn sống của chủ | — | — |
 | `0x12` | `Error` | trả lời | thông báo lỗi mức ứng dụng (`str`) | — | — |

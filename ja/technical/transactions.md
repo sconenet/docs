@@ -27,17 +27,18 @@ Transaction = disc u8 || version u8 || payload
 | `0x21` | `RegisterDomain` | ドメインのクレーム |
 | `0x52` | `UpdateDomain` | ドメインのDNSデータの新バージョン |
 | `0x93` | `RegisterTld` | トップレベルドメインのクレーム(M7) |
-| `0x47` | `TransferTld` | TLDの新しい所有者への移転(M8a) |
+| `0x47` | `TransferTld` | TLDの新しい所有者への移転(M8a。カウンター紐付けの譲渡PoW) |
 | `0x6B` | `RevokeTld` | TLDの放棄(M8a) |
 | `0xB8` | `SetTldOpen` | セルフ登録へのTLDの**不可逆**オープン化(一方向、owner-option。`open=false` は型付き拒否) |
 | `0xD4` | `AssignDomain` | TLD所有者によるドメインの直接割り当て(M8a) |
 | `0x3C` | `RenewDomain` | ドメイン登録の延長(M8a。owner-option以降、正準名を運ぶ — オープンTLDは失効に追従) |
 | `0x8F` | `RenewTld` | プライベートTLDの3年期間の更新(生成と同等のPoW) |
 | `0x15` | `SlashTx` | アンカーの等価性違反の証拠 + 追放(M9) |
-| `0xE2` | `TransferDomain` | ドメインの新しい所有者への移転(M8c) |
+| `0xE2` | `TransferDomain` | ドメインの新しい所有者への移転(M8c。カウンター紐付けの譲渡PoW) |
 | `0x71` | `Heartbeat` | オペレーターの生存証明(proof-of-service RFC) |
-| `0xA9` | `SetTldOperator` | プライベートTLDの運用の委任(proof-of-service RFC) |
-| `0x5E` | `SetDomainOperator` | ドメインの運用の委任(proof-of-service RFC) |
+| `0xA9` | `SetTldOperator` | プライベートTLDの運用の委任(proof-of-service RFC。カウンター紐付け) |
+| `0x5E` | `SetDomainOperator` | ドメインの運用の委任(proof-of-service RFC。カウンター紐付け) |
+| `0x66` | `SetRecordDelegates` | ドメインのレコードデリゲートキー — KSK/ZSK-lite: これらのキー**だけ**が、所有者とともに `UpdateDomain` に署名できる(カウンター紐付け) |
 
 `0x01` 以外のバージョンバイトは明示的に拒否されます
 (`UnsupportedVersion(受信した値)`): 未知または廃止されたフォーマットが偶然パースされることは決してありません。
@@ -114,7 +115,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32生バイト | 移転されるTLD |
 | `owner` | 32生バイト | `public_key` の導出(現在の所有者 / 署名者) |
 | `new_owner` | 32生バイト | 受取人の識別情報(不透明: どの値も構文的には有効。それを使えるキーへの結合はM8bの状態ルールです) |
-| `proof` | 有界(可変長整数 ‖ バイト) | アンチチャーン譲渡プルーフ、チャレンジ `SCONE-TLD-XFER-V1 ‖ tld_id`、フラット難易度 `transfer_pow_difficulty`、エポックソルト |
+| `proof` | 有界(可変長整数 ‖ バイト) | 名前空間の**現在の**カウンターバインディングに対してマイニングされたアンチチャーン譲渡プルーフ([ミューテーションカウンター](#ミューテーションカウンター)参照)、フラット難易度 `transfer_pow_difficulty`、エポックソルト |
 | `public_key` | 32生バイト | 署名者のEd25519公開鍵 |
 | `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
 
@@ -189,6 +190,53 @@ TLDの現在の**プライベート**所有者が署名します。適用ルー�
 - **生成と同等のPoW**: チャレンジ `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)`(再利用防止の接尾辞が各PoWを1つの期間に紐付けます)。初期クレームと同じ長さ別難易度。
 - 更新は猶予期間中も凍結され**ません** — 期限切れの所有者にまだ残されている唯一の管理操作です。
 
+## 委任権限ファミリー — カウンター紐付け(0xE2、0xA9、0x5E、0x66)
+
+4つのトランザクションが、名前空間に対する権限を委任または再割り当てします。それらは1つのアンチリプレイ規律を共有します: それぞれが、名前空間の**現在の**ミューテーションカウンターについて計算された**カウンターバインディング** — `BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64 ‖ counter_be64)` — を運ぶかマイニングします([ミューテーションカウンター](#ミューテーションカウンター)参照)。陳腐化した世代に対して構築されたトランザクションは、その署名やプルーフが依然として暗号学的に有効であっても拒否されます。
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+`TransferTld` のドメイン版の鏡像: 現在の所有者が署名し、`new_owner` は不透明。`proof` は、`mutations_binding(domain_id, counter)` — 移転される状態世代のチャレンジ — に対してマイニングされたアンチチャーン譲渡PoW(フラット `transfer_pow_difficulty`、エポックソルト)です。適用ルール: 最初に所有者チェック(`NotOwner`)、次に**現在の**カウンターのバインディングに対するPoW(リプレイされた譲渡は古いチャレンジを解くことになる — 型付き拒否)、その後カウンターをインクリメント。レコードデリゲートセットは**古い**所有者の許可です: 移転はそれをクリアします。`TransferTld` (0x47) は対称なTLD形式です: その譲渡プルーフは `mutations_binding(tld_id, counter)` に対してマイニングされます。
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| フィールド | 型 | 制約 |
+|---|---|---|
+| `id` | 32生バイト | `tld_id`(0xA9)または `domain_id`(0x5E) |
+| `owner` | 32生バイト | `public_key` の導出(現在の所有者 / 署名者) |
+| `operator.option` | `0x00` または `0x01 ‖ key[32]` | 委任されたオペレーター、または自己運用に戻す `0x00` |
+| `state_binding` | **ちょうど32生バイト** | **現在の**カウンターバインディングの正準ハッシュ: `mutations_binding(id, generation, counter)`(generation = TLDなら `valid_until`、ドメインなら `registered_at`)— 陳腐なバインディングは、署名が有効でも型付き拒否(`StaleStateBinding`) |
+| `public_key` | 32生バイト | 署名者のEd25519公開鍵(名前空間の所有者) |
+| `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
+
+現在の所有者が署名します(0xA9はプライベートTLD、0x5Eは登録済みドメイン)。アンチレンタル境界: 委任されたオペレーターが務めるシートは最大1つ(`OperatorAlreadyDelegated`)。アプリケーションはバインディングを検証してからカウンターをインクリメントします — **同じ**オペレーターへの再委任も、no-opではなく世代変更です。
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| フィールド | 型 | 制約 |
+|---|---|---|
+| `domain_id` | 32生バイト | 対象ドメイン |
+| `owner` | 32生バイト | `public_key` の導出 — ドメインの**現在の**所有者 |
+| `count` | 1バイト | 最大3(`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count 生バイト | デリゲート公開鍵、**厳密に昇順**(正準順序。重複や順序外のキーはデコードエラー) |
+| `state_binding` | **ちょうど32生バイト** | **現在の**カウンターの正準ハッシュ: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32生バイト | 署名者のEd25519公開鍵 — ドメインの**所有者** |
+| `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
+
+KSK/ZSK-lite: 運ばれるセットは前のセットを**完全に置き換えます**(マージなし)。ドメインの所有者とともに、**ちょうどこれらのキー**だけがそのドメインの `UpdateDomain` に署名できます。所有者専用: デリゲートがセットを管理することは決してできません。セットはドメインとともに死に、移転によってクリアされます。アプリケーションは現在のカウンターに対してバインディングを検証してからインクリメントします: `∅ → {9,10} → ∅ → リプレイ` の循環は、取り消されたキーを復活させられません(`security-model.md` のリプレイ攻撃参照)。
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -205,6 +253,10 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 | `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
 
 注意: `UpdateDomain` は `timestamp` を運び**ません** — 順序付けは `sequence` を通じて行われます。名前も運びません: ドメインはすでに登録されており、IDで十分です。
+
+#### 権限ルール — 所有者またはレコードデリゲート
+
+`owner` フィールドはドメインの**オンチェーン所有者**です(更新はその名前空間に対するものです)。`public_key` は**実際の署名者** — 所有者**または**ドメインのレコードデリゲートキーの1つ(KSK/ZSK-lite、`SetRecordDelegates` 参照)— です。他のすべての署名済みトランザクションと異なり、この型では所有者↔キーの導出は意図的に強制され**ません**(`validate_transaction` がこの型を免除します): 状態層の権限ルール — 署名者 ∈ {所有者} ∪ デリゲート、`sequence == current + 1` — が唯一の束縛です。署名は署名対象ペイロードを通じて `owner` フィールドを依然としてカバーするため、デリゲートは特定の名前空間「のために」署名することになります。注意点: 所有者→キーのマップは初出時に学習される(登録/割り当て)ため、デリゲートによる更新がそのマップを上書きすることは決してありません。
 
 ### 厳格な境界
 
@@ -258,7 +310,21 @@ PublicKeyRef = BLAKE3-256("SCONE-PUBKEY-V1" || public_key)
 OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 ```
 
-`owner` が自分の `public_key` の導出と一致しないトランザクションは無効です(コア側では `InvalidOwner`、チェーン側では `OwnerKeyMismatch`)。エンコード、デコード、**そして**チェーン検証で拒否されます(多層防御)。
+`owner` が自分の `public_key` の導出と一致しないトランザクションは無効です(コア側では `InvalidOwner`、チェーン側では `OwnerKeyMismatch`)。エンコード、デコード、**そして**チェーン検証で拒否されます(多層防御)。**唯一の例外**: `UpdateDomain` — レコードデリゲートモデルの下では、その `owner` フィールドはドメインのオンチェーン所有者である一方、署名者はレコードデリゲートであり得ます。状態層の権限ルールが署名者を名前空間に束縛します。
+
+## ミューテーションカウンター
+
+すべての名前空間は**単調な**ミューテーションカウンター(`mutations: u64`)を運びます — そのガードされた操作のCASアンチリプレイ世代です。
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **ガードされたトランザクション**(バインディングを検証してからカウンターをインクリメント): `SetRecordDelegates`、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain`。
+- **世代マーカー**: ドメインは `registered_at`(名前空間の全ライフを通じて固定)、TLDは `valid_until`(すべてのライフで構造的に異なる — 再クレームは、完全な複数年期間+猶予の後にしか起こらない)。これがなければ、死んで再登録された名前空間(カウンターリセット)は、カウンターが同じ値に達した時点で、以前のライフのトランザクションを再武装できてしまいます。
+- **検証**: アプリケーションは**現在の**状態からバインディングを再導出し、運ばれた値と比較し(セット型)、またはそれに対してPoWを検証します(譲渡)。不一致は、何も変更しない型付き拒否(`StaleStateBinding` / 未解決のプルーフ)です。
+- **なぜカウンターなのか**: 現在の状態の純粋関数は、状態が正当に循環して戻ったとき — 譲渡A→B→A、デリゲートセット `∅ → {9,10} → ∅` — に過去の値へ戻ります。リプレイは自分自身を再武装してしまいます。カウンターは決して戻りません。カウンターは名前空間のSMTリーフ(V4)にコミットされ、name-state応答で公開されるため、クライアントは信頼なしにフェッチしてからバインドします(fetch-then-bind)。
 
 ## 署名対象ペイロード
 
@@ -370,7 +436,7 @@ Mainnetベンチマーク(プライベートTLD、約6 Mハッシュ/秒): 1文�
 
 状態分岐(M8b、実装済み): `RegisterTld` は常にPoWを要求。`RegisterDomain` は**オープン**TLD上で要求(クローズパスはassign専用 — `AssignDomain`、TLD所有者が署名し、独自のフラットなアンチスパムプルーフを持ちます)。
 
-**譲渡とアサインのプルーフ(コンセンサスレベルのアンチスパム)**: `TransferTld`、`TransferDomain`、`AssignDomain` はそれぞれ**フラット**なプルーフオブワークを運びます — 2つの譲渡には `transfer_pow_difficulty`(チャレンジ `SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`)、アサインには `assign_pow_difficulty`(チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)。登録と同じエポックソルトとアンチプレマイニングウィンドウ。メモリプール准入時に検証され(推定エポック、ベストエフォート)、適用時に厳密に検証されます。目標: 譲渡の頻繁な売買やプライベートTLD下での大量作成のコストは、ポリシーではなくコンセンサスレベルの仕事にします。長さごとの課税なし: アサインについては、名前空間の排他性はプライベートTLDの作成時にすでに支払われています。
+**譲渡とアサインのプルーフ(コンセンサスレベルのアンチスパム)**: `TransferTld`、`TransferDomain`、`AssignDomain` はそれぞれ**フラット**なプルーフオブワークを運びます — 2つの譲渡には `transfer_pow_difficulty`(チャレンジ = 名前空間の**現在の**カウンターバインディング、[ミューテーションカウンター](#ミューテーションカウンター) — フラットな `SCONE-*-XFER-V1` タグは廃止されました)、アサインには `assign_pow_difficulty`(チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)。登録と同じエポックソルトとアンチプレマイニングウィンドウ。メモリプール准入時に検証され(推定エポック、ベストエフォート)、適用時に厳密に検証されます。目標: 譲渡の頻繁な売買やプライベートTLD下での大量作成のコストは、ポリシーではなくコンセンサスレベルの仕事にします。長さごとの課税なし: アサインについては、名前空間の排他性はプライベートTLDの作成時にすでに支払われています。
 
 **受動的な譲渡**: これらの取得パス(`TransferTld`、`TransferDomain`、`AssignDomain`)は譲渡者だけが署名します — 受取人は決して相談されません。意図された選択です(贈与、デッドドロップ、遺贈)。課せ可能なPoS債務はありません: `security-model.md`(受動的取得と適格性)を参照。
 
@@ -460,4 +526,5 @@ scone domains                            # what you own
 |---|---|---|
 | 1 | 埋め込み `public_key` + `signature`、ペイロード `SCONE-TX-SIG-V1`、バージョンバイト `0x01`、`RegisterDomain` が名前を運ぶ、`RegisterTld` (0x93)、M8aファミリー: `TransferTld` (0x47)、`RevokeTld` (0x6B)、`SetTldOpen` (0xB8)、`AssignDomain` (0xD4)、`RenewDomain` (0x3C) — 規範ワイヤーフォーマット。M8b: `network` フィールドがすべてのペイロードの先頭で署名される、`RegisterTld` が名前を運ぶ、完全な状態ルール、ネットワークごとのPoW難易度 | 廃止 |
 | 1 (2026-09、networkなしのワイヤー) | **すべてのトランザクションのワイヤーからの `network` フィールドの除去**: network_idは署名ペイロード内にのみ存在(`signing_payload(tx, network)` が先頭に注入)。ネットワーク分離は署名に依存(よそのペイロードには `InvalidSignature`、`WrongNetwork` エラーは消滅)。`TX_FORMAT_VERSION` は `0x01` のまま(再起動可能なtestnet、共存なし)。**すべてのTxIdが変わる**(TxIdは署名済みワイヤーエンコーディングのハッシュであり、14〜15バイト失う)。PoWダイジェスト、ジェネシス、ネットワークごとのデータディレクトリは変更なし | 廃止 |
-| 1 (2026-10、PoWエポックソルト) | **先行マイニング対策PoWダイジェスト**: ソルト `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + `nonce_le` 上のArgon2idコア。`epoch = block_height / 144` はtxを適用するブロックのもの。プルーフのワイヤーペイロードは12 → **20バイト**(`nonce_le ‖ epoch_le ‖ difficulty_le`)。申告されたエポックは適用ブロックのエポック有効ウィンドウに対して検証(型付き拒否 `ProofEpochMismatch`)。メモリプール准入ではベストエフォートの `(height+1)/144`、オフラインパスに `--epoch` CLIフラグ。mainnet前の破壊的変更: 古い12バイトペイロードは拒否、**すべてのTxIdが変わる**(`proof` フィールドが8バイト増える) | 現行 |
+| 1 (2026-10、PoWエポックソルト) | **先行マイニング対策PoWダイジェスト**: ソルト `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + `nonce_le` 上のArgon2idコア。`epoch = block_height / 144` はtxを適用するブロックのもの。プルーフのワイヤーペイロードは12 → **20バイト**(`nonce_le ‖ epoch_le ‖ difficulty_le`)。申告されたエポックは適用ブロックのエポック有効ウィンドウに対して検証(型付き拒否 `ProofEpochMismatch`)。メモリプール准入ではベストエフォートの `(height+1)/144`、オフラインパスに `--epoch` CLIフラグ。mainnet前の破壊的変更: 古い12バイトペイロードは拒否、**すべてのTxIdが変わる**(`proof` フィールドが8バイト増える) | 廃止 |
+| 1 (2026-10、ミューテーションカウンター) | **CASアンチリプレイバインディング**: 名前空間ごとの単調なミューテーションカウンター(`DomainState`/`TldState::Private`)。5つのガードされたトランザクションが検証してからインクリメント(`SetRecordDelegates` 0x66 **新規**、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain`)。譲渡PoWはカウンターバインディングに対してマイニング(静的な `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` チャレンジは廃止)。セット型は署名済み32バイトの `state_binding` ワイヤーフィールドを運ぶ。SMTリーフV4がカウンターをコミット(V2/V3は廃止 — V3は出荷されなかった)。ストレージコーデックはドメインあたり+8バイト / プライベートTLDあたり+8バイト。`NameState` がカウンターと `registered_at` を公開。mainnet前の破壊的変更: 状態フォーマット+ワイヤー変更、**testnetリセット**、古いスナップショットはインポートで拒否 | 現行 |

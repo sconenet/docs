@@ -136,9 +136,11 @@ Client kiểm chứng: `dig <name> --dns 127.0.0.1:5353
    kể cả — hành vi wildcard ngầm, quyết định mở).
 4. **`resolve_local` (kênh nội bộ)**: một vòng duy nhất, không
    bao giờ một trình chờ DHT. Trạng thái on-chain (`registered`,
-   owner, sequence) + bản ghi cache DHT cục bộ **được xác minh
-   lại** (owner, sequence, record_hash == cam kết on-chain).
-   Một bản ghi không phù hợp không bao giờ trả lời — sẵn sàng ≠
+   owner, sequence, mutations) + bản ghi cache DHT cục bộ
+   **được xác minh lại** (owner, sequence, record_hash == cam kết
+   on-chain; chữ ký của bản ghi có thể đến từ chủ hoặc một ủy
+   nhiệm bản ghi — cùng quy tắc với việc xác minh của relay). Một
+   bản ghi không phù hợp không bao giờ trả lời — sẵn sàng ≠
    thẩm quyền.
    - chưa đăng ký → NXDOMAIN;
    - đăng ký mà không có bản ghi hợp lệ → NODATA (NOERROR, 0

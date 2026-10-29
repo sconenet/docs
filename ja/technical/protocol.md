@@ -233,7 +233,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | 双方 | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | 双方 | ノード状態(ネットワーク、チップ、高さ、NAT、ドメイン、メモリプール、ピア、ファイナリティ、新鮮なオペレーター) | — | — |
 | `0x0e` | `LookupName` | 双方 | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | 双方 | 名前 + TLDのオンチェーン状態 | — | — |
+| `0x0f` | `NameState` | 双方 | 名前 + TLDのオンチェーン状態、CAS世代を含む(ミューテーションカウンター、registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | 双方 | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | 双方 | 所有者の生存ドメイン + TLD | — | — |
 | `0x12` | `Error` | 応答 | アプリケーションレベルのエラーメッセージ(`str`) | — | — |

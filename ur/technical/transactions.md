@@ -47,17 +47,18 @@ Transaction = disc u8 || version u8 || payload
 | `0x21` | `RegisterDomain` | کسی ڈومین کا دعوی |
 | `0x52` | `UpdateDomain` | ڈومین کے DNS ڈیٹا کا نیا ورژن |
 | `0x93` | `RegisterTld` | اعلیٰ سطحی ڈومین کا دعوی (M7) |
-| `0x47` | `TransferTld` | TLD کا نئے مالک کو منتقل (M8a) |
+| `0x47` | `TransferTld` | TLD کا نئے مالک کو منتقل (M8a؛ عدّاد سے منسلک cession PoW) |
 | `0x6B` | `RevokeTld` | TLD کا ترک (M8a) |
 | `0xB8` | `SetTldOpen` | TLD کی خود رجسٹریشن کے لیے **ناقابلِ واپسی** کھلنا (یک رخہ، مالک آپشن؛ `open=false` ٹائپ شدہ انکار ہے) |
 | `0xD4` | `AssignDomain` | TLD کے مالک کی جانب سے ڈومین کی براہِ راست تخصیص (M8a) |
 | `0x3C` | `RenewDomain` | ڈومین رجسٹریشن کی توسیع (M8a؛ مالک آپشن سے کیننیکل نام رکھتا ہے — کھلی TLD میعاد کی پیروی کرتی ہے) |
 | `0x8F` | `RenewTld` | ذاتی TLD کی 3 سالہ مدت کی تجدید (پیدائش کے برابر PoW) |
 | `0x15` | `SlashTx` | اینکر غلط بیانی کا ثبوت + جلاوطی (M9) |
-| `0xE2` | `TransferDomain` | ڈومین کا نئے مالک کو منتقل (M8c) |
+| `0xE2` | `TransferDomain` | ڈومین کا نئے مالک کو منتقل (M8c؛ عدّاد سے منسلک cession PoW) |
 | `0x71` | `Heartbeat` | آپریٹر کے زندہ رہنے کا ثبوت (proof-of-service RFC) |
-| `0xA9` | `SetTldOperator` | ذاتی TLD کے آپریشن کی delegation (proof-of-service RFC) |
-| `0x5E` | `SetDomainOperator` | ڈومین کے آپریشن کی delegation (proof-of-service RFC) |
+| `0xA9` | `SetTldOperator` | ذاتی TLD کے آپریشن کی delegation (proof-of-service RFC؛ عدّاد سے منسلک) |
+| `0x5E` | `SetDomainOperator` | ڈومین کے آپریشن کی delegation (proof-of-service RFC؛ عدّاد سے منسلک) |
+| `0x66` | `SetRecordDelegates` | ڈومین کی ریکارڈ delegate کلیدیں — KSK/ZSK-lite: بالکل یہی کلیدیں، مالک کے ساتھ مل کر، `UpdateDomain` پر دستخط کر سکتی ہیں (عدّاد سے منسلک) |
 
 `0x01` کے سوا کوئی ورژن بائٹ واضح طور پر مسترد ہے
 (`UnsupportedVersion(موصول قیمت)`): نامعلوم یا متروک فارمیٹ کبھی
@@ -159,7 +160,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 خام بائٹس | منتقل شدہ TLD |
 | `owner` | 32 خام بائٹس | `public_key` کا حصول (موجودہ مالک / دستخط کنندہ) |
 | `new_owner` | 32 خام بائٹس | وصول کنندہ کی شناخت (اپاہج: نحوی طور پر کوئی بھی قیمت درست؛ خرچ کرنے والی کلیدوں سے بندھنا M8b اسٹیٹ قاعدہ ہے) |
-| `proof` | محدود (varint ‖ بائٹس) | اینٹی چرن دستاویزی منتقلی ثبوت، چیلنج `SCONE-TLD-XFER-V1 ‖ tld_id`، فلیٹ مشکل `transfer_pow_difficulty`، ایپوک نمک |
+| `proof` | محدود (varint ‖ بائٹس) | اینٹی چرن دستاویزی منتقلی ثبوت جو namespace کے موجودہ عدّاد بندھن کے لیے مائن ہوتا ہے (دیکھیں [عدّادِ طفرات](#عدّادِ-طفرات))، فلیٹ مشکل `transfer_pow_difficulty`، ایپوک نمک |
 | `public_key` | 32 خام بائٹس | دستخط کنندہ کی Ed25519 عوامی کلید |
 | `signature` | **بالکل 64 بائٹس** | دستخط شدہ پے لوڈ کا Ed25519 دستخط |
 
@@ -268,6 +269,81 @@ TLD کے موجودہ **ذاتی** مالک کے دستخط شدہ۔ اطلاق 
 - تجدید مہلت کے دوران منجمد نہیں — یہ میعاد گزرے مالک کی واحد
   دستیاب انتظامی عمل ہے۔
 
+## تفویض شدہ اختیار کا خاندان — عدّاد سے منسلک (0xE2، 0xA9، 0x5E، 0x66)
+
+چار ٹرانزیکشنز کسی namespace پر اختیار delegate کرتی یا دوبارہ
+تفویض کرتی ہیں۔ سب ایک ہی anti-replay نظم پر چلتی ہیں: ہر ایک
+ایک **عدّاد بندھن** لے جاتی یا مائن کرتی ہے —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64 ‖
+counter_be64)` — جو namespace کے موجودہ عدّادِ طفرات پر حساب ہوتا
+ہے (دیکھیں [عدّادِ طفرات](#عدّادِ-طفرات))۔ پرانی generation کے
+خلاف بنی ٹرانزیکشن مسترد ہوتی ہے چاہے اس کا دستخط یا ثبوت خفیہ
+نگاری کے اعتبار سے اب بھی درست ہو۔
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+`TransferTld` کا ڈومین کے لیے عکس: موجودہ مالک کے دستخط شدہ،
+`new_owner` اپاہج۔ `proof` اینٹی چرن cession PoW ہے (فلیٹ
+`transfer_pow_difficulty`، ایپوک نمک) جو
+`mutations_binding(domain_id, counter)` کے لیے مائن ہوتا ہے —
+متنقل ہونے والی اسٹیٹ generation کا چیلنج۔ اطلاق کے قواعد: پہلے
+مالک چیک (`NotOwner`)، پھر PoW موجودہ عدّاد کے بندھن کے خلاف
+(دوبارہ چلائی گئی cession پرانے چیلنج کو حل کرتی ہے — ٹائپ شدہ
+انکار)، پھر عدّاد بڑھتا ہے۔ ریکارڈ delegate سیٹ پرانے مالک کی
+منشت ہے: منتقلی اسے صاف کر دیتی ہے۔ `TransferTld` (0x47) TLD کی
+متناظر شکل ہے: اس کا cession ثبوت
+`mutations_binding(tld_id, counter)` کے لیے مائن ہوتا ہے۔
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| فیلڈ | قسم | پابندیاں |
+|---|---|---|
+| `id` | 32 خام بائٹس | `tld_id` (0xA9) یا `domain_id` (0x5E) |
+| `owner` | 32 خام بائٹس | `public_key` کا حصول (موجودہ مالک / دستخط کنندہ) |
+| `operator.option` | `0x00` یا `0x01 ‖ key[32]` | delegated آپریٹر، یا `0x00` واپس خود آپریشن پر آنے کے لیے |
+| `state_binding` | **بالکل 32 خام بائٹس** | موجودہ عدّاد بندھن کا کیننیکل ہیش: `mutations_binding(id, generation, counter)` (generation = TLD کے لیے `valid_until`، ڈومین کے لیے `registered_at`) — پرانا بندھن ٹائپ شدہ انکار ہے (`StaleStateBinding`) چاہے دستخط درست ہو |
+| `public_key` | 32 خام بائٹس | دستخط کنندہ کی Ed25519 عوامی کلید (namespace کا مالک) |
+| `signature` | **بالکل 64 بائٹس** | دستخط شدہ پے لوڈ کا Ed25519 دستخط |
+
+موجودہ مالک کے دستخط شدہ (0xA9 کے لیے ذاتی TLD؛ 0x5E کے لیے
+رجسٹرڈ ڈومین)۔ اینٹی رینٹ بندھن: ایک delegated آپریٹر زیادہ سے
+زیادہ ایک سیٹ خدمت کرتا ہے (`OperatorAlreadyDelegated`)۔ اطلاق
+بندھن کی تصدیق کرتا ہے، پھر عدّاد بڑھاتا ہے — اسی آپریٹر پر
+دوبارہ delegation ایک generation تبدیلی ہے، no-op نہیں۔
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| فیلڈ | قسم | پابندیاں |
+|---|---|---|
+| `domain_id` | 32 خام بائٹس | ہدف ڈومین |
+| `owner` | 32 خام بائٹس | `public_key` کا حصول — ڈومین کا موجودہ مالک |
+| `count` | 1 بائٹ | زیادہ سے زیادہ 3 (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count خام بائٹس | delegate عوامی کلیدیں، **سخت صعودی ترتیب** میں (کیننیکل ترتیب؛ دوہری یا ترتیب سے باہر کلید ڈی کوڈنگ خرابی ہے) |
+| `state_binding` | **بالکل 32 خام بائٹس** | موجودہ عدّاد کا کیننیکل ہیش: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 خام بائٹس | دستخط کنندہ کی Ed25519 عوامی کلید — ڈومین کا مالک |
+| `signature` | **بالکل 64 بائٹس** | دستخط شدہ پے لوڈ کا Ed25519 دستخط |
+
+KSK/ZSK-lite: لے جایا گیا سیٹ پچھلے کو پورے کے پورے REPLACE کرتا
+ہے (کوئی merge نہیں) اور — ڈومین کے مالک کے ساتھ — بالکل یہی
+کلیدیں اسی ڈومین کے `UpdateDomain` پر دستخط کر سکتی ہیں۔ صرف
+مالک کا اختیار: ایک delegate کبھی سیٹ خود نہیں سنبھال سکتا۔ سیٹ
+ڈومین کے ساتھ مر جاتی ہے اور منتقلی اسے صاف کر دیتی ہے۔ اطلاق
+بندھن کی موجودہ عدّاد کے خلاف تصدیق کرتا ہے اور اسے بڑھاتا ہے:
+`∅ → {9,10} → ∅ → replay` چکر منسوخ شدہ کلید کو دوبارہ زندہ نہیں
+کر سکتا (دیکھیں `security-model.md`، replay حملے)۔
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -286,6 +362,21 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 نوٹ: `UpdateDomain` کوئی `timestamp` نہیں رکھتا — ترتیب
 `sequence` سے ہوتی ہے۔ یہ نام بھی نہیں رکھتا: ڈومین پہلے سے
 رجسٹرڈ ہے، id کافی ہے۔
+
+#### اختیار کا قاعدہ — مالک یا ریکارڈ delegates
+
+`owner` فیلڈ ڈومین کی آن چین مالک ہے (یہ اپڈیٹ اُسی namespace کے
+لیے ہے)؛ `public_key` اصل دستخط کنندہ ہے — مالک یا ڈومین کی
+ریکارڈ delegate کلیدوں میں سے کوئی ایک (KSK/ZSK-lite، دیکھیں
+`SetRecordDelegates`)۔ ہر دوسری دستخط شدہ ٹرانزیکشن کے برعکس،
+مالک↔کلید حصول اس ذوق کے لیے جان بوجھ کر نافذ نہیں
+(`validate_transaction` اسے مستثنیٰ رکھتا ہے): اسٹیٹ پرت کا اختیار
+قاعدہ — دستخط کنندہ ∈ {مالک} ∪ delegates، `sequence == موجودہ + 1` —
+اکیلا بندھن ہے۔ دستخط پھر بھی signing payload کے ذریعے `owner`
+فیلڈ کو ڈھانکتی ہے، اس لیے ایک delegate کسی مخصوص namespace کے
+"لیے" دستخط کرتا ہے۔ احتیاط: مالک→کلید نقشہ پہلے ظہور کی بنیاد پر
+سیکھا جاتا ہے (رجسٹریشن/تخصیص)، اس لیے delegate اپڈیٹ اسے کبھی
+اوور رائٹ نہیں کرتا۔
 
 ### سخت حدود
 
@@ -378,7 +469,41 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 جس ٹرانزیکشن کا `owner` اپنی `public_key` کے حصول سے نہ ملے وہ
 غلط ہے (`InvalidOwner` core کی جانب،
 `OwnerKeyMismatch` چین کی جانب)، انکوڈنگ، ڈی کوڈنگ **اور** چین
-تصدیق پر مسترد (گہری دفاع)۔
+تصدیق پر مسترد (گہری دفاع)۔ وہ استثنا: `UpdateDomain` — ریکارڈ
+delegate ماڈل کے تحت اس کا `owner` فیلڈ ڈومین کی آن چین مالک ہوتا
+ہے جبکہ دستخط کنندہ ریکارڈ delegate ہو سکتا ہے؛ اسٹیٹ پرت کا
+اختیار قاعدہ دستخط کنندہ کو namespace سے باندھتا ہے۔
+
+## عدّادِ طفرات
+
+ہر namespace ایک monotonic عدّادِ طفرات رکھتا ہے (`mutations:
+u64`) — اس کے محفوظ عملوں کی CAS anti-replay generation۔
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **محفوظ ٹرانزیکشنز** (بندھن کی تصدیق کرتی ہیں، پھر عدّاد
+  بڑھاتے ہیں): `SetRecordDelegates`، `SetTldOperator`،
+  `SetDomainOperator`، `TransferTld`، `TransferDomain`۔
+- **Generation مارکر**: ڈومینز کے لیے `registered_at` (پورے
+  namespace کی زندگی کے لیے ثابت)، TLDs کے لیے `valid_until`
+  (ہر زندگی میں ساختی طور پر مختلف — دوبارہ دعوی صرف پوری
+  کثیر سالہ مدت اور مہلت کے بعد ہوتا ہے)۔ اس کے بغیر، کوئی
+  namespace جو مر جائے اور دوبارہ رجسٹر ہو (عدّاد ری سیٹ) پچھلی
+  زندگی کی ٹرانزیکشن دوبارہ مسلح کر سکتا تھا جیسے ہی عدّاد وہی
+  قیمت پہنچتا۔
+- **تصدیق**: اطلاق بندھن موجودہ اسٹیٹ سے دوبارہ اخذ کر کے لے
+  جانے والی قیمت سے موازنہ کرتا ہے (set-types) یا اس کے خلاف
+  PoW کی تصدیق کرتا ہے (transfers)۔ بے میلانی ایک ٹائپ شدہ انکار
+  ہے (`StaleStateBinding` / غیر حل شدہ ثبوت) جو کچھ نہیں بدلتا۔
+- **عدّاد کیوں**: موجودہ اسٹیٹ کا خالص فنکشن اپنی پرانی قیمت پر
+  واپس آ جاتا ہے جب اسٹیٹ جائز طور پر چکر کاٹے — ایک cession
+  A→B→A، ایک delegate سیٹ `∅ → {9,10} → ∅`۔ replay خود کو دوبارہ
+  مسلح کر لیتا۔ عدّاد کبھی واپس نہیں آتا۔ عدّاد namespace کے SMT
+  leaf (V4) میں commit ہوتا ہے اور name-state جواب میں بے نقاب
+  رہتا ہے تاکہ کلائنٹس بغیر اعتماد کے fetch-then-bind کر سکیں۔
 
 ## دستخط شدہ پے لوڈ
 
@@ -568,8 +693,10 @@ assign ہے — `AssignDomain`، TLD کے مالک کے دستخط شدہ، اپ
 **دستاویزی منتقلی اور assign ثبوتیں (کنسنسس سطح اینٹی اسپیم)**:
 `TransferTld`، `TransferDomain` اور `AssignDomain` ہر ایک
 **فلیٹ** کام کا ثبوت رکھتا ہے — دو دستاویزی منتقلیوں کے لیے
-`transfer_pow_difficulty` (چیلنجز `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`)، assign کے لیے
+`transfer_pow_difficulty` (چیلنج = namespace کا موجودہ عدّاد
+بندھن،
+[عدّادِ طفرات](#عدّادِ-طفرات) — فلیٹ
+`SCONE-*-XFER-V1` ٹیگز متروک ہو چکے)، assign کے لیے
 `assign_pow_difficulty` (چیلنج `SCONE-DOMAIN-ASSIGN-V1 ‖ name`)۔
 رجسٹریشنز جیسا ہی ایپوک نمک اور اینٹی پری مائننگ ونڈو؛ mempool
 داخلے پر (اندازہ شدہ ایپوک، best-effort) پھر اطلاق پر (سخت)
@@ -709,4 +836,5 @@ scone domains                            # what you own
 |---|---|---|
 | 1 | شامل `public_key` + `signature`، پے لوڈ `SCONE-TX-SIG-V1`، ورژن بائٹ `0x01`، `RegisterDomain` نام رکھتا ہے، `RegisterTld` (0x93)، M8a خاندان: `TransferTld` (0x47)، `RevokeTld` (0x6B)، `SetTldOpen` (0xB8)، `AssignDomain` (0xD4)، `RenewDomain` (0x3C) — نافذہ وائر فارمیٹس؛ M8b: ہر پے لوڈ کے سر پر `network` فیلڈ دستخط شدہ، `RegisterTld` نام رکھتا ہے، مکمل اسٹیٹ قواعد، فی نیٹ ورک PoW مشکلیں | معطل |
 | 1 (2026-09، network کے بغیر وائر) | **تمام ٹرانزیکشنز کے وائر سے `network` فیلڈ کا removal**: network_id صرف دستخطی پے لوڈ میں رہتی ہے (`signing_payload(tx, network)` اسے سر پر ڈالتا ہے)؛ نیٹ ورک علیحدگی دستخط پر انحصار کرتی ہے (غیر ملکی پے لوڈ پر `InvalidSignature`، `WrongNetwork` خرابی غائب)؛ `TX_FORMAT_VERSION` `0x01` رہتا ہے (دوبارہ لانچ قابل ٹیسٹ نیٹ، کوئی ہم وجودی نہیں)؛ **تمام TxIds بدل جاتے ہیں** (TxId دستخط شدہ وائر انکوڈنگ کا ہیش ہے، جو 14–15 بائٹس کھو دیتی ہے)؛ PoW ڈائجسٹ، جنسیس اور فی نیٹ ورک data-dirs بے تبدیل | معطل |
-| 1 (2026-10، PoW epoch نمک) | **اینٹی پری مائننگ PoW ڈائجسٹ**: نمک `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + `nonce_le` پر Argon2id کور، بمع `epoch = block_height / 144` اُس بلاک کا جو tx لاگو کرتا ہے؛ ثبوت وائر پے لوڈ 12 → **20 بائٹس** (`nonce_le ‖ epoch_le ‖ difficulty_le`)، اعلان شدہ epoch لاگو بلاک کی epoch درستگی ونڈو کے خلاف تصدیق (ٹائپ شدہ انکار `ProofEpochMismatch`)، mempool داخلے پر best-effort `(height+1)/144`، آف لائن پاتھز پر `--epoch` CLI فلیگ؛ پری مین نیٹ توڑ تبدیلی: پرانا 12 بائٹ پے لوڈ مسترد، **تمام TxIds بدلتے ہیں** (`proof` فیلڈ 8 بائٹس بڑھتا ہے) | موجودہ |
+| 1 (2026-10، PoW epoch نمک) | **اینٹی پری مائننگ PoW ڈائجسٹ**: نمک `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + `nonce_le` پر Argon2id کور، بمع `epoch = block_height / 144` اُس بلاک کا جو tx لاگو کرتا ہے؛ ثبوت وائر پے لوڈ 12 → **20 بائٹس** (`nonce_le ‖ epoch_le ‖ difficulty_le`)، اعلان شدہ epoch لاگو بلاک کی epoch درستگی ونڈو کے خلاف تصدیق (ٹائپ شدہ انکار `ProofEpochMismatch`)، mempool داخلے پر best-effort `(height+1)/144`، آف لائن پاتھز پر `--epoch` CLI فلیگ؛ پری مین نیٹ توڑ تبدیلی: پرانا 12 بائٹ پے لوڈ مسترد، **تمام TxIds بدلتے ہیں** (`proof` فیلڈ 8 بائٹس بڑھتا ہے) | معطل |
+| 1 (2026-10، عدّادِ طفرات) | **CAS anti-replay بندھن**: فی namespace monotonic عدّادِ طفرات (`DomainState`/`TldState::Private`)، پانچ محفوظ ٹرانزیکشنز verify-then-increment (`SetRecordDelegates` 0x66 نیا، `SetTldOperator`، `SetDomainOperator`، `TransferTld`، `TransferDomain`)؛ cession PoW عدّاد بندھن کے لیے مائن (جامد `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` چیلنجز متروک)؛ set-types دستخط شدہ 32 بائٹ `state_binding` وائر فیلڈ لے جاتے ہیں؛ SMT leaves V4 عدّاد commit کرتے ہیں (V2/V3 متروک — V3 کبھی شپ نہیں ہوا)؛ اسٹوریج کوڈیکس فی ڈومین +8 بائٹس / فی ذاتی TLD +8؛ `NameState` عدّاد اور `registered_at` بے نقاب کرتا ہے؛ پری مین نیٹ توڑ تبدیلی: اسٹیٹ فارمیٹ + وائر تبدیلی، **ٹیسٹ نیٹ ری سیٹ**، پرانے اسنیپ شاٹس درآمد پر مسترد | موجودہ |

@@ -122,16 +122,22 @@ genesis_hash)`；第一个被追加的区块高度为 1。
 
 ## `DomainStateBytes` 编码格式（M8b）
 
-依据前导版本标签为 57 或 89 字节、定宽
+依据前导版本标签为 65 或 97 字节、定宽
 大端整数（规范、可逐字节比较）：
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` 是命名空间的单调变异计数器（CAS
+防重放世代 —— 见 `transactions.md`，变异计数器）。
+M8b 编码（57/89 字节、无计数器）是
+**非法**的：严格解码 → `Corrupted`（测试网
+重置；计数器前的存储经重放再生成）。
 
 - `registered_at` / `valid_until`（M8b）：注册的
   过期（声明时 1 年、可续期、见
@@ -154,18 +160,20 @@ M7 编码（41/73 字节、无过期）自 M8b 起
 
 ## `TldStateBytes` 编码格式（所有者选项）
 
-长度依枚举变体而定 —— **私有** TLD 为 34 字节、
-**开放** TLD 为 2 字节（既无序列号也无记录
+长度依枚举变体而定 —— **私有** TLD 为 50 字节、
+**开放** TLD 为 10 字节（既无序列号也无记录
 哈希）：
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag`（所有者选项、`TldState` 枚举）：`0x00`
   = `TldState::Open`（无主 —— 自助 + PoW、无
   所有者字节）、`0x01` = `TldState::Private`
-  （后跟 32 个所有者字节）。严格规范 ——
+  （后跟 32 个所有者字节 + 8 个计数器字节）。
+  严格规范 ——
   任何其他字节 → `Corrupted`。不变量"开放 ⟺
   无所有者"是结构性的：两种状态不可能被
   混淆。
@@ -180,8 +188,10 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   TLD 与连续运行的节点相同。
 
 M7d（33 字节、标签 `0x01`）、M8b（34 字节、
-标签 `0x02`、布尔 `open`）以及旧标签 `0x03`
-（内嵌 `until`）的编码都是**非法**的：严格
+标签 `0x02`、布尔 `open`）、旧标签 `0x03`
+（内嵌 `until`）以及计数器前的标签 `0x04`
+布局（42/2 字节、无计数器）的编码都是**非法**的：
+严格
 解码 → `Corrupted`（主网前、经重放再生成即
 迁移路径）。
 

@@ -50,17 +50,18 @@ Transaction = disc u8 || version u8 || payload
 | `0x21` | `RegisterDomain` | 網域聲明 |
 | `0x52` | `UpdateDomain` | 網域 DNS 資料的新版本 |
 | `0x93` | `RegisterTld` | 頂級網域聲明（M7） |
-| `0x47` | `TransferTld` | TLD 轉移給新擁有者（M8a） |
+| `0x47` | `TransferTld` | TLD 轉移給新擁有者（M8a；綁定計數器的讓與 PoW） |
 | `0x6B` | `RevokeTld` | TLD 的放棄（M8a） |
 | `0xB8` | `SetTldOpen` | TLD 對自助註冊**不可逆**的開放（單向、owner-option；`open=false` 是型別化拒絕） |
 | `0xD4` | `AssignDomain` | 由 TLD 擁有者直接指派網域（M8a） |
 | `0x3C` | `RenewDomain` | 延長網域註冊（M8a；自 owner-option 起攜帶正典名稱 — 開放 TLD 跟隨到期日） |
 | `0x8F` | `RenewTld` | 私有 TLD 3 年任期的續期（與建立等量的 PoW） |
 | `0x15` | `SlashTx` | 錨點 equivocation 的證據 + 禁權（M9） |
-| `0xE2` | `TransferDomain` | 網域轉移給新擁有者（M8c） |
+| `0xE2` | `TransferDomain` | 網域轉移給新擁有者（M8c；綁定計數器的讓與 PoW） |
 | `0x71` | `Heartbeat` | 營運者的活躍性證明（proof-of-service RFC） |
-| `0xA9` | `SetTldOperator` | 私有 TLD 營運的委派（proof-of-service RFC） |
-| `0x5E` | `SetDomainOperator` | 網域營運的委派（proof-of-service RFC） |
+| `0xA9` | `SetTldOperator` | 私有 TLD 營運的委派（proof-of-service RFC；綁定計數器） |
+| `0x5E` | `SetDomainOperator` | 網域營運的委派（proof-of-service RFC；綁定計數器） |
+| `0x66` | `SetRecordDelegates` | 網域的記錄委派金鑰 — KSK/ZSK-lite：恰好是這些金鑰、與擁有者並列，可簽署 `UpdateDomain`（綁定計數器） |
 
 任何非 `0x01` 的版本位元組都被明確拒絕
 （`UnsupportedVersion(收到的值)`）：未知
@@ -168,7 +169,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 個原始位元組 | 被轉移的 TLD |
 | `owner` | 32 個原始位元組 | `public_key` 的衍生（當前擁有者／簽署者） |
 | `new_owner` | 32 個原始位元組 | 受讓者的身分（不透明：任何值在語法上都有效；與可花費金鑰的綁定是 M8b 狀態規則） |
-| `proof` | 有界（varint ‖ 位元組） | 反頻繁倒手的讓與證明、挑戰 `SCONE-TLD-XFER-V1 ‖ tld_id`、平式難度 `transfer_pow_difficulty`、epoch 鹽 |
+| `proof` | 有界（varint ‖ 位元組） | 反頻繁倒手的讓與證明、為命名空間**當前**的計數器綁定挖出（見[變更計數器](#變更計數器)）、平式難度 `transfer_pow_difficulty`、epoch 鹽 |
 | `public_key` | 32 個原始位元組 | 簽署者的 Ed25519 公鑰 |
 | `signature` | **恰好 64 位元組** | 簽署酬載的 Ed25519 簽章 |
 
@@ -285,6 +286,86 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
 - 寬限期間續期**不**凍結 — 它是過期擁有者
   僅存的可用管理操作。
 
+## 委派授權家族 — 綁定計數器（0xE2、0xA9、0x5E、0x66）
+
+四筆交易對一個命名空間委派或重新指派
+授權。它們共用同一套反重播紀律：每一筆都
+攜帶或挖出**計數器綁定** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖
+id[32] ‖ generation_be64 ‖ counter_be64)` —
+以命名空間**當前**的變更計數器計算（見
+[變更計數器](#變更計數器)）。對過時世代
+構建的交易被拒、即使其簽章或證明在密碼學上
+仍然有效。
+
+### TRANSFER_DOMAIN（0xE2）
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+`TransferTld` 的網域鏡像：由當前擁有者
+簽署、`new_owner` 不透明。`proof` 是反頻繁
+倒手的讓與 PoW（平式
+`transfer_pow_difficulty`、epoch 鹽）、為
+`mutations_binding(domain_id, counter)` 挖出
+— 即被轉移狀態世代的挑戰。套用規則：先
+檢查擁有者（`NotOwner`）、然後以**當前**
+計數器的綁定驗證 PoW（被重播的讓與解的是
+較舊的挑戰 — 型別化拒絕）、然後計數器
+遞增。記錄委派集是**舊**擁有者的授與：轉移
+將它清空。`TransferTld`（0x47）是對稱的 TLD
+形式：其讓與證明為
+`mutations_binding(tld_id, counter)` 挖出。
+
+### SET_TLD_OPERATOR（0xA9）／SET_DOMAIN_OPERATOR（0x5E）
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| 欄位 | 型別 | 約束 |
+|---|---|---|
+| `id` | 32 個原始位元組 | `tld_id`（0xA9）或 `domain_id`（0x5E） |
+| `owner` | 32 個原始位元組 | `public_key` 的衍生（當前擁有者／簽署者） |
+| `operator.option` | `0x00` 或 `0x01 ‖ key[32]` | 受委派的營運者、或 `0x00` 回到自行營運 |
+| `state_binding` | **恰好 32 個原始位元組** | 當前計數器綁定的正典雜湊：`mutations_binding(id, generation, counter)`（generation = TLD 為 `valid_until`、網域為 `registered_at`）— 過時的綁定即使簽章有效也是型別化拒絕（`StaleStateBinding`） |
+| `public_key` | 32 個原始位元組 | 簽署者的 Ed25519 公鑰（命名空間的擁有者） |
+| `signature` | **恰好 64 位元組** | 簽署酬載的 Ed25519 簽章 |
+
+由當前擁有者簽署（0xA9 為私有 TLD；0x5E 為
+已註冊網域）。反租用綁定：一位受委派營運者
+至多服務一個席位
+（`OperatorAlreadyDelegated`）。套用時先驗證
+綁定、然後遞增計數器 — 對**同一**營運者的
+再委派是一次世代變更、而非無操作。
+
+### SET_RECORD_DELEGATES（0x66）
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| 欄位 | 型別 | 約束 |
+|---|---|---|
+| `domain_id` | 32 個原始位元組 | 目標網域 |
+| `owner` | 32 個原始位元組 | `public_key` 的衍生 — **網域**的當前擁有者 |
+| `count` | 1 位元組 | 至多 3（`MAX_RECORD_DELEGATES`） |
+| `keys` | 32 × count 個原始位元組 | 委派公鑰、**嚴格遞增**（正典順序；重複或亂序的金鑰是解碼錯誤） |
+| `state_binding` | **恰好 32 個原始位元組** | 當前計數器的正典雜湊：`mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 個原始位元組 | 簽署者的 Ed25519 公鑰 — **網域**的擁有者 |
+| `signature` | **恰好 64 位元組** | 簽署酬載的 Ed25519 簽章 |
+
+KSK/ZSK-lite：攜帶的集合**完整取代**先前的
+集合（無合併）、且 — 與網域的擁有者並列 —
+恰好是這些金鑰可為該網域簽署
+`UpdateDomain`。擁有者獨佔：委派者絕不能
+管理該集合。集合與網域同生共死、並被轉移
+清空。套用時以當前計數器驗證綁定並遞增它：
+`∅ → {9,10} → ∅ → 重播` 的循環無法復活被
+撤銷的金鑰（見 `security-model.md`、重播
+攻擊）。
+
 ## UPDATE_DOMAIN（0x52）
 
 ```text
@@ -303,6 +384,22 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 註：`UpdateDomain` **不**攜帶 `timestamp` —
 排序經由 `sequence`。它也不攜帶名稱：
 網域已註冊、id 即足夠。
+
+#### 授權規則 — 擁有者或記錄委派
+
+`owner` 欄位是**網域**的鏈上擁有者（該更新
+是**為**那個命名空間而做）；`public_key` 是
+**實際**簽署者 — 擁有者**或**網域記錄委派
+金鑰之一（KSK/ZSK-lite、見
+`SetRecordDelegates`）。有別於所有其他簽署
+交易，owner↔金鑰衍生對此形式**刻意不**
+強制（`validate_transaction` 豁免它）：狀態
+層的授權規則 — 簽署者 ∈ {擁有者} ∪
+委派者、`sequence == current + 1` — 是唯一的
+綁定。簽章仍經由簽署酬載涵蓋 `owner` 欄位、
+因此委派者是「為」特定命名空間簽署。注意：
+擁有者→金鑰的映射以首次出現為準學得
+（註冊／指派）、因此委派的更新絕不覆寫它。
 
 ### 嚴格界限
 
@@ -400,7 +497,47 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 `owner` 與其自身 `public_key` 衍生不符的
 交易無效（核心側 `InvalidOwner`、鏈側
 `OwnerKeyMismatch`）、在編碼、解碼**及**
-鏈驗證時被拒（縱深防禦）。
+鏈驗證時被拒（縱深防禦）。**唯一**的例外：
+`UpdateDomain` — 在記錄委派模型下、其
+`owner` 欄位是**網域**的鏈上擁有者、而
+簽署者可以是記錄委派；狀態層的授權規則將
+簽署者綁定到命名空間。
+
+## 變更計數器
+
+每個命名空間都攜帶**單調**的變更計數器
+（`mutations: u64`）— 其受防護操作的 CAS
+反重播世代。
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **受防護的交易**（先驗證綁定、然後遞增
+  計數器）：`SetRecordDelegates`、
+  `SetTldOperator`、`SetDomainOperator`、
+  `TransferTld`、`TransferDomain`。
+- **世代標記**：網域為 `registered_at`（在
+  命名空間的整個生命中固定）、TLD 為
+  `valid_until`（在每一世中結構性互異 —
+  重新聲明只發生在完整多年任期加寬限之
+  後）。沒有它、一個死亡後被重新註冊（計數
+  器重置）的命名空間、一旦計數器再次達到
+  相同值、就可能重新武裝來自前一世的交易。
+- **驗證**：套用時從**當前**狀態重新衍生
+  綁定、並與攜帶值比較（set 類型）或對它
+  驗證 PoW（轉移）。不符是一次型別化拒絕
+  （`StaleStateBinding`／未解出的證明）、
+  不變更任何東西。
+- **為何是計數器**：當前狀態的純函數會在
+  狀態合理循環回來時回到先前的值 — 讓與
+  A→B→A、委派集 `∅ → {9,10} → ∅`。重播
+  會自我重新武裝。計數器絕不回頭。計數器
+  被提交在命名空間的 SMT 葉（V4）中、並在
+  name-state 回應中暴露、使客戶端能「先
+  讀取再綁定」（fetch-then-bind）、無需
+  信任。
 
 ## 簽署酬載
 
@@ -613,9 +750,10 @@ ARM：慢約 4–8 倍）需重新校準。
 **讓與與指派證明（共識層級的反濫發）**：
 `TransferTld`、`TransferDomain` 與 `AssignDomain`
 各自攜帶**平式**的工作量證明 — 兩種讓與用
-`transfer_pow_difficulty`（挑戰
-`SCONE-TLD-XFER-V1 ‖ tld_id`／
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`）、指派用
+`transfer_pow_difficulty`（挑戰 = 命名空間
+**當前**的計數器綁定、
+[變更計數器](#變更計數器) — 平式的
+`SCONE-*-XFER-V1` 標籤已退役）、指派用
 `assign_pow_difficulty`（挑戰
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name`）。與註冊相同
 的 epoch 鹽與反預挖窗口；在記憶體池准入時
@@ -769,4 +907,5 @@ scone domains                            # what you own
 |---|---|---|
 | 1 | 內嵌 `public_key` + `signature`、酬載 `SCONE-TX-SIG-V1`、版本位元組 `0x01`、`RegisterDomain` 攜帶名稱、`RegisterTld`（0x93）、M8a 家族：`TransferTld`（0x47）、`RevokeTld`（0x6B）、`SetTldOpen`（0xB8）、`AssignDomain`（0xD4）、`RenewDomain`（0x3C）— 規範線上格式；M8b：每個酬載開頭簽署 `network` 欄位、`RegisterTld` 攜帶名稱、完整狀態規則、每網路 PoW 難度 | 已被取代 |
 | 1（2026-09、無 network 的線上格式） | **自所有交易的線上格式移除 `network` 欄位**：network_id 只住在簽署酬載中（`signing_payload(tx, network)` 在開頭注入）；網路分離依賴簽章（外來酬載上 `InvalidSignature`、`WrongNetwork` 錯誤消失）；`TX_FORMAT_VERSION` 維持 `0x01`（可重啟的 testnet、無共存）；**所有 TxId 改變**（TxId 是已簽署線上編碼的雜湊、少了 14–15 位元組）；PoW 摘要、創世與每網路 data-dir 不變 | 已被取代 |
-| 1（2026-10、PoW epoch 鹽） | **反預挖 PoW 摘要**：鹽 `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + 對 `nonce_le` 的 Argon2id 核心、`epoch = 套用 tx 之區塊的 block_height / 144`；證明線上酬載 12 → **20 位元組**（`nonce_le ‖ epoch_le ‖ difficulty_le`）、宣告的 epoch 對套用區塊的 epoch 有效窗口驗證（型別化拒絕 `ProofEpochMismatch`）、記憶體池准入時盡力而為的 `(height+1)/144`、離線路徑上的 `--epoch` CLI 旗標；主網前的破壞性變更：舊的 12 位元組酬載被拒、**所有 TxId 改變**（`proof` 欄位多 8 位元組） | 現行 |
+| 1（2026-10、PoW epoch 鹽） | **反預挖 PoW 摘要**：鹽 `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + 對 `nonce_le` 的 Argon2id 核心、`epoch = 套用 tx 之區塊的 block_height / 144`；證明線上酬載 12 → **20 位元組**（`nonce_le ‖ epoch_le ‖ difficulty_le`）、宣告的 epoch 對套用區塊的 epoch 有效窗口驗證（型別化拒絕 `ProofEpochMismatch`）、記憶體池准入時盡力而為的 `(height+1)/144`、離線路徑上的 `--epoch` CLI 旗標；主網前的破壞性變更：舊的 12 位元組酬載被拒、**所有 TxId 改變**（`proof` 欄位多 8 位元組） | 已被取代 |
+| 1（2026-10、變更計數器） | **CAS 反重播綁定**：每命名空間單調的變更計數器（`DomainState`／`TldState::Private`）、五筆受防護交易先驗證後遞增（`SetRecordDelegates` 0x66 新增、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain`）；讓與 PoW 為計數器綁定挖出（靜態的 `SCONE-TLD-XFER-V1`／`SCONE-DOMAIN-XFER-V1` 挑戰已退役）；set 類型攜帶已簽署的 32 位元組 `state_binding` 線上欄位；SMT 葉 V4 提交計數器（V2/V3 已退役 — V3 從未交付）；儲存編解碼器每網域 +8 位元組／每私有 TLD +8 位元組；`NameState` 暴露計數器與 `registered_at`；主網前的破壞性變更：狀態格式與線上格式變更、**testnet 重置**、舊快照在匯入時被拒 | 現行 |

@@ -147,6 +147,35 @@ scone tld renew mytld               # explicit renewal
 اسی طرح، آپ کی ملکیت کے اُس نام پر `scone domain register <name>`
 جو 90 دن میں ختم ہو ناکامی کے بجائے تجدید تجویز کرتا ہے۔
 
+## ریکارڈ delegates (KSK/ZSK-lite)
+
+ڈومین کا مالک دوسری کلیدوں کو اپنی طرف سے `domain update` پر
+دستخط کا حق دے سکتا ہے — ریکارڈ delegate سیٹ (زیادہ سے زیادہ 3
+کلیدیں، ہر `set` پر مکمل replacement):
+
+```bash
+# منظوری (مالک کے دستخط؛ CLI namespace کی CAS generation
+# حاصل کرتا ہے اور ٹرانزیکشن کو اسی سے باندھتا ہے):
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# معائنہ (شناخت کی ضرورت نہیں):
+scone domain delegates list example.uip
+
+# سب کچھ منسوخ:
+scone domain delegates clear example.uip --identity alice
+```
+
+پھر ایک delegate `domain update` بالکل ویسے دستخط کرتا ہے جیسے
+مالک کرتا (`--identity deleg`) — آن چین tx کا `owner` فیلڈ
+ڈومین کا مالک ہوتا ہے جبکہ دستخط delegate سے آتا ہے۔ منظوری
+صرف مالک کے اختیار میں ہے (ایک delegate سیٹ خود نہیں سنبھال
+سکتا)، منتقلی اسے صاف کر دیتی ہے، اور ہر `set`/`clear` namespace
+کے عدّادِ طفرات کو بڑھاتا ہے (CAS anti-replay — دیکھیں
+`transactions.md`): دوبارہ چلایا گیا `set` منسوخ شدہ کلیدوں کو
+دوبارہ زندہ نہیں کر سکتا۔ منسوخ شدہ delegate کا اپڈیٹ مقامی طور
+پر مسترد ہوتا ہے ("نہ مالک ہے نہ ریکارڈ delegate")۔
+
 ## جدید کمانڈز
 
 اوپر کے ڈیفالٹس روزمرہ استعمال کو ڈھانپتے ہیں۔ اسکرپٹس اور ویب/API

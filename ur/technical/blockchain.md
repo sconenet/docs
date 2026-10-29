@@ -164,8 +164,8 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 کی۔ **دو مزید فلیٹ ثبوتیں** خاندان کو مکمل کرتی ہیں (کنسنسس
 سطح کی اینٹی اسپیم، رجسٹریشنز جیسا ہی ایپوک سیلٹ اور ونڈو):
 `transfer_pow_difficulty` دستاویزی منتقلیوں (cessions) کے لیے
-(`TransferTld`/`TransferDomain`، چیلنجز `SCONE-TLD-XFER-V1 ‖
-tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) اور ذاتی TLD کے
+(`TransferTld`/`TransferDomain`، چیلنج = namespace کا موجودہ
+عدّاد بندھن — دیکھیں `transactions.md`، عدّادِ طفرات) اور ذاتی TLD کے
 تحت تخلیق کے لیے `assign_pow_difficulty` (`AssignDomain`، چیلنج
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — فیصلے سے فلیٹ: namespace کی
 انفرادیت TLD کی پیدائش پر ادا ہو چکی تھی، کوئی فی لمبائی
@@ -244,8 +244,8 @@ ITERATION کے لیے مخصوص:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -254,6 +254,20 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` namespace کا monotonic عدّادِ طفرات ہے — اس کے محفوظ
+عملوں کی CAS anti-replay generation (`SetRecordDelegates`،
+`SetTldOperator`، `SetDomainOperator`، `TransferTld`،
+`TransferDomain` verify-then-increment؛ تجدید اسے برقرار رکھتی
+ہے، منتقلی اسے بڑھاتی ہے)۔ یہ namespace کے SMT leaf میں commit
+ہوتا ہے — ڈومین leaf `SCONE-LEAF-DOM-V4` (عدّاد lifetime فیلڈز
+اور ریکارڈ commitment کے درمیان)، TLD leaf `SCONE-LEAF-TLD-V4`
+(injective variant بائٹ؛ `Private` کے لیے عدّاد) — اور name-state
+جواب میں بے نقاب رہتا ہے۔ کلائنٹس fetch-then-bind کرتے ہیں:
+پرانی generation کے خلاف بنی ٹرانزیکشن ایک ٹائپ شدہ انکار ہے
+(`StaleStateBinding`) جو کچھ نہیں بدلتا۔ مکمل حصول اور جواز:
+`transactions.md`، "عدّادِ طفرات"؛ سیکیورٹی تجزیہ:
+`security-model.md`۔
 
 * `registered_at` / `valid_until` (M8b): رجسٹریشن میعاد،
   **والد بلاک کے timestamp** کے خلاف جانچی جاتی ہے (متعین،

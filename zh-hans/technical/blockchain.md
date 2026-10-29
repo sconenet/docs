@@ -165,9 +165,9 @@ apex − 2（主网：私有 TLD 25、开放 TLD 24、域名
 创建时已按其长度付费。**另外两种扁平证明**
 补全了这个家族（共识级反垃圾、与注册相同
 的纪元盐和窗口）：`transfer_pow_difficulty`
-用于转让（`TransferTld`/`TransferDomain`、挑战
-`SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`），
+用于转让（`TransferTld`/`TransferDomain`、挑战 =
+命名空间**当前**的计数器绑定 —— 见
+`transactions.md`，变异计数器）、
 `assign_pow_difficulty` 用于私有 TLD 之下的
 创建（`AssignDomain`、挑战
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —— 刻意扁平：
@@ -250,8 +250,8 @@ API：`genesis_of(&NetworkParams) -> Block`、
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -260,6 +260,21 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` 是命名空间的**单调**变异计数器 ——
+其受防护操作的 CAS 防重放世代
+（`SetRecordDelegates`、`SetTldOperator`、
+`SetDomainOperator`、`TransferTld`、`TransferDomain`
+先验证后递增；续期保留它，转移使它递增）。它被
+提交在命名空间的 SMT 叶子中 —— 域名叶子
+`SCONE-LEAF-DOM-V4`（计数器位于生命周期字段与
+记录承诺之间）、TLD 叶子 `SCONE-LEAF-TLD-V4`
+（单射的变体字节；`Private` 携带计数器）—— 并在
+name-state 响应中暴露。客户端"先取再绑"
+（fetch-then-bind）：针对过时世代构建的交易是
+类型化拒绝（`StaleStateBinding`），不改变任何状态。
+完整推导与理由：`transactions.md`，"变异计数器"；
+安全性分析：`security-model.md`。
 
 * `registered_at` / `valid_until`（M8b）：注册到期，
   对照**父区块的时间戳**求值（确定性、

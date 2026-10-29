@@ -112,16 +112,22 @@ genesis_hash)`؛ پہلا اپینڈ شدہ بلاک اونچائی 1 رکھتا
 
 ## `DomainStateBytes` انکوڈنگ فارمیٹ (M8b)
 
-سر کے ورژن ٹیگ کے مطابق 57 یا 89 بائٹس، مقررہ چوڑائی
+سر کے ورژن ٹیگ کے مطابق 65 یا 97 بائٹس، مقررہ چوڑائی
 big-endian اعداد (کیننیکل، بائٹ در بائٹ قابلِ موازنہ):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` namespace کا monotonic عدّادِ طفرات ہے (CAS
+anti-replay generation — دیکھیں `transactions.md`، عدّادِ
+طفرات)۔ M8b انکوڈنگز (57/89 بائٹس، کوئی عدّاد نہیں)
+**غیر جائز** ہیں: سخت ڈی کوڈنگ → `Corrupted` (ٹیسٹ نیٹ ری سیٹ؛
+پری عدّاد اسٹور ری پلے کے ذریعے دوبارہ بنتی ہے)۔
 
 - `registered_at` / `valid_until` (M8b): رجسٹریشن کی
   میعاد (دعوے پر 1 سال، تجدید قابل، دیکھیں
@@ -143,18 +149,20 @@ panic نہیں۔
 
 ## `TldStateBytes` انکوڈنگ فارمیٹ (مالک آپشن)
 
-enum ویرئنٹ کے مطابق متغیر لمبائی — **ذاتی** TLD کے لیے 34
-بائٹس، **کھلی** TLD کے لیے 2 (نہ sequence نہ
+enum ویرئنٹ کے مطابق متغیر لمبائی — **ذاتی** TLD کے لیے 50
+بائٹس، **کھلی** TLD کے لیے 10 (نہ sequence نہ
 ریکارڈ ہیش):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (مالک آپشن، `TldState` enum): `0x00` =
   `TldState::Open` (کوئی نہیں — خود سروس + PoW، کوئی مالک بائٹس
   نہیں)،
-  `0x01` = `TldState::Private` (32 مالک بائٹس پیچھے آتے ہیں)۔ سخت
+  `0x01` = `TldState::Private` (32 مالک بائٹس + 8 عدّاد بائٹس
+  پیچھے آتے ہیں)۔ سخت
   کیننیکل — کوئی اور بائٹ → `Corrupted`۔ مستقل حقیقت "کھلی ⟺
   کوئی مالک نہیں" ساختی ہے: دونوں اسٹیٹس کی الجھن ناممکن۔
 - **`until` (8 بائٹس، BE64)**: TLD کی اپنی گھڑی — ذاتی
@@ -167,7 +175,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   TLDs مارتا ہے جو مسلسل نوڈ مارتا ہے۔
 
 M7d (33 بائٹس، ٹیگ `0x01`)، M8b (34 بائٹس، ٹیگ `0x02`، بولین
-`open`)، اور وراثتی ٹیگ `0x03` (شامل `until`) انکوڈنگز
+`open`)، وراثتی ٹیگ `0x03` (شامل `until`) اور پری عدّاد ٹیگ
+`0x04` ترتیبیں (42/2 بائٹس، کوئی عدّاد نہیں) انکوڈنگز
 **غیر جائز** ہیں: سخت ڈی کوڈنگ → `Corrupted` (پری مین نیٹ،
 ری پلے کے ذریعے دوبارہ پیدا کرنا منتقلی کا پاتھ ہے)۔
 

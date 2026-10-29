@@ -164,8 +164,8 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 這個家族（共識層級的反濫發、與註冊相同的
 epoch 鹽和窗口）：`transfer_pow_difficulty`
 用於讓與（`TransferTld`／`TransferDomain`、挑戰
-`SCONE-TLD-XFER-V1 ‖ tld_id`／
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`），
+= 命名空間**當前**的計數器綁定 — 見
+`transactions.md`、變更計數器），
 `assign_pow_difficulty` 用於私有 TLD 之下的建立
 （`AssignDomain`、挑戰 `SCONE-DOMAIN-ASSIGN-V1 ‖
 name` — 刻意為平：命名空間的排他性已在 TLD
@@ -246,8 +246,8 @@ devnet（`scone-devnet`）是第三個網路，專為快速
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -256,6 +256,23 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` 是命名空間**單調**的變更計數器
+— 其受防護操作（`SetRecordDelegates`、
+`SetTldOperator`、`SetDomainOperator`、
+`TransferTld`、`TransferDomain` 先驗證後
+遞增；續期保留它、轉移提高它）的 CAS 反重播
+世代。它被提交在命名空間的 SMT 葉中 —
+網域葉 `SCONE-LEAF-DOM-V4`（計數器位於
+生命週期欄位與記錄承諾之間）、TLD 葉
+`SCONE-LEAF-TLD-V4`（單射的變體位元組；
+`Private` 攜帶計數器）— 並在 name-state
+回應中暴露。客戶端先讀取再綁定
+（fetch-then-bind）：對過時世代構建的交易是
+一次型別化拒絕（`StaleStateBinding`）、不
+變更任何東西。完整衍生與理由：
+`transactions.md`（變更計數器）；安全性
+分析：`security-model.md`。
 
 * `registered_at`／`valid_until`（M8b）：註冊到期，
   以**父區塊的時間戳**評估（決定性，

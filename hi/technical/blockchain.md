@@ -161,8 +161,9 @@ TLD निजी apex − 1 पर; डोमेन निजी apex − 2 प�
 किया। **दो और समतल प्रमाण** परिवार को पूरा करते हैं (सहमति-स्तरीय
 एंटी-स्पैम, पंजीकरणों जैसा ही epoch सॉल्ट और विंडो):
 `transfer_pow_difficulty` हस्तांतरणों (cessions) के लिए
-(`TransferTld`/`TransferDomain`, चैलेंज `SCONE-TLD-XFER-V1 ‖
-tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) और निजी TLD के
+(`TransferTld`/`TransferDomain`, चैलेंज = नेमस्पेस की **वर्तमान**
+काउंटर बाइंडिंग — देखें `transactions.md`, Mutation काउंटर) और
+निजी TLD के
 अंतर्गत निर्माण के लिए `assign_pow_difficulty` (`AssignDomain`,
 चैलेंज `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — निर्णय से समतल:
 namespace की विशिष्टता TLD निर्माण पर चुका दी गई थी, कोई
@@ -241,8 +242,8 @@ Devnet (`scone-devnet`) तीसरा नेटवर्क है, तेज�
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -251,6 +252,20 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` नेमस्पेस का **एकदिष्ट** mutation काउंटर है — उसके
+संरक्षित संचालनों की CAS एंटी-रीप्ले जनरेशन (`SetRecordDelegates`,
+`SetTldOperator`, `SetDomainOperator`, `TransferTld`,
+`TransferDomain` verify-then-increment करते हैं; नवीनीकरण उसे
+संरक्षित रखता है, हस्तांतरण बढ़ाता है)। वह नेमस्पेस की SMT पत्ती में
+कमिट होता है — डोमेन पत्ती `SCONE-LEAF-DOM-V4` (काउंटर जीवनकाल
+फ़ील्डों और रिकॉर्ड प्रतिबद्धता के बीच), TLD पत्ती
+`SCONE-LEAF-TLD-V4` (इंजेक्टिव वेरिएंट बाइट; `Private` के लिए
+काउंटर) — और name-state उत्तर में उजागर होता है। क्लाइंट
+fetch-then-bind करते हैं: बासी जनरेशन के विरुद्ध बनाया गया
+लेनदेन एक टाइप्ड अस्वीकृति (`StaleStateBinding`) है जो कुछ भी नहीं
+बदलती। पूर्ण व्युत्पत्ति और तर्क: `transactions.md`, "Mutation
+काउंटर"; सुरक्षा विश्लेषण: `security-model.md`।
 
 * `registered_at` / `valid_until` (M8b): पंजीकरण समाप्ति,
   **जनक ब्लॉक के timestamp** के विरुद्ध मूल्यांकित (नियतिवादी,

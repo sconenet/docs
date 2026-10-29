@@ -163,8 +163,9 @@ chỉ mang `tld_id`, tên đã trả theo chiều dài của nó lúc tạo.
 **Hai bằng chứng phẳng nữa** hoàn thiện gia đình (chống thư rác
 ở mức đồng thuận, cùng muối epoch và cửa sổ với đăng ký):
 `transfer_pow_difficulty` cho chuyển nhượng (`TransferTld`/
-`TransferDomain`, challenge `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`) và `assign_pow_difficulty`
+`TransferDomain`, challenge = ràng buộc bộ đếm HIỆN TẠI của
+namespace — xem `transactions.md`, Bộ đếm biến đổi) và
+`assign_pow_difficulty`
 cho việc tạo dưới một TLD riêng tư (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — phẳng một cách có chủ đích:
 tính độc quyền của namespace đã được trả lúc tạo TLD, không
@@ -245,8 +246,8 @@ nhanh:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -255,6 +256,19 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` là bộ đếm biến đổi MONOTONIC của namespace — thế hệ
+chống phát lại CAS của các thao tác được bảo vệ của nó
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` xác minh-rồi-tăng; gia hạn giữ
+nguyên nó, chuyển nhượng tăng nó). Nó được cam kết trong lá SMT
+của namespace — lá tên miền `SCONE-LEAF-DOM-V4` (bộ đếm giữa các
+trường vòng đời và cam kết bản ghi), lá TLD `SCONE-LEAF-TLD-V4`
+(byte biến thể đơn ánh; bộ đếm cho `Private`) — và phơi bày trong
+phản hồi name-state. Client fetch-then-bind: một giao dịch dựng
+trên một thế hệ cũ là từ chối có kiểu (`StaleStateBinding`) không
+biến đổi gì. Dẫn xuất đầy đủ và lý do: `transactions.md`,
+"Bộ đếm biến đổi"; phân tích bảo mật: `security-model.md`.
 
 * `registered_at` / `valid_until` (M8b): hết hạn đăng ký, đánh
   giá đối với **timestamp của khối cha** (tất định, được cam kết

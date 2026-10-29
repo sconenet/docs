@@ -48,17 +48,18 @@ bảng này.
 | `0x21` | `RegisterDomain` | tuyên bố một tên miền |
 | `0x52` | `UpdateDomain` | phiên bản mới của dữ liệu DNS một tên miền |
 | `0x93` | `RegisterTld` | tuyên bố một tên miền cấp cao (M7) |
-| `0x47` | `TransferTld` | chuyển nhượng một TLD cho chủ mới (M8a) |
+| `0x47` | `TransferTld` | chuyển nhượng một TLD cho chủ mới (M8a; PoW chuyển nhượng gắn bộ đếm) |
 | `0x6B` | `RevokeTld` | từ bỏ một TLD (M8a) |
 | `0xB8` | `SetTldOpen` | mở **không thể đảo ngược** một TLD cho tự đăng ký (một chiều, tùy chọn của chủ; `open=false` là một từ chối có kiểu) |
 | `0xD4` | `AssignDomain` | gán trực tiếp một tên miền bởi chủ của TLD (M8a) |
 | `0x3C` | `RenewDomain` | gia hạn đăng ký một tên miền (M8a; mang tên chuẩn từ khi có tùy chọn chủ — một TLD mở bám theo hạn) |
 | `0x8F` | `RenewTld` | gia hạn hạn 3 năm của một TLD RIÊNG TƯ (PoW bằng lúc tạo) |
 | `0x15` | `SlashTx` | bằng chứng equivocation của anchor + cấm (M9) |
-| `0xE2` | `TransferDomain` | chuyển nhượng một tên miền cho chủ mới (M8c) |
+| `0xE2` | `TransferDomain` | chuyển nhượng một tên miền cho chủ mới (M8c; PoW chuyển nhượng gắn bộ đếm) |
 | `0x71` | `Heartbeat` | bằng chứng sống của một vận hành viên (RFC proof-of-service) |
-| `0xA9` | `SetTldOperator` | ủy quyền vận hành một TLD riêng tư (RFC proof-of-service) |
-| `0x5E` | `SetDomainOperator` | ủy quyền vận hành một tên miền (RFC proof-of-service) |
+| `0xA9` | `SetTldOperator` | ủy quyền vận hành một TLD riêng tư (RFC proof-of-service; gắn bộ đếm) |
+| `0x5E` | `SetDomainOperator` | ủy quyền vận hành một tên miền (RFC proof-of-service; gắn bộ đếm) |
+| `0x66` | `SetRecordDelegates` | các khóa ủy nhiệm bản ghi của một tên miền — KSK/ZSK-lite: đúng những khóa này, bên cạnh chủ sở hữu, được ký `UpdateDomain` (gắn bộ đếm) |
 
 Mọi byte phiên bản khác `0x01` bị từ chối tường minh
 (`UnsupportedVersion(giá trị nhận được)`): một định dạng không
@@ -162,7 +163,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 byte thô | TLD được chuyển nhượng |
 | `owner` | 32 byte thô | dẫn xuất của `public_key` (chủ hiện tại / người ký) |
 | `new_owner` | 32 byte thô | danh tính người nhận (mờ: mọi giá trị đều hợp lệ về cú pháp; ràng buộc vào các khóa có thể chi tiêu nó là quy tắc trạng thái M8b) |
-| `proof` | có giới hạn (varint ‖ byte) | bằng chứng chuyển nhượng chống-churn, challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, độ khó phẳng `transfer_pow_difficulty`, muối epoch |
+| `proof` | có giới hạn (varint ‖ byte) | bằng chứng chuyển nhượng chống-churn được đào cho ràng buộc bộ đếm HIỆN TẠI của namespace (xem [Bộ đếm biến đổi](#bộ-đếm-biến-đổi)), độ khó phẳng `transfer_pow_difficulty`, muối epoch |
 | `public_key` | 32 byte thô | khóa công khai Ed25519 của người ký |
 | `signature` | **đúng 64 byte** | chữ ký Ed25519 của payload ký |
 
@@ -274,6 +275,81 @@ Ký bởi chủ **riêng tư** hiện tại của TLD. Quy tắc áp dụng:
 - gia hạn KHÔNG bị đóng băng trong thời gian hoãn — nó là thao
   tác quản lý duy nhất còn lại cho một chủ đã hết hạn.
 
+## Gia đình thẩm quyền ủy nhiệm — gắn bộ đếm (0xE2, 0xA9, 0x5E, 0x66)
+
+Bốn giao dịch ủy quyền hay tái phân quyền thẩm quyền trên một
+namespace. Chúng chia sẻ một kỷ luật chống phát lại duy nhất: mỗi
+cái mang hoặc đào một **ràng buộc bộ đếm** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64
+‖ counter_be64)` — được tính trên bộ đếm biến đổi HIỆN TẠI của
+namespace (xem [Bộ đếm biến đổi](#bộ-đếm-biến-đổi)). Một giao dịch
+dựng trên một thế hệ cũ bị từ chối dù chữ ký hay bằng chứng của nó
+vẫn còn hợp lệ về mặt mật mã.
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+Ảnh phản chiếu của `TransferTld` cho một tên miền: ký bởi chủ hiện
+tại, `new_owner` mờ. Trường `proof` là PoW chuyển nhượng
+chống-churn (độ khó phẳng `transfer_pow_difficulty`, muối epoch)
+được đào cho `mutations_binding(domain_id, counter)` — challenge
+của thế hệ trạng thái đang được chuyển nhượng. Quy tắc áp dụng:
+kiểm tra chủ trước (`NotOwner`), rồi PoW đối với ràng buộc của bộ
+đếm HIỆN TẠI (một chuyển nhượng bị phát lại giải một challenge cũ
+hơn — từ chối có kiểu), rồi bộ đếm tăng lên. Tập ủy nhiệm bản ghi
+là quyền ban của chủ CŨ: một chuyển nhượng xóa nó. `TransferTld`
+(0x47) là dạng TLD đối xứng: bằng chứng chuyển nhượng của nó được
+đào cho `mutations_binding(tld_id, counter)`.
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| Trường | Kiểu | Ràng buộc |
+|---|---|---|
+| `id` | 32 byte thô | `tld_id` (0xA9) hay `domain_id` (0x5E) |
+| `owner` | 32 byte thô | dẫn xuất của `public_key` (chủ hiện tại / người ký) |
+| `operator.option` | `0x00` hoặc `0x01 ‖ key[32]` | vận hành viên được ủy quyền, hay `0x00` để quay lại tự vận hành |
+| `state_binding` | **đúng 32 byte thô** | băm chuẩn của ràng buộc bộ đếm HIỆN TẠI: `mutations_binding(id, generation, counter)` (generation = `valid_until` cho một TLD, `registered_at` cho một tên miền) — một ràng buộc cũ là từ chối có kiểu (`StaleStateBinding`) dù chữ ký hợp lệ |
+| `public_key` | 32 byte thô | khóa công khai Ed25519 của người ký (chủ của namespace) |
+| `signature` | **đúng 64 byte** | chữ ký Ed25519 của payload ký |
+
+Ký bởi chủ hiện tại (một TLD riêng tư cho 0xA9; một tên miền đã
+đăng ký cho 0x5E). Giới hạn chống-thuê: một vận hành viên được ủy
+quyền phục vụ tối đa một ghế (`OperatorAlreadyDelegated`). Ứng dụng
+xác minh ràng buộc, rồi tăng bộ đếm — một tái ủy quyền cho CÙNG vận
+hành viên là một thay đổi thế hệ, không phải no-op.
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| Trường | Kiểu | Ràng buộc |
+|---|---|---|
+| `domain_id` | 32 byte thô | tên miền đích |
+| `owner` | 32 byte thô | dẫn xuất của `public_key` — chủ HIỆN TẠI của TÊN MIỀN |
+| `count` | 1 byte | tối đa 3 (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count byte thô | các khóa công khai ủy nhiệm, **tăng nghiêm ngặt** (thứ tự chuẩn; một khóa trùng hay sai thứ tự là lỗi giải mã) |
+| `state_binding` | **đúng 32 byte thô** | băm chuẩn của bộ đếm HIỆN TẠI: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 byte thô | khóa công khai Ed25519 của người ký — chủ của TÊN MIỀN |
+| `signature` | **đúng 64 byte** | chữ ký Ed25519 của payload ký |
+
+KSK/ZSK-lite: tập mang theo THAY THẾ trọn vẹn tập trước đó (không
+trộn) và — bên cạnh chủ của tên miền — đúng những khóa này được ký
+`UpdateDomain` cho tên miền. Độc quyền của chủ: một ủy nhiệm không
+bao giờ có thể quản lý tập này. Tập chết cùng tên miền và bị xóa
+bởi một chuyển nhượng. Ứng dụng xác minh ràng buộc đối với bộ đếm
+hiện tại và tăng nó: chu kỳ `∅ → {9,10} → ∅ → phát lại` không thể
+hồi sinh một khóa đã thu hồi (xem `security-model.md`, các tấn
+công phát lại).
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -292,6 +368,20 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 Ghi chú: `UpdateDomain` **không** mang `timestamp` — thứ tự đi
 qua `sequence`. Nó cũng không mang tên: tên miền đã đăng ký rồi,
 id là đủ.
+
+#### Quy tắc thẩm quyền — chủ hay ủy nhiệm bản ghi
+
+Trường `owner` là chủ on-chain của TÊN MIỀN (bản cập nhật được làm
+CHO namespace đó); `public_key` là người ký THỰC TẾ — chủ HOẶC một
+trong các khóa ủy nhiệm bản ghi của tên miền (KSK/ZSK-lite, xem
+`SetRecordDelegates`). Khác với mọi giao dịch có chữ ký khác, phép
+dẫn xuất owner↔khóa được cố ý KHÔNG áp dụng cho dạng này
+(`validate_transaction` miễn nó): quy tắc thẩm quyền của tầng trạng
+thái — người ký ∈ {chủ} ∪ ủy nhiệm, `sequence == hiện_tại + 1` —
+là ràng buộc duy nhất. Chữ ký vẫn phủ trường `owner` qua payload
+ký, nên một ủy nhiệm ký "cho" một namespace cụ thể. Lưu ý: bản đồ
+chủ→khóa được học theo nguyên tắc xuất-hiện-đầu-tiên (đăng
+ký/gán), nên một cập nhật của ủy nhiệm không bao giờ ghi đè nó.
 
 ### Biên nghiêm ngặt
 
@@ -385,7 +475,44 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 Một giao dịch mà `owner` không khớp dẫn xuất của chính
 `public_key` của nó là vô hiệu (`InvalidOwner` phía core,
 `OwnerKeyMismatch` phía chuỗi), bị từ chối lúc mã hóa, giải mã
-**và** xác thực chuỗi (phòng thủ nhiều lớp).
+**và** xác thực chuỗi (phòng thủ nhiều lớp). NGOẠI LỆ DUY NHẤT:
+`UpdateDomain` — dưới mô hình ủy nhiệm bản ghi, trường `owner` của
+nó là chủ on-chain của TÊN MIỀN trong khi người ký có thể là một
+ủy nhiệm bản ghi; quy tắc thẩm quyền của tầng trạng thái gắn người
+ký với namespace.
+
+## Bộ đếm biến đổi
+
+Mọi namespace mang một bộ đếm biến đổi MONOTONIC (`mutations:
+u64`) — thế hệ chống phát lại CAS của các thao tác được bảo vệ
+của nó.
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **Các giao dịch được bảo vệ** (xác minh ràng buộc, rồi tăng bộ
+  đếm): `SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+  `TransferTld`, `TransferDomain`.
+- **Dấu thế hệ**: `registered_at` cho tên miền (cố định trong suốt
+  đời của namespace), `valid_until` cho TLD (khác nhau về cấu trúc
+  trong mỗi đời — một tuyên bố lại chỉ diễn ra sau một kỳ hạn đủ
+  nhiều năm cộng thời gian hoãn). Không có nó, một namespace chết
+  rồi được đăng ký lại (bộ đếm đặt lại) có thể tái kích hoạt một
+  giao dịch của đời trước khi bộ đếm đạt lại cùng giá trị.
+- **Xác minh**: ứng dụng tính lại ràng buộc từ trạng thái HIỆN TẠI
+  và so nó với giá trị mang theo (các tx Set*) hay xác minh PoW đối
+  với nó (các chuyển nhượng). Một lệch là từ chối có kiểu
+  (`StaleStateBinding` / bằng chứng không giải được) không biến đổi
+  gì.
+- **Tại sao một bộ đếm**: một hàm thuần túy của trạng thái hiện
+  tại trả về giá trị cũ khi trạng thái hợp pháp quay vòng lại —
+  một chuyển nhượng A→B→A, một tập ủy nhiệm `∅ → {9,10} → ∅`. Phát
+  lại sẽ tự tái kích hoạt. Một bộ đếm không bao giờ quay lại. Bộ
+  đếm được cam kết trong lá SMT của namespace (V4) và phơi bày
+  trong phản hồi name-state để client fetch-then-bind mà không cần
+  tin cậy.
 
 ## Payload ký
 
@@ -580,10 +707,11 @@ TLD, với bằng chứng chống thư rác phẳng riêng).
 **Các bằng chứng chuyển nhượng và gán (chống thư rác mức đồng
 thuận)**: `TransferTld`, `TransferDomain` và `AssignDomain`
 mỗi cái mang một bằng chứng công việc **phẳng** —
-`transfer_pow_difficulty` cho hai chuyển nhượng (challenge
-`SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖
-domain_id`), `assign_pow_difficulty` cho việc gán (challenge
-`SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Cùng muối epoch và cửa sổ
+`transfer_pow_difficulty` cho hai chuyển nhượng (challenge =
+ràng buộc bộ đếm HIỆN TẠI của namespace,
+[Bộ đếm biến đổi](#bộ-đếm-biến-đổi) — các tag phẳng
+`SCONE-*-XFER-V1` đã về hưu), `assign_pow_difficulty` cho việc gán
+(challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Cùng muối epoch và cửa sổ
 chống-tiền-đào với đăng ký; xác minh lúc vào mempool (epoch
 ước lượng, best-effort) rồi lúc áp dụng (nghiêm ngặt). Mục
 tiêu: churn chuyển nhượng và tạo hàng loạt dưới một TLD riêng
@@ -725,4 +853,5 @@ tính ký, không bao giờ lấy từ bất kỳ đầu vào nào.
 |---|---|---|
 | 1 | `public_key` + `signature` nhúng, payload `SCONE-TX-SIG-V1`, byte phiên bản `0x01`, `RegisterDomain` mang tên, `RegisterTld` (0x93), gia đình M8a: `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — định dạng wire chuẩn; M8b: trường `network` ký ở đầu mọi payload, `RegisterTld` mang tên, quy tắc trạng thái đầy đủ, độ khó PoW theo mạng | bị thay thế |
 | 1 (2026-09, wire không network) | **gỡ trường `network` khỏi wire của mọi giao dịch**: network_id chỉ sống trong payload ký (`signing_payload(tx, network)` tiêm nó ở đầu); sự tách mạng dựa vào chữ ký (`InvalidSignature` trên payload lạ, lỗi `WrongNetwork` biến mất); `TX_FORMAT_VERSION` giữ `0x01` (testnet tái khởi động, không cùng tồn tại); **mọi TxId đổi** (TxId là băm của mã hóa wire đã ký, mất 14–15 byte); digest PoW, genesis và thư mục dữ liệu theo mạng không đổi | bị thay thế |
-| 1 (2026-10, muối epoch PoW) | **digest PoW chống tiền-đào**: muối `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + lõi Argon2id trên `nonce_le`, với `epoch = block_height / 144` của khối ÁP DỤNG tx; payload wire bằng chứng 12 → **20 byte** (`nonce_le ‖ epoch_le ‖ difficulty_le`), epoch khai báo được xác minh đối với cửa sổ hiệu lực epoch của khối áp dụng (từ chối có kiểu `ProofEpochMismatch`), best-effort `(height+1)/144` lúc vào mempool, cờ CLI `--epoch` trên các đường ngoại tuyến; thay đổi gãy trước-mainnet: payload 12 byte cũ bị từ chối, **mọi TxId đổi** (trường `proof` dài thêm 8 byte) | hiện hành |
+| 1 (2026-10, muối epoch PoW) | **digest PoW chống tiền-đào**: muối `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + lõi Argon2id trên `nonce_le`, với `epoch = block_height / 144` của khối ÁP DỤNG tx; payload wire bằng chứng 12 → **20 byte** (`nonce_le ‖ epoch_le ‖ difficulty_le`), epoch khai báo được xác minh đối với cửa sổ hiệu lực epoch của khối áp dụng (từ chối có kiểu `ProofEpochMismatch`), best-effort `(height+1)/144` lúc vào mempool, cờ CLI `--epoch` trên các đường ngoại tuyến; thay đổi gãy trước-mainnet: payload 12 byte cũ bị từ chối, **mọi TxId đổi** (trường `proof` dài thêm 8 byte) | bị thay thế |
+| 1 (2026-10, bộ đếm biến đổi) | **các ràng buộc chống phát lại CAS**: bộ đếm biến đổi monotonic theo từng namespace (`DomainState`/`TldState::Private`), năm giao dịch được bảo vệ xác minh-rồi-tăng (`SetRecordDelegates` 0x66 MỚI, `SetTldOperator`, `SetDomainOperator`, `TransferTld`, `TransferDomain`); PoW chuyển nhượng được đào cho ràng buộc bộ đếm (các challenge tĩnh `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` đã về hưu); các kiểu set mang một trường wire `state_binding` 32 byte có chữ ký; các lá SMT V4 cam kết bộ đếm (V2/V3 đã về hưu — V3 chưa từng được phát hành); codec lưu trữ +8 byte mỗi tên miền / +8 mỗi TLD riêng tư; `NameState` phơi bày các bộ đếm và `registered_at`; thay đổi gãy trước-mainnet: định dạng trạng thái + wire đổi, **reset testnet**, snapshot cũ bị từ chối lúc nhập | hiện hành |

@@ -74,15 +74,17 @@
 
 ## `DomainStateBytes` エンコーディング形式(M8b)
 
-先行バージョンタグに応じて57バイトまたは89バイト。固定幅ビッグエンディアン整数(正準、バイトごとに比較可能):
+先行バージョンタグに応じて65バイトまたは97バイト。固定幅ビッグエンディアン整数(正準、バイトごとに比較可能):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` は名前空間の単調なミューテーションカウンターです(CASアンチリプレイ世代 — `transactions.md` の「ミューテーションカウンター」参照)。M8bのエンコーディング(57/89バイト、カウンターなし)は**不正**です: 厳格デコード → `Corrupted`(testnetリセット。カウンター前のストアはリプレイで再生成)。
 
 - `registered_at` / `valid_until`(M8b): 登録の失効(クレーム時に1年、更新可能。`/docs/en/technical/blockchain.md` 参照)。
 
@@ -96,16 +98,17 @@ M7のエンコーディング(41/73バイト、失効なし)は、M8b以降**不
 
 ## `TldStateBytes` エンコーディング形式(owner-option)
 
-enumバリアントに応じた可変長 — **プライベート**TLDは34バイト、**オープン**TLDは2バイト(シーケンスもレコードハッシュもなし):
+enumバリアントに応じた可変長 — **プライベート**TLDは50バイト、**オープン**TLDは10バイト(シーケンスもレコードハッシュもなし):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
-- `flag`(owner-option、`TldState` enum): `0x00` = `TldState::Open`(誰のものでもない — セルフサービス + PoW、所有者バイトなし)、`0x01` = `TldState::Private`(32所有者バイトが続く)。厳密に正準 — その他のバイト → `Corrupted`。「オープン ⟺ 所有者なし」の不変条件は構造的です: 2つの状態を混同することはできません。
+- `flag`(owner-option、`TldState` enum): `0x00` = `TldState::Open`(誰のものでもない — セルフサービス + PoW、所有者バイトなし)、`0x01` = `TldState::Private`(32所有者バイト + 8カウンターバイトが続く)。厳密に正準 — その他のバイト → `Corrupted`。「オープン ⟺ 所有者なし」の不変条件は構造的です: 2つの状態を混同することはできません。
 - **`until`(8バイト、BE64)**: TLD自身の時計 — プライベートの期間終わり(クレーム/更新 + 3年)またはオープンの死亡予定(誕生時の1年下限、すべての生存ドメインによって押し戻される)。ふたたびエントリの属性となりました(TLDライフサイクル変更)。派生した `tld_floors_v1` テーブル(+ 凍結コピー `snapshot_v1_floors`)は引き続き下限を追跡し、リプレイで再構築され、起動時に復元されます — 再起動したノードは、継続ノードと同じTLDを殺します。
 
-M7d(33バイト、タグ `0x01`)、M8b(34バイト、タグ `0x02`、ブール `open`)、そしてレガシータグ `0x03`(`until` 埋め込み)のエンコーディングは**不正**です: 厳格デコード → `Corrupted`(mainnet前、リプレイによる再生成が移行パスです)。
+M7d(33バイト、タグ `0x01`)、M8b(34バイト、タグ `0x02`、ブール `open`)、レガシータグ `0x03`(`until` 埋め込み)、そしてカウンター前のタグ `0x04` レイアウト(42/2バイト、カウンターなし)のエンコーディングは**不正**です: 厳格デコード → `Corrupted`(mainnet前、リプレイによる再生成が移行パスです)。
 
 タグはフォーマット進化のためだけに存在します: 将来のレイアウトはタグを上げ、古いリーダーは推測する代わりに `Corrupted` で失敗します。**厳格な**デコード(`TldStateBytes::decode`): 未知のタグ、誤った長さ、過剰バイト、非正準フラグ → `StorageError::Corrupted`。決してパニックしません。
 

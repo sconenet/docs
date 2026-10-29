@@ -319,7 +319,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | दोनों | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | दोनों | नोड अवस्था (network, tip, height, NAT, domains, mempool, peers, finality, fresh operators) | — | — |
 | `0x0e` | `LookupName` | दोनों | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | दोनों | नाम + TLD की ऑन-चेन अवस्था | — | — |
+| `0x0f` | `NameState` | दोनों | नाम + TLD की ऑन-चेन अवस्था, CAS जनरेशन सहित (mutation काउंटर, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | दोनों | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | दोनों | स्वामी के जीवित डोमेन + TLD | — | — |
 | `0x12` | `Error` | उत्तर | अनुप्रयोग-स्तरीय त्रुटि संदेश (`str`) | — | — |

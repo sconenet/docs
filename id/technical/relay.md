@@ -463,9 +463,11 @@ diterima/dikembalikan jika:
 
 Jika tidak: penolakan diam di sisi P2P, error eksplisit di sisi
 CLI. Tanda tangan Ed25519 record **diverifikasi saat diterima**
-oleh relay (`ResolveLocal`: kunci publik owner diketahui
-on-chain, tanda tangan harus terbuka — record yang ditandatangani
-kunci lain ditolak, `record rejected`); ia juga diangkut bagi
+oleh relay (`ResolveLocal`): tanda tangan harus terbuka terhadap
+kunci publik owner yang dipelajari ATAU salah satu kunci delegasi
+record domain (KSK/ZSK-lite — delegasi menerbitkan atas nama
+owner; record yang ditandatangani kunci tak terkait ditolak,
+`record rejected`); ia juga diangkut bagi
 verifier mendatang — komitmen on-chain tetap kendali integritas
 utama.
 

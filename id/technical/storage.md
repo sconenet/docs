@@ -114,16 +114,22 @@ bertinggi 1. Hash genesis selalu diturunkan ulang
 
 ## Format enkode `DomainStateBytes` (M8b)
 
-57 atau 89 byte menurut tag versi di depan, integer lebar-tetap
+65 atau 97 byte menurut tag versi di depan, integer lebar-tetap
 big-endian (kanonik, dapat dibandingkan byte-demi-byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash ada   → tepat 89 byte
-tag = 0x02 : record_hash absen → tepat 57 byte
+tag = 0x01 : record_hash ada   → tepat 97 byte
+tag = 0x02 : record_hash absen → tepat 65 byte
 ```
+
+`mutations` adalah penghitung mutasi monoton namespace (generasi
+anti-replay CAS — lihat `transactions.md`, Penghitung
+mutasi). Enkode M8b (57/89 byte, tanpa penghitung) adalah
+**ilegitim**: dekode ketat → `Corrupted` (reset testnet; store
+pra-penghitung beregenerasi via replay).
 
 - `registered_at` / `valid_until` (M8b): kedaluwarsa registrasi
   (1 tahun saat klaim, dapat diperpanjang, lihat
@@ -145,18 +151,20 @@ tidak pernah panic.
 
 ## Format enkode `TldStateBytes` (opsi owner)
 
-Panjang variabel menurut varian enum — 34 byte untuk TLD
-**privat**, 2 untuk TLD **terbuka** (tanpa sequence maupun hash
+Panjang variabel menurut varian enum — 50 byte untuk TLD
+**privat**, 10 untuk TLD **terbuka** (tanpa sequence maupun hash
 record):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (opsi owner, enum `TldState`): `0x00` =
   `TldState::Open` (milik tak seorang pun — mandiri + PoW,
   tanpa byte owner), `0x01` = `TldState::Private` (32 byte owner
-  menyusul). Secara ketat kanonik — byte lain → `Corrupted`.
+  + 8 byte penghitung menyusul). Secara ketat kanonik — byte
+  lain → `Corrupted`.
   Invarian "terbuka ⟺ tanpa owner" STRUKTURAL: dua state itu
   tidak bisa tertukar.
 - **`until` (8 byte, BE64)**: jam milik TLD sendiri — akhir masa
@@ -169,7 +177,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   membunuh TLD yang sama dengan node kontinu.
 
 Enkode M7d (33 byte, tag `0x01`), M8b (34 byte, tag `0x02`,
-boolean `open`), dan tag warisan `0x03` (`until` tertanam)
+boolean `open`), tag warisan `0x03` (`until` tertanam) dan tata
+letak pra-penghitung tag `0x04` (42/2 byte, tanpa penghitung)
 **ilegitim**: dekode ketat → `Corrupted` (pra-mainnet,
 regenerasi via replay adalah jalur migrasi).
 

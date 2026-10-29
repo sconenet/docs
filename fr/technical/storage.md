@@ -559,7 +559,7 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domaine | 0x02 TLD | 0x03 plancher TLD) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B ou TldStateBytes 2/34 B —
+          (state = DomainStateBytes 65/97 B ou TldStateBytes 10/50 B —
            les formats canoniques de stockage existants, réutilisés ; le
            kind 0x03 (plancher de durée de vie d'un TLD ouvert,
            owner-option) a un format dédié SANS préfixe de longueur :

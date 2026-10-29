@@ -25,13 +25,13 @@ Hai phần:
 | Tài liệu | Nội dung |
 |---|---|
 | [protocol.md](technical/protocol.md) | Định dạng nhị phân wire chuẩn: varint LEB128, định danh, bản ghi DNS, khối, thông điệp P2P, giới hạn, phiên bản |
-| [transactions.md](technical/transactions.md) | Định dạng giao dịch v1: các dạng có chữ ký (các trường, thứ tự wire — RegisterDomain mang tên, discriminant tùy ý, dẫn xuất owner, payload ký `SCONE-TX-SIG-V1`) và bốn dạng pow-to-owner không chữ ký (bằng chứng đã đào CHÍNH LÀ sự ủy quyền), quy tắc xác thực |
+| [transactions.md](technical/transactions.md) | Định dạng giao dịch v1: các dạng có chữ ký (các trường, thứ tự wire — RegisterDomain mang tên, discriminant tùy ý, dẫn xuất owner, payload ký `SCONE-TX-SIG-V1`) và bốn dạng pow-to-owner không chữ ký (bằng chứng đã đào CHÍNH LÀ sự ủy quyền), gia đình thẩm quyền ủy nhiệm (gắn bộ đếm: TransferDomain, vận hành viên, ủy nhiệm bản ghi), bộ đếm biến đổi, quy tắc xác thực |
 | [blockchain.md](technical/blockchain.md) | Tầng blockchain: `TxId`, cây Merkle, `BlockHash`, khối genesis, trạng thái chuẩn, xác thực khối, trừu tượng hóa đồng thuận |
 | [keystore.md](technical/keystore.md) | Định dạng tệp khóa `.sconekey` (Argon2id + XChaCha20-Poly1305), API `scone-keystore`, các lệnh `identity` |
 | [storage.md](technical/storage.md) | Lưu trữ cục bộ bằng redb: lược đồ bảng, delta nguyên tử, chính sách bộ nhớ, mô hình tin cậy, giới hạn chống DoS |
 | [relay.md](technical/relay.md) | Relay mạng (`scone-network`): các giao thức libp2p, khám phá peer (seed, thư mục, UPnP), khả năng kết nối (AutoNAT, circuit-relay, DCUtR), mempool, đồng bộ, DHT Kademlia, cấu trúc liên kết cục bộ, chỉ số Prometheus, snapshot DNS, CLI đầy đủ, cấu hình `.env` |
 | [dns.md](technical/dns.md) | Máy chủ DNS UDP + TCP (M6/M7b): snapshot DNS có thẩm quyền, cache đường nóng chia 16 shard (mục dùng chung, tra cứu không cấp phát, bản ghi đóng gói, nén tên), codec RFC 1035, TCP RFC 7766 (ngân sách 512 byte UDP / 64 KiB TCP, bit TC), cache âm tính DHT, chuyển tiếp đệ quy, giới hạn |
-| [cli.md](technical/cli.md) | Tệp nhị phân `scone`: ghi nhật ký và mức chi tiết (stdout/stderr, các cấp `-v`, `RUST_LOG`), cấu hình môi trường qua `.env` (thứ tự ưu tiên cờ > `.env` > mặc định) |
+| [cli.md](technical/cli.md) | Tệp nhị phân `scone`: ghi nhật ký và mức chi tiết (stdout/stderr, các cấp `-v`, `RUST_LOG`), cấu hình môi trường qua `.env` (thứ tự ưu tiên cờ > `.env` > mặc định), ủy nhiệm bản ghi (`domain delegates set/clear/list`), các cập nhật ký bởi ủy nhiệm |
 | [security-model.md](technical/security-model.md) | Mô hình bảo mật: lựa chọn ủy ban, chống grinding seed (phân tích: VRF không cần thiết), equivocation và slashing |
 | [audit-methodologie.md](technical/audit-methodologie.md) | Phương pháp luận kiểm toán bảo mật: sự khác biệt, nguồn chân lý, các vòng sửa chữa |
 | [rfc-proof-of-service.md](technical/rfc-proof-of-service.md) | RFC proof-of-service: heartbeat của vận hành viên, ủy quyền thao tác, bầu chọn ủy ban trong số các ghế còn mới |

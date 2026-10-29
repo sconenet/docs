@@ -125,6 +125,53 @@ dipaksakan, lihat di atas).
 - e2e 4 relay: checkpoint terfinalisasi dan menyebar, epoch sama
   di semua node.
 
+## Serangan replay pada otoritas terdelegasi (ikatan penghitung)
+
+Lima transaksi mengubah SIAPA yang boleh bertindak atas sebuah
+namespace: `TransferTld`, `TransferDomain` (kepemilikan),
+`SetRecordDelegates` (kunci delegasi record), `SetTldOperator` /
+`SetDomainOperator` (delegasi operasi). Sebuah transaksi terekam
+dari varian-varian ini tetap valid secara kriptografis SELAMANYA
+(tanda tangan mencakup field statis; PoW transfer memecahkan
+tantangan yang diturunkan dari namespace itu sendiri). Satu-satunya
+yang menua adalah jendela replay berbatas (256 blok terakhir).
+Melampauinya, analisis penyiapan-ulang:
+
+- **Transfer A→B→A**: A mentransfer ke B, B mentransfer kembali ke
+  A — state kembali ke konfigurasi lama. Me-replay transaksi A→B
+  ASLI mengeksekusi ulang transfer tanpa persetujuan (pemeriksaan
+  owner lolos lagi; bukti tantangan-statis tetap terpecahkan).
+- **Siklus himpunan delegasi**: delegasi di-set ke `{9,10}`,
+  dihapus ke `∅`, lalu transaksi APA PUN yang memulihkan `{9,10}`
+  — replay `SetRecordDelegates` pertama menghidupkan kembali kunci
+  yang sudah dicabut.
+
+Ikatan yang dihitung sebagai fungsi murni dari state SAAT INI
+(owner, isi himpunan, …) kembali ke nilai lamanya tepat ketika
+state-nya kembali — ia akan menyiapkan ulang replay yang justru
+harus dibunuhnya. Pertahanannya adalah generasi MONOTON: setiap
+namespace membawa `mutations: u64`, dinaikkan oleh masing-masing
+dari lima transaksi terjaga; sebuah transaksi mengikat diri pada
+penghitung generasi tempat ia dibangun
+(`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖ generation ‖
+counter)`) dan penerapan memverifikasi ikatan itu terhadap
+penghitung SAAT INI. Penghitung tidak pernah kembali; karena itu
+tidak ada replay yang menyiapkan ulang dirinya. Penanda generasi
+(`registered_at` untuk domain, `valid_until` untuk TLD) menjaga
+MASA HIDUP sebelumnya dari namespace yang didaftarkan ulang tetap
+terpisah.
+
+Tepi residual (terdokumentasi): ikatan tidak bergantung pada KUNCI
+penandatangan. Kelima transaksi terjaga ditandatangani oleh owner
+SAAT INI dari namespace, sehingga replay lintas-masa-hidup
+tambahan menuntut owner yang sama memegang namespace di kedua
+generasi dan penghitung mencapai kembali nilai yang terekam —
+skenario yang dikendalikan sendiri bagi delegasi/operator, dan
+kasus owner-korban bagi transfer yang menuntut korban mengklaim
+ulang namespace matinya sendiri bertahun-tahun kemudian. Diterima
+pra-mainnet; ditinjau ulang jika volume transfer atau daur ulang
+namespace menjadikannya material.
+
 ## Batas yang diketahui (terdokumentasi, belum diperbaiki)
 
 - Kumpulan yang layak mencakup owner TLD hidup (klaim = PoW yang

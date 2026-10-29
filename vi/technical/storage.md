@@ -113,16 +113,22 @@ genesis luôn được dẫn xuất lại
 
 ## Định dạng mã hóa `DomainStateBytes` (M8b)
 
-57 hay 89 byte tùy thẻ phiên bản dẫn đầu, số nguyên big-endian
+65 hay 97 byte tùy thẻ phiên bản dẫn đầu, số nguyên big-endian
 độ-cố-định (chuẩn, so sánh được byte-cho-byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
+
+`mutations` là bộ đếm biến đổi monotonic của namespace (thế hệ
+chống phát lại CAS — xem `transactions.md`, Bộ đếm biến đổi). Các
+mã hóa M8b (57/89 byte, không bộ đếm) **vô hiệu**: giải mã nghiêm
+ngặt → `Corrupted` (reset testnet; một kho tiền-bộ-đếm tái tạo qua
+phát lại).
 
 - `registered_at` / `valid_until` (M8b): hết hạn của đăng ký
   (1 năm lúc tuyên bố, gia hạn được, xem
@@ -144,17 +150,19 @@ bao giờ panic.
 
 ## Định dạng mã hóa `TldStateBytes` (tùy chọn chủ)
 
-Chiều dài biến thiên theo biến thể enum — 34 byte cho một TLD
-**riêng tư**, 2 cho một TLD **mở** (không sequence mà cũng
+Chiều dài biến thiên theo biến thể enum — 50 byte cho một TLD
+**riêng tư**, 10 cho một TLD **mở** (không sequence mà cũng
 không băm bản ghi):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (tùy chọn chủ, enum `TldState`): `0x00` =
   `TldState::Open` (không ai — tự phục vụ + PoW, không byte
-  chủ), `0x01` = `TldState::Private` (32 byte chủ theo sau).
+  chủ), `0x01` = `TldState::Private` (32 byte chủ + 8 byte bộ
+  đếm theo sau).
   Chuẩn nghiêm ngặt — mọi byte khác → `Corrupted`. Bất biến
   "mở ⟺ không chủ" là CẤU TRÚC: hai trạng thái không thể bị
   nhầm lẫn.
@@ -168,7 +176,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   nút liên tục.
 
 Các mã hóa M7d (33 byte, thẻ `0x01`), M8b (34 byte, thẻ
-`0x02`, boolean `open`), và thẻ cũ `0x03` (`until` nhúng)
+`0x02`, boolean `open`), thẻ cũ `0x03` (`until` nhúng) và các
+bố cục thẻ `0x04` tiền-bộ-đếm (42/2 byte, không bộ đếm)
 **vô hiệu**: giải mã nghiêm ngặt → `Corrupted` (trước-mainnet,
 tái tạo qua phát lại là đường di trú).
 

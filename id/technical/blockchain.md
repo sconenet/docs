@@ -165,8 +165,9 @@ hanya membawa `tld_id`, namanya sudah membayar panjangnya saat
 penciptaan. **Dua bukti datar lagi** melengkapi keluarga ini
 (anti-spam tingkat konsensus, salt epoch dan jendela yang sama
 dengan registrasi): `transfer_pow_difficulty` untuk transfer
-(`TransferTld`/`TransferDomain`, tantangan `SCONE-TLD-XFER-V1 ‖
-tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) dan
+(`TransferTld`/`TransferDomain`, tantangan = ikatan penghitung
+SAAT INI dari namespace — lihat `transactions.md`, Penghitung
+mutasi) dan
 `assign_pow_difficulty` untuk penugasan di bawah TLD privat
 (`AssignDomain`, tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —
 datar memang disengaja: eksklusivitas namespace sudah dibayar
@@ -249,8 +250,8 @@ iterasi lokal cepat:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (opsi owner): invarian terbuka/privat bersifat
                -- struktural; tenggat kematian hidup di luar entri
                -- (tabel tld_floors + jadwal kematian terjurnal)
@@ -259,6 +260,20 @@ ChainState   = NetworkParams                  (jaringan terikat, M8b)
                + TldId -> TldState            (registri TLD, M7b)
                + DomainId -> (expired_at, OwnerId)   (jendela masa tenggang, M8b)
 ```
+
+`mutations` adalah penghitung mutasi MONOTON namespace — generasi
+anti-replay CAS dari operasi-operasi terjaganya
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` verify-then-increment; perpanjangan
+mempertahankannya, transfer menaikkannya). Ia dikomitmenkan di daun
+SMT namespace — daun domain `SCONE-LEAF-DOM-V4` (penghitung di
+antara field masa hidup dan komitmen record), daun TLD
+`SCONE-LEAF-TLD-V4` (byte varian injektif; penghitung untuk
+`Private`) — dan diekspos dalam respons name-state. Klien
+fetch-then-bind: transaksi yang dibangun atas generasi usang adalah
+penolakan bertipe (`StaleStateBinding`) yang tidak mengubah apa
+pun. Derivasi lengkap dan rasional: `transactions.md`, "Penghitung
+mutasi"; analisis keamanan: `security-model.md`.
 
 * `registered_at` / `valid_until` (M8b): kedaluwarsa registrasi,
   dievaluasi terhadap **timestamp blok induk** (deterministik,

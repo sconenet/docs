@@ -321,7 +321,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | উভয় | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | উভয় | নোড স্টেট (নেটওয়ার্ক, টিপ, উচ্চতা, NAT, ডোমেইন, মেমপুল, পিয়ার, ফাইনালিটি, ফ্রেশ অপারেটর) | — | — |
 | `0x0e` | `LookupName` | উভয় | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | উভয় | নামের অন-চেইন স্টেট + TLD | — | — |
+| `0x0f` | `NameState` | উভয় | নামের অন-চেইন স্টেট + TLD, CAS জেনারেশনসহ (মিউটেশন কাউন্টার, `registered_at`) | — | — |
 | `0x10` | `GetOwnedNames` | উভয় | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | উভয় | owner-এর লাইভ ডোমেইন + TLD | — | — |
 | `0x12` | `Error` | উত্তর | অ্যাপ্লিকেশন-স্তরের ত্রুটি বার্তা (`str`) | — | — |

@@ -146,6 +146,35 @@ scone tld renew mytld               # explicit renewal
 同样地，对你拥有的、90 天内到期的名称执行
 `scone domain register <name>` 会提议续期而不是失败。
 
+## 记录委托（KSK/ZSK-lite）
+
+域名的所有者可以授予**其他**密钥代表它签署
+`domain update` 的权利 —— 记录委托集合（至多
+3 把密钥，每次 `set` 全量替换）：
+
+```bash
+# 授权（由所有者签名；CLI 会获取命名空间的 CAS
+# 世代并把交易绑定到它）：
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# 查看（无需身份）：
+scone domain delegates list example.uip
+
+# 吊销全部：
+scone domain delegates clear example.uip --identity alice
+```
+
+委托随后签署 `domain update`，与所有者的操作完全
+一样（`--identity deleg`）—— 链上交易的 `owner`
+字段是**域名**的所有者，而签名来自委托。授权
+是所有者独占的（委托无法管理该集合），会被
+一次转移清空，且每次 `set`/`clear` 都使命名空间的
+变异计数器递增（CAS 防重放 —— 见
+`transactions.md`）：重放的 `set` 无法复活被吊销的
+密钥。被吊销委托的更新在本地被拒绝（"既非
+所有者也非记录委托"）。
+
 ## 高级命令
 
 上面的默认值覆盖日常使用。面向脚本和 web/API

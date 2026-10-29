@@ -111,7 +111,7 @@ TLD     : difficulty(len) = apex − round(0.287 × (len − 1)), clamped at the
 domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the floor
 ```
 
-2つの異なる傾き: TLDでは `log₂(1.22) ≈ 0.287` ビット/文字(1文字追加するごとにコストが約1.22で割られる)、ドメインでは `log₂(1.40) ≈ 0.480` ビット/文字 — ドメインはより速く減衰します。その価値は、ドメインを運ぶTLDにあるからです。生まれながらオープンのTLDはプライベートの頂点 − 1、ドメインはプライベートの頂点 − 2 です(mainnet: プライベートTLD 25、オープンTLD 24、ドメイン23)。Mainnetベンチマーク(メモリハードArgon2id、シングルスレッドで約11.4 H/s): プライベートTLD 1文字 = 28ビット ≈ 30日、9文字以上 = 25ビット下限 ≈ 3.8日。オープンTLD 1文字 = 27ビット ≈ 15日。ドメイン1文字 = 26ビット ≈ 3.8日、9文字以上 = 22ビット下限 ≈ 11.5時間。**8コアリファレンスマシン**(2026年10月の再較正 — CLIはマルチコアでマイニング)、約11.4 H/s/コア。既存のプライベートTLDの**オープン化**(`SetTldOpen`)は、フラットな難易度のままです(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 22ビット)。txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済みです。**さらに2つのフラットなプルーフ**がこのファミリーを完成させます(コンセンサスレベルのアンチスパム、登録と同じエポックソルトとウィンドウ): 譲渡には `transfer_pow_difficulty`(`TransferTld`/`TransferDomain`、チャレンジ `SCONE-TLD-XFER-V1 ‖ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`)、プライベートTLDの下での作成には `assign_pow_difficulty`(`AssignDomain`、チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — 意図的にフラット: 名前空間の排他性はTLD生成時に支払済み、長さごとの二重課税はなし)。目安となる値: 16ビットmainnet(bench-pow 2026-10-23較正: 実測 10.6 H/s の1コアで譲渡/アサイン1回あたり約1.7時間、リファレンス 11.4 H/s。4コアで約25分 — 工業化には高価、誠実な所有者には通常の仕事)、4ビットtestnet、1ビットdevnet。純粋関数(決定論)。
+2つの異なる傾き: TLDでは `log₂(1.22) ≈ 0.287` ビット/文字(1文字追加するごとにコストが約1.22で割られる)、ドメインでは `log₂(1.40) ≈ 0.480` ビット/文字 — ドメインはより速く減衰します。その価値は、ドメインを運ぶTLDにあるからです。生まれながらオープンのTLDはプライベートの頂点 − 1、ドメインはプライベートの頂点 − 2 です(mainnet: プライベートTLD 25、オープンTLD 24、ドメイン23)。Mainnetベンチマーク(メモリハードArgon2id、シングルスレッドで約11.4 H/s): プライベートTLD 1文字 = 28ビット ≈ 30日、9文字以上 = 25ビット下限 ≈ 3.8日。オープンTLD 1文字 = 27ビット ≈ 15日。ドメイン1文字 = 26ビット ≈ 3.8日、9文字以上 = 22ビット下限 ≈ 11.5時間。**8コアリファレンスマシン**(2026年10月の再較正 — CLIはマルチコアでマイニング)、約11.4 H/s/コア。既存のプライベートTLDの**オープン化**(`SetTldOpen`)は、フラットな難易度のままです(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 22ビット)。txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済みです。**さらに2つのフラットなプルーフ**がこのファミリーを完成させます(コンセンサスレベルのアンチスパム、登録と同じエポックソルトとウィンドウ): 譲渡には `transfer_pow_difficulty`(`TransferTld`/`TransferDomain`、チャレンジ = 名前空間の**現在の**カウンターバインディング — `transactions.md` の「ミューテーションカウンター」参照)、プライベートTLDの下での作成には `assign_pow_difficulty`(`AssignDomain`、チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — 意図的にフラット: 名前空間の排他性はTLD生成時に支払済み、長さごとの二重課税はなし)。目安となる値: 16ビットmainnet(bench-pow 2026-10-23較正: 実測 10.6 H/s の1コアで譲渡/アサイン1回あたり約1.7時間、リファレンス 11.4 H/s。4コアで約25分 — 工業化には高価、誠実な所有者には通常の仕事)、4ビットtestnet、1ビットdevnet。純粋関数(決定論)。
 
 ジェネシスはネットワークごとのプロトコル定数であり、定数だけから再現可能です(ランダム性なし、ローカル時計なし、ネットワークなし):
 
@@ -146,8 +146,8 @@ devnet(`scone-devnet`)は、高速なローカル反復に特化した第3のネ
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
@@ -156,6 +156,8 @@ ChainState   = NetworkParams                  (bound network, M8b)
                + TldId -> TldState            (TLD registry, M7b)
                + DomainId -> (expired_at, OwnerId)   (grace windows, M8b)
 ```
+
+`mutations` は名前空間の**単調な**ミューテーションカウンターです — ガードされた操作のCASアンチリプレイ世代(`SetRecordDelegates`、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain` は検証してからインクリメント。更新はそれを保存し、移転はインクリメントします)。名前空間のSMTリーフにコミットされます — ドメインリーフ `SCONE-LEAF-DOM-V4`(カウンターはライフタイムフィールドとレコードコミットメントの間)、TLDリーフ `SCONE-LEAF-TLD-V4`(単射なバリアントバイト。`Private` はカウンター)— そしてname-state応答で公開されます。クライアントはフェッチしてからバインドします(fetch-then-bind): 陳腐な世代に対して構築されたトランザクションは、何も変更しない型付き拒否(`StaleStateBinding`)です。完全な導出と根拠: `transactions.md` の「ミューテーションカウンター」。セキュリティ分析: `security-model.md`。
 
 * `registered_at` / `valid_until`(M8b): 登録の失効。**親ブロックのタイムスタンプ**に対して評価されます(決定論的、ヘッダーにコミット — 決してローカル時計ではない)。
 * `open`: プライベートTLDは**生まれながらオープン**になれます(`RegisterTld` で `open = 0x01` — 誰のものでもない、セルフサービス)、またはクレーム時に**クローズ**(クローズ = assignのみ)。その後 `SetTldOpen`(PoW付きセルフ登録)でオープン化 — **不可逆**です。

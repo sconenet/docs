@@ -558,7 +558,7 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+          (state = DomainStateBytes 65/97 B or TldStateBytes 10/50 B —
            the existing canonical storage formats, reused; kind
            0x03 (lifetime floor of an open TLD, owner-option) has
            a dedicated format WITHOUT a length prefix:

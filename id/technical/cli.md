@@ -150,6 +150,37 @@ Demikian pula, `scone domain register <name>` atas nama yang Anda
 miliki yang kedaluwarsa dalam 90 hari mengusulkan perpanjangan
 alih-alih gagal.
 
+## Delegasi record (KSK/ZSK-lite)
+
+Owner sebuah domain dapat memberikan KUNCI lain hak untuk
+menandatangani `domain update` atas namanya — himpunan delegasi
+record (paling banyak 3 kunci, penggantian penuh pada setiap
+`set`):
+
+```bash
+# pemberian (ditandatangani owner; CLI mengambil generasi CAS
+# namespace dan mengikat transaksi padanya):
+scone domain delegates set example.uip \
+  --keys <pk-hex-1>,<pk-hex-2> --identity alice
+
+# inspeksi (tanpa identitas):
+scone domain delegates list example.uip
+
+# cabut semuanya:
+scone domain delegates clear example.uip --identity alice
+```
+
+Seorang delegasi kemudian menandatangani `domain update` persis
+seperti yang dilakukan owner (`--identity deleg`) — on-chain,
+field `owner` tx adalah owner DOMAIN sementara tanda tangannya
+berasal dari delegasi. Pemberian itu eksklusif owner (seorang
+delegasi tidak bisa mengelola himpunannya), dihapus oleh sebuah
+transfer, dan setiap `set`/`clear` menaikkan penghitung mutasi
+namespace (anti-replay CAS — lihat `transactions.md`): `set` yang
+di-replay tidak bisa menghidupkan kembali kunci yang dicabut.
+Pembaruan oleh delegasi yang dicabut ditolak secara lokal
+("bukan owner maupun delegasi record").
+
 ## Perintah lanjutan
 
 Default di atas mencakup pemakaian sehari-hari. Untuk skrip dan
