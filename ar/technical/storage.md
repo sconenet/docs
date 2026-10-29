@@ -113,20 +113,24 @@
 
 ## صيغة ترميز `DomainStateBytes` (M8b)
 
-57 أو 89 بايتًا حسب وسم الإصدار البادئ، أعداد صحيحة ثابتة
+65 أو 97 بايتًا حسب وسم الإصدار البادئ، أعداد صحيحة ثابتة
 العرض big-endian (قانونية، قابلة للمقارنة بايتًا-ببايت):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash present → exactly 97 bytes
+tag = 0x02 : record_hash absent  → exactly 65 bytes
 ```
 
 - `registered_at` / `valid_until` (M8b): انتهاء التسجيل
   (سنة عند المطالبة، قابل للتجديد، انظر
   `/docs/en/technical/blockchain.md`).
+- `mutations` (V3): عدّاد الطفرات الرتيب للـ namespace (جيل CAS
+  anti-replay — انظر `transactions.md`، عدّاد الطفرات). ترميزات M8b
+  (57/89 بايت، بلا عدّاد) **غير شرعية**: فك صارم ← `Corrupted`
+  (تصفير testnet؛ مخزن pre-counter يتجدد عبر replay).
 
 ترميزات M7 (41/73 بايتًا، بلا انتهاء) **غير شرعية** منذ M8b:
 فك ترميز صارم ← `Corrupted`. (مخزن M7 يتجدد عبر إعادة التشغيل:
@@ -144,11 +148,12 @@ panic أبدًا.
 
 ## صيغة ترميز `TldStateBytes` (خيار المالك)
 
-طول متغير حسب الـ variant — 34 بايتًا لـ TLD **خاص**،
+طول متغير حسب الـ variant — 50 بايتًا لـ TLD **خاص**،
 و2 لـ TLD **مفتوح** (لا تسلسل ولا hash سجل):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (خيار المالك، تعداد `TldState`): `0x00` =
@@ -165,7 +170,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   الإقلاع — العقدة المعاد تشغيلها تقتل نفس الـ TLD التي
   تقتلها العقدة المتواصلة.
 
-ترميزات M7d (33 بايت، وسم `0x01`)، وM8b (34 بايت، وسم `0x02`،
+تخطيطات pre-counter وسم `0x04` (42/2 بايت، بلا عدّاد)، ترميزات
+M7d (33 بايت، وسم `0x01`)، وM8b (34 بايت، وسم `0x02`،
 `open` منطقي)، والوسم القديم `0x03` (`until` مضمّن) **غير
 شرعية**: فك ترميز صارم ← `Corrupted` (قبل الـ mainnet، إعادة
 الجيل عبر إعادة التشغيل هي مسار الترحيل).
