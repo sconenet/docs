@@ -323,7 +323,7 @@ deve exceder `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0c` | `GetStatus` | ambos | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | ambos | estado do nó (rede, tip, altura, NAT, domínios, mempool, pares, finalidade, operadores frescos) | — | — |
 | `0x0e` | `LookupName` | ambos | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | ambos | estado on-chain do nome + TLD | — | — |
+| `0x0f` | `NameState` | ambos | estado on-chain do nome + TLD, incl. a geração CAS (contadores de mutações, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | ambos | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | ambos | domínios + TLDs vivos do owner | — | — |
 | `0x12` | `Error` | resposta | mensagem de erro de nível de aplicação (`str`) | — | — |

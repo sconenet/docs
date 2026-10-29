@@ -116,20 +116,25 @@ gênese é sempre rederivado
 
 ## Formato de codificação `DomainStateBytes` (M8b)
 
-57 ou 89 bytes conforme a tag de versão inicial, inteiros de largura
+65 ou 97 bytes conforme a tag de versão inicial, inteiros de largura
 fixa big-endian (canônico, comparável byte a byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash present → exactly 89 bytes
-tag = 0x02 : record_hash absent  → exactly 57 bytes
+tag = 0x01 : record_hash presente → exatamente 97 bytes
+tag = 0x02 : record_hash ausente  → exatamente 65 bytes
 ```
 
 - `registered_at` / `valid_until` (M8b): a expiração do
   registro (1 ano na reivindicação, renovável, ver
   `/docs/en/technical/blockchain.md`).
+- `mutations` (V3): o contador de mutações monótono do namespace
+  (geração CAS anti-replay — ver `transactions.md`, O contador de
+  mutações). As codificações M8b (57/89 bytes, sem contador) são
+  **ilegítimas**: decodificação estrita → `Corrupted` (reset
+  testnet; um store pré-contador regenera via replay).
 
 As codificações M7 (41/73 bytes, sem expiração) são
 **ilegítimas** desde M8b: decodificação estrita → `Corrupted`. (Um
@@ -148,18 +153,19 @@ desconhecida, comprimento errado ou bytes em excesso →
 
 ## Formato de codificação `TldStateBytes` (owner-option)
 
-Comprimento variável conforme a variante do enum — 34 bytes para um
-TLD **privado**, 2 para um TLD **aberto** (nem sequência nem
+Comprimento variável conforme a variante do enum — 50 bytes para um
+TLD **privado**, 10 para um TLD **aberto** (nem sequência nem
 hash de registro):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (owner-option, enum `TldState`): `0x00` =
   `TldState::Open` (de ninguém — autoatendimento + PoW, sem bytes
-  de owner), `0x01` = `TldState::Private` (32 bytes de owner se
-  seguem). Estritamente canônico — qualquer outro byte →
+  de owner), `0x01` = `TldState::Private` (32 bytes de owner + 8 bytes de
+  contador se seguem). Estritamente canônico — qualquer outro byte →
   `Corrupted`. O inváriante "aberto ⟺ sem owner" é ESTRUTURAL: os
   dois estados não podem ser confundidos.
 - **`until` (8 bytes, BE64)**: o relógio próprio do TLD — o fim do
@@ -172,7 +178,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   replay e restaurada no boot — um nó reiniciado mata os mesmos
   TLDs que um nó contínuo.
 
-As codificações M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag
+Os layouts pré-contador tag `0x04` (42/2 bytes, sem contador), as
+codificações M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag
 `0x02`, booleano `open`) e a tag legada `0x03` (`until` embutido)
 são **ilegítimas**: decodificação estrita → `Corrupted`
 (pré-mainnet, a regeneração via replay é o caminho de migração).

@@ -451,9 +451,11 @@ se:
 
 Caso contrário: rejeição silenciosa do lado P2P, erro explícito do
 lado CLI. A assinatura Ed25519 do registro é **verificada no
-recebimento** pelo relay (`ResolveLocal`: a chave pública do owner é
-conhecida on-chain, a assinatura deve destravar — um registro assinado
-por outra chave é rejeitado, `record rejected`); ela é também
+recebimento** pelo relay (`ResolveLocal`): a assinatura deve
+destravar contra a chave pública aprendida do owner OU qualquer uma
+das chaves delegadas de records do domínio (KSK/ZSK-lite — um
+delegado publica em nome do owner; um registro assinado por uma
+chave sem relação é rejeitado, `record rejected`); ela é também
 transportada para futuros verificadores — o compromisso on-chain
 permanece o controle primário de integridade.
 

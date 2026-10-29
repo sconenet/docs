@@ -138,9 +138,11 @@ Cliente de validação: `dig <name> --dns 127.0.0.1:5353
    (subnomes incluídos — comportamento curinga implícito, decisão
    aberta).
 4. **`resolve_local` (canal interno)**: um único round trip, nunca
-   um waiter DHT. Estado on-chain (`registered`, owner, sequence) +
-   registro do cache DHT local **re-verificado** (owner, sequence,
-   record_hash == compromisso on-chain). Um registro não conforme
+   um waiter DHT. Estado on-chain (`registered`, owner, sequence,
+   mutações) + registro do cache DHT local **re-verificado** (owner,
+   sequence, record_hash == compromisso on-chain; a assinatura do
+   registro pode vir do owner ou de um delegado de records — mesma
+   regra que a verificação do relay). Um registro não conforme
    nunca responde — disponibilidade ≠ autoridade.
    - não registrado → NXDOMAIN;
    - registrado sem registro válido → NODATA (NOERROR, 0
