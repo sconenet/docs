@@ -252,11 +252,25 @@ Devnet (`scone-devnet`) — третья сеть, посвящённая быс
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
+`mutations` — МОНОТОННЫЙ счётчик мутаций namespace'а — CAS
+анти-replay поколение его защищённых операций (`SetRecordDelegates`,
+`SetTldOperator`, `SetDomainOperator`, `TransferTld`,
+`TransferDomain` проверяют-затем-инкрементируют; обновление его
+сохраняет, трансфер инкрементирует). Он закоммичен в SMT-листе
+namespace'а — лист домена `SCONE-LEAF-DOM-V4` (счётчик между полями
+жизни и обязательством записей), лист TLD `SCONE-LEAF-TLD-V4`
+(инъективный байт варианта; счётчик для `Private`) — и выставлен в
+ответе name-state. Клиенты делают fetch-then-bind: транзакция,
+построенная против устаревшего поколения, — типизированный отказ
+(`StaleStateBinding`), ничего не мутирующий. Полная деривация и
+рационал: `transactions.md`, «Счётчик мутаций»; анализ безопасности:
+`security-model.md`.
+
 ChainState   = NetworkParams                  (bound network, M8b)
                + DomainId -> DomainState      (direct access, in memory)
                + TldId -> TldState            (TLD registry, M7b)

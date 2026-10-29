@@ -336,7 +336,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | оба | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | оба | состояние узла (сеть, тип, высота, NAT, домены, мемпул, пиры, финальность, свежие операторы) | — | — |
 | `0x0e` | `LookupName` | оба | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | оба | состояние имени в цепочке + TLD | — | — |
+| `0x0f` | `NameState` | оба | состояние имени в цепочке + TLD, вкл. CAS-поколение (счётчики мутаций, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | оба | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | оба | живые домены + TLD владельца | — | — |
 | `0x12` | `Error` | ответ | сообщение об ошибке уровня приложения (`str`) | — | — |
