@@ -124,6 +124,52 @@ demostrablemente inexistente (ninguna deuda imponible, ver arriba).
 - e2e 4 relays: un checkpoint finaliza y se propaga, misma época
   en todos los nodos.
 
+## Ataques de replay sobre la autoridad delegada (bindings de contador)
+
+Cinco transacciones mutan QUIÉN puede actuar sobre un namespace:
+`TransferTld`, `TransferDomain` (propiedad), `SetRecordDelegates`
+(claves delegadas de records), `SetTldOperator` / `SetDomainOperator`
+(delegados de operación). Una transacción registrada de estas
+variantes sigue siendo criptográficamente válida PARA SIEMPRE (la
+firma cubre campos estáticos; el PoW de cesión resuelve un reto
+derivado del propio namespace). Lo único que envejece es la ventana
+de replay acotada (últimos 256 bloques). Más allá, análisis de
+re-arme:
+
+- **Cesión A→B→A**: A transfiere a B, B re-transfiere a A — el
+  estado volvió a una configuración anterior. Rejugar la
+  transacción A→B ORIGINAL re-ejecuta la transferencia sin
+  consentimiento (el check de propietario vuelve a pasar; una prueba
+  de reto estático sigue resolviéndose).
+- **Ciclo de delegados**: delegados puestos en `{9,10}`, vaciados a
+  `∅`, luego CUALQUIER transacción que restaure `{9,10}` — el replay
+  del primer `SetRecordDelegates` resucita claves revocadas.
+
+Un binding calculado como función pura del estado ACTUAL (propietario,
+contenido del conjunto, ...) recupera su valor antiguo exactamente
+cuando el estado legítimamente vuelve a él — re-armaría el propio
+replay que debe matar. La defensa es una generación MONÓTONA: cada
+namespace lleva `mutations: u64`, incrementado por cada una de las
+cinco transacciones protegidas; una transacción se liga al contador
+de la generación para la que fue construida
+(`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖ generation ‖
+counter)`) y la aplicación verifica ese binding contra el contador
+ACTUAL. Los contadores nunca vuelven; por lo tanto ningún replay se
+re-arma. El marcador de generación (`registered_at` para dominios,
+`valid_until` para TLDs) mantiene disjuntas las vidas anteriores de
+un namespace re-registrado.
+
+Borde residual (documentado): el binding no depende de la CLAVE del
+firmante. Las cinco transacciones protegidas están firmadas por el
+propietario ACTUAL del namespace, así que un replay
+inter-generaciones exige además que el mismo propietario detente el
+namespace en ambas generaciones y que el contador recupere el valor
+registrado — escenario auto-controlado para delegados/operadores, y
+caso víctima-propietario para cesiones que exige que la víctima haya
+re-claimado su propio namespace muerto años después. Aceptado
+pre-mainnet; reevaluar si el volumen de transferencias o el reciclaje
+de namespaces lo hace material.
+
 ## Límites conocidos (documentados, sin corregir)
 
 - El pool elegible incluye a los propietarios de TLDs vivos

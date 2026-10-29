@@ -469,9 +469,11 @@ si:
 
 Si no: rechazo silencioso en el lado P2P, error explícito en el
 lado CLI. La firma Ed25519 del registro se **verifica a la
-recepción** por el relay (`ResolveLocal`: la clave pública del
-propietario se conoce on-chain, la firma debe validar — un registro
-firmado por otra clave se rechaza, `record rejected`); también se
+recepción** por el relay (`ResolveLocal`): la firma debe validar
+contra la clave pública aprendida del propietario O cualquiera de
+las claves delegadas de records del dominio (KSK/ZSK-lite — un
+delegado publica en nombre del propietario; un registro firmado por
+una clave sin relación se rechaza, `record rejected`); también se
 transporta para los verificadores futuros — el compromiso on-chain
 sigue siendo el control de integridad primario.
 

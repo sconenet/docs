@@ -118,20 +118,25 @@ del génesis siempre se re-deriva
 
 ## Formato de codificación `DomainStateBytes` (M8b)
 
-57 o 89 bytes según la etiqueta de versión inicial, enteros
+65 o 97 bytes según la etiqueta de versión inicial, enteros
 big-endian de ancho fijo (canónico, comparable byte a byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash presente → exactamente 89 bytes
-tag = 0x02 : record_hash ausente  → exactamente 57 bytes
+tag = 0x01 : record_hash presente → exactamente 97 bytes
+tag = 0x02 : record_hash ausente  → exactamente 65 bytes
 ```
 
 - `registered_at` / `valid_until` (M8b): la expiración del registro
   (1 año en la reclamación, renovable, ver
   `/docs/en/technical/blockchain.md`).
+- `mutations` (V3): el contador de mutaciones monótono del namespace
+  (generación CAS anti-replay — ver `transactions.md`, El contador
+  de mutaciones). Las codificaciones M8b (57/89 bytes, sin contador)
+  son **ilegítimas**: decodificación estricta → `Corrupted` (reset
+  testnet; un almacén pre-contador se regenera vía replay).
 
 Las codificaciones M7 (41/73 bytes, sin expiración) son
 **ilegítimas** desde M8b: decodificación estricta → `Corrupted`.
@@ -150,12 +155,13 @@ desconocida, longitud errónea o bytes sobrantes →
 
 ## Formato de codificación `TldStateBytes` (opción del propietario)
 
-Longitud variable según la variante del enum — 34 bytes para un TLD
-**privativo**, 2 para un TLD **abierto** (ni secuencia ni hash de
+Longitud variable según la variante del enum — 50 bytes para un TLD
+**privativo**, 10 para un TLD **abierto** (ni secuencia ni hash de
 registro):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (opción del propietario, enum `TldState`): `0x00` =
@@ -173,7 +179,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   reconstruidos en replay y restaurados al arrancar — un nodo
   reiniciado mata los mismos TLDs que un nodo continuo.
 
-Las codificaciones M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag
+Los layouts pre-contador tag `0x04` (42/2 bytes, sin contador), las
+codificaciones M7d (33 bytes, tag `0x01`), M8b (34 bytes, tag
 `0x02`, booleano `open`) y la etiqueta legada `0x03` (`until`
 embebido) son **ilegítimas**: decodificación estricta →
 `Corrupted` (pre-mainnet, la regeneración vía replay es la ruta de

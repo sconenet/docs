@@ -253,11 +253,26 @@ iteración local rápida:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (opción del propietario): el invariante abierto/privativo es
                -- estructural; el plazo de muerte vive fuera de la entrada
                -- (tabla tld_floors + plan de muerte journaled)
+`mutations` es el contador de mutaciones MONÓTONO del namespace —
+la generación CAS anti-replay de sus operaciones protegidas
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` verifican-luego-incrementan; la
+renovación lo preserva, una transferencia lo incrementa). Está
+comprometido en la hoja SMT del namespace — hoja dominio
+`SCONE-LEAF-DOM-V4` (contador entre los campos de vida y el
+compromiso de records), hoja TLD `SCONE-LEAF-TLD-V4` (byte de
+variante inyectivo; contador para `Private`) — y expuesto en la
+respuesta name-state. Los clientes hacen fetch-then-bind: una
+transacción construida contra una generación obsoleta es un rechazo
+tipado (`StaleStateBinding`) que no muta nada. Derivación completa
+y racional: `transactions.md`, «El contador de mutaciones»;
+análisis de seguridad: `security-model.md`.
+
 ChainState   = NetworkParams                  (red ligada, M8b)
                + DomainId -> DomainState      (acceso directo, en memoria)
                + TldId -> TldState            (registro de TLDs, M7b)

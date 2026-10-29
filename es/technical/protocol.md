@@ -334,7 +334,7 @@ trama de transporte no debería superar `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0c` | `GetStatus` | ambos | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | ambos | estado del nodo (red, tip, altura, NAT, dominios, mempool, pares, finalidad, operadores frescos) | — | — |
 | `0x0e` | `LookupName` | ambos | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | ambos | estado on-chain del nombre + TLD | — | — |
+| `0x0f` | `NameState` | ambos | estado on-chain del nombre + TLD, incl. la generación CAS (contadores de mutaciones, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | ambos | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | ambos | dominios + TLDs vivos del propietario | — | — |
 | `0x12` | `Error` | respuesta | mensaje de error a nivel de aplicación (`str`) | — | — |
