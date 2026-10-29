@@ -117,20 +117,25 @@ Der Genesis-Hash wird immer neu abgeleitet
 
 ## Kodierungsformat `DomainStateBytes` (M8b)
 
-57 oder 89 Bytes je nach führendem Versions-Tag, fest-breite
+65 oder 97 Bytes je nach führendem Versions-Tag, fest-breite
 Big-Endian-Ganzzahlen (kanonisch, Byte für Byte vergleichbar):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
-                   ‖ valid_until(8 BE) [‖ record_hash(32)]
+                   ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
 
-tag = 0x01 : record_hash vorhanden → genau 89 Bytes
-tag = 0x02 : record_hash abwesend  → genau 57 Bytes
+tag = 0x01 : record_hash vorhanden → exakt 97 Bytes
+tag = 0x02 : record_hash abwesend  → exakt 65 Bytes
 ```
 
 - `registered_at` / `valid_until` (M8b): der Ablauf der
   Registrierung (1 Jahr beim Claim, erneuerbar, siehe
   `/docs/en/technical/blockchain.md`).
+- `mutations` (V3): der monotone Mutationszähler des Namespace
+  (CAS-Anti-Replay-Generation — siehe `transactions.md`, Der
+  Mutationszähler). Die M8b-Kodierungen (57/89 Bytes, ohne Zähler)
+  sind **illegitim**: striktes Dekodieren → `Corrupted` (Testnet-
+  Reset; ein Prä-Zähler-Store regeneriert sich via Replay).
 
 Die M7-Kodierungen (41/73 Bytes, kein Ablauf) sind seit M8b
 **illegitim**: striktes Dekodieren → `Corrupted`. (Ein M7-Store
@@ -149,12 +154,13 @@ Tag, falsche Länge oder überschüssige Bytes →
 
 ## Kodierungsformat `TldStateBytes` (Owner-Option)
 
-Variable Länge je nach Enum-Variante — 34 Bytes für eine
-**private** TLD, 2 für eine **offene** TLD (weder Sequenz noch
+Variable Länge je nach Enum-Variante — 50 Bytes für eine
+**private** TLD, 10 für eine **offene** TLD (weder Sequenz noch
 Eintrags-Hash):
 
 ```text
 TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
+                [‖ mutations(8)]
 ```
 
 - `flag` (Owner-Option, Enum `TldState`): `0x00` =
@@ -173,7 +179,8 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
   beim Boot wiederhergestellt — ein neu gestarteter Knoten tötet
   dieselben TLDs wie ein kontinuierlicher.
 
-Die Kodierungen M7d (33 Bytes, Tag `0x01`), M8b (34 Bytes, Tag
+Die Prä-Zähler-Layouts Tag `0x04` (42/2 Bytes, ohne Zähler), die
+Kodierungen M7d (33 Bytes, Tag `0x01`), M8b (34 Bytes, Tag
 `0x02`, boolesches `open`) und das Alt-Tag `0x03` (eingebettetes
 `until`) sind **illegitim**: striktes Dekodieren → `Corrupted` (vor
 dem Mainnet ist Regeneration über Replay der

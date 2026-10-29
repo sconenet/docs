@@ -142,10 +142,12 @@ Validierungs-Client: `dig <name> --dns 127.0.0.1:5353
    Entscheidung).
 4. **`resolve_local` (interner Kanal)**: ein einziger Roundtrip,
    nie ein DHT-Wartender. On-Chain-Zustand (`registered`, Owner,
-   Sequenz) + lokaler DHT-Cache-Eintrag **neu verifiziert** (Owner,
-   Sequenz, record_hash == On-Chain-Commitment). Ein
-   nicht-konformer Eintrag antwortet nie — Verfügbarkeit ≠
-   Autorität.
+   Sequenz, Mutationen) + lokaler DHT-Cache-Eintrag **neu
+   verifiziert** (Owner, Sequenz, record_hash ==
+   On-Chain-Commitment; die Signatur des Eintrags kann vom Owner
+   oder einem Record-Delegate stammen — dieselbe Regel wie die
+   Relay-Verifizierung). Ein nicht-konformer Eintrag antwortet
+   nie — Verfügbarkeit ≠ Autorität.
    - unregistriert → NXDOMAIN;
    - registriert ohne gültigen Eintrag → NODATA (NOERROR, 0
      Antworten);

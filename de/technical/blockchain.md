@@ -256,11 +256,26 @@ schnellen lokalen Iteration:
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- Enum (Owner-Option): die Open/Private-Invariante ist
                -- strukturell; die Todesfrist lebt außerhalb des Eintrags
                -- (tld_floors-Tabelle + journlierte Todesplanung)
+`mutations` ist der MONOTONE Mutationszähler des Namespace — die
+CAS-Anti-Replay-Generation seiner geschützten Operationen
+(`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
+`TransferTld`, `TransferDomain` verifizieren-dann-inkrementieren;
+die Erneuerung erhält ihn, ein Transfer inkrementiert ihn). Er ist
+im SMT-Blatt des Namespace committet — Domain-Blatt
+`SCONE-LEAF-DOM-V4` (Zähler zwischen den Lebensdauer-Feldern und
+dem Record-Commitment), TLD-Blatt `SCONE-LEAF-TLD-V4` (injektives
+Varianten-Byte; Zähler für `Private`) — und in der Name-State-
+Antwort exponiert. Clients machen Fetch-then-Bind: eine gegen eine
+veraltete Generation gebaute Transaktion ist eine typisierte
+Zurückweisung (`StaleStateBinding`), die nichts mutiert. Vollständige
+Ableitung und Rational: `transactions.md`, „Der Mutationszähler";
+Sicherheitsanalyse: `security-model.md`.
+
 ChainState   = NetworkParams                  (gebundenes Netzwerk, M8b)
                + DomainId -> DomainState      (direkter Zugriff, im Speicher)
                + TldId -> TldState            (TLD-Register, M7b)

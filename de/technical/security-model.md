@@ -128,6 +128,54 @@ auferlegbare Schuld, siehe oben).
 - e2e 4 Relays: ein Checkpoint finalisiert und verbreitet sich,
   dieselbe Epoche auf allen Knoten.
 
+## Replay-Angriffe auf die delegierte Autorisierung (Zähler-Bindings)
+
+Fünf Transaktionen mutieren, WER auf einem Namespace agieren darf:
+`TransferTld`, `TransferDomain` (Eigentum), `SetRecordDelegates`
+(Record-Delegate-Schlüssel), `SetTldOperator` / `SetDomainOperator`
+(Betriebs-Delegates). Eine aufgezeichnete Transaktion dieser
+Varianten bleibt kryptographisch FÜR IMMER gültig (die Signatur
+deckt statische Felder; der Abtretungs-PoW löst einen aus dem
+Namespace selbst abgeleiteten Challenge). Was altert, ist nur das
+begrenzte Replay-Fenster (letzte 256 Blöcke). Jenseits davon,
+Re-Arm-Analyse:
+
+- **Abtretung A→B→A**: A überträgt an B, B zurück an A — der
+  Zustand kehrte zu einer früheren Konfiguration zurück. Das
+  Wiederabspielen der ORIGINALEN A→B-Transaktion führt die
+  Übertragung ohne Zustimmung erneut aus (der Owner-Check geht
+  wieder durch; ein statischer Challenge-Beweis löst weiterhin).
+- **Delegate-Set-Zyklus**: Delegates gesetzt auf `{9,10}`, geleert
+  zu `∅`, dann JEDE Transaktion, die `{9,10}` wiederherstellt — das
+  Replay des ersten `SetRecordDelegates` belebt widerrufene
+  Schlüssel wieder.
+
+Ein als reine Funktion des AKTUELLEN Zustands berechnetes Binding
+(Owner, Set-Inhalt, ...) kehrt zu seinem alten Wert zurück, genau
+wenn der Zustand legitimerweise dorthin zurückkehrt — es würde das
+Replay wieder scharf schalten, das es töten muss. Die Verteidigung
+ist eine MONOTONE Generation: jeder Namespace trägt `mutations: u64`,
+von jeder der fünf geschützten Transaktionen inkrementiert; eine
+Transaktion bindet sich an den Zähler der Generation, für die sie
+gebaut wurde (`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id ‖
+generation ‖ counter)`), und die Anwendung verifiziert dieses
+Binding gegen den AKTUELLEN Zähler. Zähler kehren nie zurück; daher
+armt sich kein Replay wieder. Der Generationsmarker (`registered_at`
+für Domains, `valid_until` für TLDs) hält frühere LEBEN eines
+neu registrierten Namespace disjunkt.
+
+Residualkante (dokumentiert): das Binding hängt nicht vom
+SCHLÜSSEL des Unterzeichners ab. Alle fünf geschützten
+Transaktionen sind vom AKTUELLEN Owner des Namespace signiert, also
+erfordert ein Inter-Generationen-Replay zusätzlich, dass derselbe
+Owner den Namespace in beiden Generationen hält und der Zähler den
+aufgezeichneten Wert wieder erreicht — ein selbst kontrolliertes
+Szenario für Delegates/Operatoren, und ein Owner-Opfer-Fall für
+Abtretungen, der verlangt, dass das Opfer seinen eigenen toten
+Namespace Jahre später neu geclaimt hat. Vor dem Mainnet
+akzeptiert; neu bewerten, falls Transfervolumen oder
+Namespace-Recycling es materialisieren.
+
 ## Bekannte Grenzen (dokumentiert, unbehandelt)
 
 - Der berechtigte Pool umfasst Eigentümer lebender TLDs (Claim =

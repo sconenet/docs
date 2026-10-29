@@ -58,8 +58,9 @@ Wert, einmalig in dieser Tabelle dokumentiert.
 | `0x15` | `SlashTx` | Nachweis einer Anker-Äquivokation + Ausschluss (M9) |
 | `0xE2` | `TransferDomain` | Übertragung einer Domain an einen neuen Owner (M8c) |
 | `0x71` | `Heartbeat` | Lebenszeichen eines Betreibers (Proof-of-Service-RFC) |
-| `0xA9` | `SetTldOperator` | Delegation des Betriebs einer privaten TLD (Proof-of-Service-RFC) |
-| `0x5E` | `SetDomainOperator` | Delegation des Betriebs einer Domain (Proof-of-Service-RFC) |
+| `0xA9` | `SetTldOperator` | Delegation des Betriebs einer privaten TLD (Proof-of-Service-RFC; an den Zähler gebunden) |
+| `0x5E` | `SetDomainOperator` | Delegation des Betriebs einer Domain (Proof-of-Service-RFC; an den Zähler gebunden) |
+| `0x66` | `SetRecordDelegates` | Record-Delegate-Schlüssel einer Domain — KSK/ZSK-lite: genau diese Schlüssel dürfen neben dem Owner `UpdateDomain` signieren (an den Zähler gebunden) |
 
 Jedes Versionsbyte außer `0x01` wird ausdrücklich abgelehnt
 (`UnsupportedVersion(empfangener Wert)`): ein unbekanntes oder
@@ -166,7 +167,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 rohe Bytes | die übertragene TLD |
 | `owner` | 32 rohe Bytes | Ableitung von `public_key` (aktueller Owner / Signer) |
 | `new_owner` | 32 rohe Bytes | Identität des Empfängers (opak: jeder Wert ist syntaktisch gültig; die Bindung an die Schlüssel, die ihn ausgeben können, ist eine M8b-Zustandsregel) |
-| `proof` | begrenzt (Varint ‖ Bytes) | Anti-Churn-Abtretungsbeweis, Challenge `SCONE-TLD-XFER-V1 ‖ tld_id`, flache Schwierigkeit `transfer_pow_difficulty`, Epochensalz |
+| `proof` | begrenzt (Varint ‖ Bytes) | Anti-Churn-Abtretungsbeweis, gemint für das AKTUELLE Zähler-Binding des Namespace (siehe [Der Mutationszähler](#der-mutationszähler)), flache Schwierigkeit `transfer_pow_difficulty`, Epochensalz |
 | `public_key` | 32 rohe Bytes | öffentlicher Ed25519-Schlüssel des Signierenden |
 | `signature` | **genau 64 Bytes** | Ed25519-Signatur der signierten Nutzlast |
 
@@ -283,6 +284,84 @@ Anwendungsregeln:
   ist die einzige Verwaltungsoperation, die einem abgelaufenen
   Eigentümer bleibt.
 
+## Die Familie der delegierten Autorisierung — an den Zähler gebunden (0xE2, 0xA9, 0x5E, 0x66)
+
+Vier Transaktionen delegieren oder verteilen die Autorisierung über
+einen Namespace neu. Sie teilen eine Anti-Replay-Disziplin: jede
+trägt oder mint ein **Zähler-Binding** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64 ‖
+counter_be64)` — berechnet über den AKTUELLEN Mutationszähler des
+Namespace (siehe [Der Mutationszähler](#der-mutationszähler)). Eine
+gegen eine veraltete Generation gebaute Transaktion wird abgelehnt,
+selbst wenn ihre Signatur oder ihr Beweis kryptographisch weiterhin
+gültig ist.
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+Spiegel von `TransferTld` für eine Domain: vom aktuellen Owner
+signiert, `new_owner` opak. Der `proof` ist der Anti-Churn-Abtretungs-PoW
+(flache `transfer_pow_difficulty`, Epochensalz), gemint für
+`mutations_binding(domain_id, counter)` — der Challenge der
+Zustandsgeneration, die übertragen wird. Anwendungsregeln:
+Owner-Check zuerst (`NotOwner`), dann der PoW gegen das Binding des
+AKTUELLEN Zählers (ein wiederge spielter Abtretungsbeweis löst einen
+älteren Challenge — typisierte Zurückweisung), dann inkrementiert
+der Zähler. Das Record-Delegate-Set ist die Gewährung des ALTEN
+Owners: ein Transfer leert es. `TransferTld` (0x47) ist die
+symmetrische TLD-Form: ihr Abtretungsbeweis wird für
+`mutations_binding(tld_id, counter)` gemint.
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| Feld | Typ | Einschränkungen |
+|---|---|---|
+| `id` | 32 rohe Bytes | `tld_id` (0xA9) oder `domain_id` (0x5E) |
+| `owner` | 32 rohe Bytes | Ableitung von `public_key` (aktueller Owner / Unterzeichner) |
+| `operator.option` | `0x00` oder `0x01 ‖ key[32]` | delegierter Operator, oder `0x00` für Rückkehr zur Selbstbetreibung |
+| `state_binding` | **exakt 32 rohe Bytes** | kanonischer Hash des AKTUELLEN Zähler-Bindings: `mutations_binding(id, generation, counter)` (generation = `valid_until` für eine TLD, `registered_at` für eine Domain) — ein veraltetes Binding ist eine typisierte Zurückweisung (`StaleStateBinding`), selbst mit gültiger Signatur |
+| `public_key` | 32 rohe Bytes | Ed25519-öffentlicher Schlüssel des Unterzeichners (der Owner des Namespace) |
+| `signature` | **exakt 64 Bytes** | Ed25519-Signatur der signierten Nutzlast |
+
+Vom aktuellen Owner signiert (eine private TLD für 0xA9; eine
+registrierte Domain für 0x5E). Anti-Vermietung: ein delegierter
+Operator bedient höchstens einen Sitz (`OperatorAlreadyDelegated`).
+Die Anwendung verifiziert das Binding und inkrementiert dann den
+Zähler — eine Wieder-Delegation an denselben Operator ist ein
+Generationswechsel, kein No-op.
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| Feld | Typ | Einschränkungen |
+|---|---|---|
+| `domain_id` | 32 rohe Bytes | Ziel-Domain |
+| `owner` | 32 rohe Bytes | Ableitung von `public_key` — der AKTUELLE Owner der Domain |
+| `count` | 1 Byte | höchstens 3 (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count rohe Bytes | die delegierten öffentlichen Schlüssel, **streng aufsteigend** (kanonische Reihenfolge; ein Duplikat oder Schlüssel außer der Ordnung ist ein Dekodierfehler) |
+| `state_binding` | **exakt 32 rohe Bytes** | kanonischer Hash des AKTUELLEN Zählers: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 rohe Bytes | Ed25519-öffentlicher Schlüssel des Unterzeichners — der OWNER der Domain |
+| `signature` | **exakt 64 Bytes** | Ed25519-Signatur der signierten Nutzlast |
+
+KSK/ZSK-lite: das getragene Set ERSETZT das vorherige vollständig
+(kein Merge) und — neben dem Owner der Domain — dürfen genau diese
+Schlüssel `UpdateDomain` für die Domain signieren. Owner-exklusiv:
+ein Delegate kann das Set nie verwalten. Das Set stirbt mit der
+Domain und wird von einem Transfer geleert. Die Anwendung verifiziert
+das Binding gegen den aktuellen Zähler und inkrementiert ihn: der
+Zyklus `∅ → {9,10} → ∅ → Replay` kann keinen widerrufenen Schlüssel
+wiederbeleben (siehe `security-model.md`, Replay-Angriffe).
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -301,6 +380,23 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 Hinweis: `UpdateDomain` trägt **keinen** `timestamp` — die
 Reihenfolge läuft über `sequence`. Es trägt auch nicht den Namen:
 die Domain ist bereits registriert, die Id genügt.
+
+#### Autorisierungsregel — Owner oder Record-Delegates
+
+Das Feld `owner` ist der On-Chain-Owner der DOMAIN (die Update ist
+FÜR diesen Namespace); `public_key` ist der TATSÄCHLICHE
+Unterzeichner — der Owner ODER einer der Record-Delegate-Schlüssel
+der Domain (KSK/ZSK-lite, siehe `SetRecordDelegates`). Anders als
+bei jeder anderen signierten Transaktion wird die Owner↔Schlüssel-
+Ableitung für diese Variante ABSICHTLICH nicht erzwungen
+(`validate_transaction` exemtiert sie): die Autorisierungsregel der
+Zustandsschicht — Unterzeichner ∈ {Owner} ∪ Delegates,
+`sequence == current + 1` — ist die einzige Bindung. Die Signatur
+deckt das Feld `owner` über die signierte Nutzlast ab: ein Delegate
+unterschreibt „für" einen bestimmten Namespace. Caveat: die
+Owner→Schlüssel-Karte wird beim ersten Auftreten gelernt
+(Registrierung/Assignierung), eine Delegate-Update überschreibt sie
+nie.
 
 ### Strenge Grenzen
 
@@ -396,6 +492,47 @@ Eine Transaktion, deren `owner` nicht zur Ableitung ihres eigenen
 `OwnerKeyMismatch` auf Chain-Seite), zurückgewiesen beim Kodieren,
 Dekodieren **und** bei der Chain-Validierung (Verteidigung in der
 Tiefe).
+DIE Ausnahme: `UpdateDomain` — unter dem Record-Delegate-Modell ist
+sein Feld `owner` der On-Chain-Owner der DOMAIN, während der
+Unterzeichner ein Record-Delegate sein kann; die
+Autorisierungsregel der Zustandsschicht verbindet Unterzeichner und
+Namespace.
+
+## Der Mutationszähler
+
+Jeder Namespace trägt einen MONOTONEN Mutationszähler (`mutations:
+u64`) — die CAS-Anti-Replay-Generation seiner geschützten
+Operationen.
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **Geschützte Transaktionen** (verifizieren das Binding, dann
+  inkrementieren sie den Zähler): `SetRecordDelegates`,
+  `SetTldOperator`, `SetDomainOperator`, `TransferTld`,
+  `TransferDomain`.
+- **Generationsmarker**: `registered_at` für Domains (für die
+  gesamte Lebensdauer des Namespace fest), `valid_until` für TLDs
+  (strukturell anders in jedem Leben — ein Re-Claim passiert erst
+  nach einer vollen mehrjährigen Laufzeit plus Karenz). Ohne ihn
+  könnte ein Namespace, der stirbt und neu registriert wird (Zähler
+  auf null), eine Transaktion aus einem früheren Leben wieder
+  scharf schalten, sobald der Zähler denselben Wert erreicht.
+- **Verifizierung**: die Anwendung leitet das Binding aus dem
+  AKTUELLEN Zustand neu ab und vergleicht es mit dem getragenen
+  Wert (Set-Types) oder verifiziert den PoW dagegen (Transfers).
+  Eine Abweichung ist eine typisierte Zurückweisung
+  (`StaleStateBinding` / ungelöster Beweis), die nichts mutiert.
+- **Warum ein Zähler**: eine reine Funktion des aktuellen Zustands
+  kehrt zu einem früheren Wert zurück, wenn der Zustand legitimer-
+  weise dorthin zurückkehrt — eine A→B→A-Abtretung, ein
+  Delegate-Set `∅ → {9,10} → ∅`. Das Replay würde sich selbst
+  wieder scharf schalten. Ein Zähler kehrt nie zurück. Der Zähler
+  ist im SMT-Blatt des Namespace committet (V4) und in der
+  Name-State-Antwort exponiert, damit Clients fetch-then-bind ohne
+  Vertrauen machen können.
 
 ## Signierte Nutzlast
 
@@ -599,9 +736,11 @@ Anti-Spam-Beweis).
 
 **Abtretungs- und Assign-Beweise (Konsens-Anti-Spam)**:
 `TransferTld`, `TransferDomain` und `AssignDomain` tragen jeweils
-einen **flachen** Proof of Work — `transfer_pow_difficulty` für die
-zwei Abtretungen (Challenges `SCONE-TLD-XFER-V1 ‖ tld_id` /
-`SCONE-DOMAIN-XFER-V1 ‖ domain_id`), `assign_pow_difficulty` für
+einen **flachen** Proof of Work — `transfer_pow_difficulty` für die zwei Abtretungen (Challenge = das
+AKTUELLE Zähler-Binding des Namespace,
+[Der Mutationszähler](#der-mutationszähler) — die flachen
+`SCONE-*-XFER-V1`-Tags sind ausgemustert), `assign_pow_difficulty`
+für
 den Assign (Challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name`). Dasselbe
 Epochensalz und Anti-Premining-Fenster wie die Registrierungen;
 verifiziert bei der Mempool-Zulassung (geschätzte Epoche,
@@ -749,4 +888,5 @@ Signieridentität **neu berechnet**, nie aus einer Eingabe
 |---|---|---|
 | 1 | eingebettetes `public_key` + `signature`, Nutzlast `SCONE-TX-SIG-V1`, Versionsbyte `0x01`, `RegisterDomain` trägt den Namen, `RegisterTld` (0x93), M8a-Familie: `TransferTld` (0x47), `RevokeTld` (0x6B), `SetTldOpen` (0xB8), `AssignDomain` (0xD4), `RenewDomain` (0x3C) — normative Wire-Formate; M8b: `network`-Feld am Kopf jeder Nutzlast signiert, `RegisterTld` trägt den Namen, vollständige Zustandsregeln, PoW-Schwierigkeiten pro Netzwerk | abgelöst |
 | 1 (2026-09, Wire ohne network) | **Entfernung des `network`-Feldes vom Wire aller Transaktionen**: die network_id lebt nur in der Signaturnutzlast (`signing_payload(tx, network)` injiziert sie am Kopf); die Netzwerktrennung beruht auf der Signatur (`InvalidSignature` auf einer fremden Nutzlast, der Fehler `WrongNetwork` verschwindet); `TX_FORMAT_VERSION` bleibt `0x01` (relaunchbares Testnet, keine Koexistenz); **alle TxIds ändern sich** (die TxId ist der Hash der signierten Wire-Kodierung, die 14–15 Bytes verliert); PoW-Digest, Genesis und Datenverzeichnisse pro Netzwerk unverändert | abgelöst |
-| 1 (2026-10, PoW-Epochen-Salz) | **Anti-Pre-Mining-PoW-Digest**: Salz `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + Argon2id-Kern über `nonce_le`, mit `epoch = block_height / 144` des Blocks, der die Tx ANWENDET; Wire-Nutzlast des Proofs 12 → **20 Bytes** (`nonce_le ‖ epoch_le ‖ difficulty_le`), die deklarierte Epoche wird gegen das Epochen-Gültigkeitsfenster des anwendenden Blocks verifiziert (typisierte Zurückweisung `ProofEpochMismatch`), best-effort `(height+1)/144` bei der Mempool-Zulassung, `--epoch`-CLI-Flagge auf Offline-Pfaden; Breaking Change vor dem Mainnet: die alte 12-Byte-Nutzlast wird abgelehnt, **alle TxIds ändern sich** (das Feld `proof` wächst um 8 Bytes) | aktuell |
+| 1 (2026-10, PoW-Epochen-Salz) | **Anti-Pre-Mining-PoW-Digest**: Salz `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + Argon2id-Kern über `nonce_le`, mit `epoch = block_height / 144` des Blocks, der die Tx ANWENDET; Wire-Nutzlast des Proofs 12 → **20 Bytes** (`nonce_le ‖ epoch_le ‖ difficulty_le`), die deklarierte Epoche wird gegen das Epochen-Gültigkeitsfenster des anwendenden Blocks verifiziert (typisierte Zurückweisung `ProofEpochMismatch`), best-effort `(height+1)/144` bei der Mempool-Zulassung, `--epoch`-CLI-Flagge auf Offline-Pfaden; Breaking Change vor dem Mainnet: die alte 12-Byte-Nutzlast wird abgelehnt, **alle TxIds ändern sich** (das Feld `proof` wächst um 8 Bytes) | ersetzt |
+| 1 (2026-10, Mutationszähler) | **CAS-Anti-Replay-Bindings**: monotoner Mutationszähler pro Namespace (`DomainState`/`TldState::Private`), fünf geschützte Transaktionen verifizieren-dann-inkrementieren (`SetRecordDelegates` 0x66 NEU, `SetTldOperator`, `SetDomainOperator`, `TransferTld`, `TransferDomain`); Abtretungs-PoW für das Zähler-Binding gemint (die statischen Challenges `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` sind ausgemustert); Set-Types tragen ein signiertes 32-Byte-Wire-Feld `state_binding`; SMT-Blätter V4 committen den Zähler (V2/V3 ausgemustert — V3 wurde nie ausgeliefert); Storage-Codecs +8 Bytes pro Domain / +8 pro privater TLD; `NameState` exponiert die Zähler und `registered_at`; Breaking Change vor dem Mainnet: Zustandsformat + Wire, **Testnet-Reset**, alte Snapshots werden beim Import abgelehnt | aktuell |

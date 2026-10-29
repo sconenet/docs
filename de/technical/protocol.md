@@ -336,7 +336,7 @@ Transport-Frame sollte `MAX_MESSAGE_LEN` (1 MiB) nicht
 | `0x0c` | `GetStatus` | beide | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | beide | Knotenzustand (Netzwerk, Tip, Höhe, NAT, Domains, Mempool, Peers, Finalität, frische Betreiber) | — | — |
 | `0x0e` | `LookupName` | beide | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | beide | On-Chain-Zustand des Namens + TLD | — | — |
+| `0x0f` | `NameState` | beide | On-Chain-Zustand des Namens + TLD, inkl. der CAS-Generation (Mutationszähler, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | beide | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | beide | lebende Domains + TLDs des Owners | — | — |
 | `0x12` | `Error` | Antwort | Fehlermeldung auf Anwendungsebene (`str`) | — | — |

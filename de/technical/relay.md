@@ -486,12 +486,14 @@ akzeptiert/zurückgegeben, wenn:
 
 Sonst: stille Zurückweisung auf P2P-Seite, expliziter Fehler auf
 CLI-Seite. Die Ed25519-Signatur des Eintrags wird beim Empfang
-**vom Relay verifiziert** (`ResolveLocal`: der öffentliche
-Schlüssel des Owners ist on-chain bekannt, die Signatur muss
-aufschließen — ein von einem anderen Schlüssel signierter Eintrag
-wird abgelehnt, `record rejected`); sie wird auch für künftige
-Prüfer transportiert — das On-Chain-Commitment bleibt die
-primäre Integritätskontrolle.
+**vom Relay verifiziert** (`ResolveLocal`): die Signatur muss gegen
+den gelernten öffentlichen Schlüssel des Owners ODER einen der
+Record-Delegate-Schlüssel der Domain aufschließen (KSK/ZSK-lite —
+ein Delegate veröffentlicht im Namen des Owners; ein von einem
+fremden Schlüssel signierter Eintrag wird abgelehnt,
+`record rejected`); sie wird auch für künftige Prüfer transportiert
+— das On-Chain-Commitment bleibt die primäre
+Integritätskontrolle.
 
 ## Prometheus-Metriken
 
