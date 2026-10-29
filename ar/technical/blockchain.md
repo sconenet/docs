@@ -240,11 +240,23 @@ workspace لـ Rust (وجود `Cargo.toml`): يجب ألا يتمكن أي
 
 ```text
 DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
-                 registered_at: u64, valid_until: u64 }
-TldState     = enum { Private { owner: OwnerId } | Open }
+                 registered_at: u64, valid_until: u64, mutations: u64 }
+TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
                -- enum (owner-option): the open/private invariant is
                -- structural; the death deadline lives outside the entry
                -- (tld_floors table + journaled death schedule)
+`mutations` هو عدّاد الطفرات الرتيب للـ namespace — جيل CAS
+anti-replay لعملياته المحمية (`SetRecordDelegates`، `SetTldOperator`،
+`SetDomainOperator`، `TransferTld`، `TransferDomain` تتحقق ثم تزيد؛
+التجديد يحافظ عليه، النقل يزيده). إنه مُلتزَم في ورقة SMT الـ
+namespace — ورقة النطاق `SCONE-LEAF-DOM-V4` (العدّاد بين حقول
+الحياة والتزام السجلات)، ورقة TLD `SCONE-LEAF-TLD-V4` (بايت variant
+حقني؛ العدّاد لـ `Private`) — ومكشوف في استجابة name-state.
+العملاء يعملون fetch-then-bind: معاملة مبنية ضد جيل قديم رفض
+مُنمَّط (`StaleStateBinding`) لا يغيّر شيئًا. الاشتقاق الكامل
+والمنطق: `transactions.md`، «عدّاد الطفرات»؛ تحليل الأمان:
+`security-model.md`.
+
 ChainState   = NetworkParams                  (bound network, M8b)
                + DomainId -> DomainState      (direct access, in memory)
                + TldId -> TldState            (TLD registry, M7b)

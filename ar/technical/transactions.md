@@ -55,7 +55,9 @@ Transaction = disc u8 || version u8 || payload
 | `0x15` | `SlashTx` | دليل تقابل مزدوج للـ anchor + حظر (M9) |
 | `0xE2` | `TransferDomain` | نقل نطاق إلى مالك جديد (M8c) |
 | `0x71` | `Heartbeat` | إثبات حياة مشغّل (RFC إثبات الخدمة) |
-| `0xA9` | `SetTldOperator` | تفويض تشغيل TLD خاص (RFC إثبات الخدمة) |
+| `0xA9` | `SetTldOperator` | تفويض تشغيل TLD خاص (RFC إثبات الخدمة؛ مرتبط بالعدّاد) |
+| `0x5E` | `SetDomainOperator` | تفويض تشغيل نطاق (RFC إثبات الخدمة؛ مرتبط بالعدّاد) |
+| `0x66` | `SetRecordDelegates` | مفاتيح مندوبي السجلات لنطاق — KSK/ZSK-lite: هذه المفاتيح بالضبط، إلى جانب المالك، يمكنها توقيع `UpdateDomain` (مرتبط بالعدّاد) |
 | `0x5E` | `SetDomainOperator` | تفويض تشغيل نطاق (RFC إثبات الخدمة) |
 
 أي بايت إصدار غير `0x01` يُرفض صراحةً
@@ -157,7 +159,7 @@ tld_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
 | `tld_id` | 32 بايت خام | الـ TLD المنقول |
 | `owner` | 32 بايت خام | اشتقاق `public_key` (المالك الحالي / الموقّع) |
 | `new_owner` | 32 بايت خام | هوية المستلم (معتمة: أي قيمة صالحة نحويًا؛ الربط بالمفاتيح القادرة على إنفاقه قاعدة حالة M8b) |
-| `proof` | محدود (varint ‖ بايتات) | إثبات تنازل مضاد للتبديل المتكرر (anti-churn)، التحدي `SCONE-TLD-XFER-V1 ‖ tld_id`، صعوبة مسطّحة `transfer_pow_difficulty`، ملح الحقبة |
+| `proof` | محدود (varint ‖ بايتات) | إثبات تنازل مضاد للتبديل المتكرر (anti-churn)، مُعدَّن لربط العدّاد الحالي للـ namespace (انظر [عدّاد الطفرات](#عدّاد-الطفرات))، صعوبة مسطّحة `transfer_pow_difficulty`، ملح الحقبة |
 | `public_key` | 32 بايت خام | مفتاح Ed25519 العام للموقّع |
 | `signature` | **64 بايتًا بالضبط** | توقيع Ed25519 للحمولة الموقّعة |
 
@@ -265,6 +267,75 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
 - التجديد ليس مجمّدًا خلال المهلة — إنه عملية الإدارة
   الوحيدة الباقية لمالك منتهية صلاحيته.
 
+## عائلة السلطة المفوَّضة — مرتبطة بالعدّاد (0xE2، 0xA9، 0x5E، 0x66)
+
+أربع معاملات تفوّض أو تعيد توزيع السلطة على namespace. تتشارك
+انضباط anti-replay: كل واحدة تحمل أو تعدّن **ربط عدّاد** —
+`BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ‖ id[32] ‖ generation_be64 ‖
+counter_be64)` — محسوبًا على عدّاد الطفرات الحالي للـ namespace
+(انظر [عدّاد الطفرات](#عدّاد-الطفرات)). المعاملة المبنية ضد جيل
+قديم تُرفض حتى لو بقيت توقيعها أو إثباتها صالحًا تشفيريًا.
+
+### TRANSFER_DOMAIN (0xE2)
+
+```text
+domain_id[32] owner[32] new_owner[32] proof.v public_key[32] signature[64]
+```
+
+مرآة `TransferTld` لنطاق: موقّعة من المالك الحالي، `new_owner`
+معتم. الـ `proof` هو PoW التنازل anti-churn (صعوبة مسطّحة
+`transfer_pow_difficulty`، ملح حقبة) معدون لـ
+`mutations_binding(domain_id, counter)` — تحدي جيل الحالة الذي
+يُنقل. قواعد التطبيق: فحص المالك أولًا (`NotOwner`)، ثم الـ PoW ضد
+ربط العدّاد الحالي (تنازل مُعاد لعبه يحل تحديًا أقدم — رفض مُنمَّط)،
+ثم يزيد العدّاد. مجموعة مندوبي السجلات هي منحة المالك القديم:
+النقل يفرغها. `TransferTld` (0x47) هي الصيغة TLD المتماثلة: إثبات
+تنازلها يُعدَّن لـ `mutations_binding(tld_id, counter)`.
+
+### SET_TLD_OPERATOR (0xA9) / SET_DOMAIN_OPERATOR (0x5E)
+
+```text
+id[32] owner[32] operator.option state_binding[32] public_key[32] signature[64]
+```
+
+| الحقل | النوع | القيود |
+|---|---|---|
+| `id` | 32 بايت خام | `tld_id` (0xA9) أو `domain_id` (0x5E) |
+| `owner` | 32 بايت خام | اشتقاق `public_key` (المالك الحالي / الموقّع) |
+| `operator.option` | `0x00` أو `0x01 ‖ key[32]` | مشغّل مفوَّض، أو `0x00` للعودة إلى التشغيل الذاتي |
+| `state_binding` | **32 بايت خام بالضبط** | تجزئة قانونية لربط العدّاد الحالي: `mutations_binding(id, generation, counter)` (generation = `valid_until` لـ TLD، `registered_at` لنطاق) — ربط قديم رفض مُنمَّط (`StaleStateBinding`) حتى مع توقيع صالح |
+| `public_key` | 32 بايت خام | مفتاح Ed25519 العام للموقّع (مالك الـ namespace) |
+| `signature` | **64 بايت بالضبط** | توقيع Ed25519 للحمولة الموقّعة |
+
+موقّعة من المالك الحالي (TLD خاص لـ 0xA9؛ نطاق مسجل لـ 0x5E). حد
+anti-rental: مشغّل مفوَّض واحد يخدم مقعدًا واحدًا كحد أقصى
+(`OperatorAlreadyDelegated`). التطبيق يتحقق من الربط ثم يزيد
+العدّاد — إعادة التفويض لنفس المشغّل تغيير جيل، لا no-op.
+
+### SET_RECORD_DELEGATES (0x66)
+
+```text
+domain_id[32] owner[32] count(1) keys[32×count] state_binding[32] public_key[32] signature[64]
+```
+
+| الحقل | النوع | القيود |
+|---|---|---|
+| `domain_id` | 32 بايت خام | النطاق المستهدف |
+| `owner` | 32 بايت خام | اشتقاق `public_key` — المالك الحالي للنطاق |
+| `count` | 1 بايت | 3 كحد أقصى (`MAX_RECORD_DELEGATES`) |
+| `keys` | 32 × count بايت خام | مفاتيح المنحدين العامة، **تصاعديًا بدقة** (ترتيب قانوني؛ مفتاح مكرر أو خارج الترتيب خطأ فك) |
+| `state_binding` | **32 بايت خام بالضبط** | تجزئة قانونية للعدّاد الحالي: `mutations_binding(domain_id, registered_at, mutations)` |
+| `public_key` | 32 بايت خام | مفتاح Ed25519 العام للموقّع — مالك النطاق |
+| `signature` | **64 بايت بالضبط** | توقيع Ed25519 للحمولة الموقّعة |
+
+KSK/ZSK-lite: المجموعة المحمولة تستبدل السابقة كليًا (بدون دمج)
+و — إلى جانب مالك النطاق — هذه المفاتيح بالضبط يمكنها توقيع
+`UpdateDomain` للنطاق. حكر على المالك: المندوب لا يدير المجموعة
+أبدًا. المجموعة تموت مع النطاق ويفرغها النقل. التطبيق يتحقق من
+الربط ضد العدّاد الحالي ويزيده: دورة `∅ → {9,10} → ∅ → replay`
+لا يمكنها إحياء مفتاح مُلغى (انظر `security-model.md`، هجمات
+الـ replay).
+
 ## UPDATE_DOMAIN (0x52)
 
 ```text
@@ -283,6 +354,19 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ملاحظة: لا تحمل `UpdateDomain` أي `timestamp` — الترتيب يمر
 عبر `sequence`. ولا تحمل الاسم أيضًا: النطاق مسجّل سلفًا،
 والمعرّف يكفي.
+
+#### قاعدة السلطة — المالك أو مندوو السجلات
+
+حقل `owner` هو مالك النطاق on-chain (الـ update FOR ذلك
+الـ namespace)؛ `public_key` هو الموقّع الفعلي — المالك أو أحد
+مفاتيح مندوبي سجلات النطاق (KSK/ZSK-lite، انظر
+`SetRecordDelegates`). خلافًا لكل معاملة موقّعة أخرى، اشتقاق
+المالك↔المفتاح لا يُفرض عمدًا لهذه الصيغة (`validate_transaction`
+يعفيها): قاعدة سلطة طبقة الحالة — الموقّع ∈ {المالك} ∪ المنديبين،
+`sequence == current + 1` — هي الرابط الوحيد. التوقيع يغطي حقل
+`owner` عبر الحمولة الموقّعة: المندوب يوقّع «لأجل» namespace
+معين. تحفّظ: خريطة المالك→المفتاح تُتعلَّم بأول ظهور
+(تسجيل/إسناد)، update المندوب لا تستبدلها أبدًا.
 
 ### حدود صارمة
 
@@ -376,6 +460,38 @@ OwnerId      = BLAKE3-256("SCONE-OWNER-V1" || PublicKeyRef)
 الخاص بها غير صالحة (`InvalidOwner` على جانب النواة،
 `OwnerKeyMismatch` على جانب السلسلة)، وتُرفض عند الترميز وفك
 الترميز **و**التحقق من السلسلة (دفاع في العمق).
+
+الاستثناء: `UpdateDomain` — تحت نموذج مندوبي السجلات، حقل `owner`
+فيها هو مالك النطاق on-chain بينما يمكن أن يكون الموقّع مندوب
+سجلات؛ قاعدة سلطة طبقة الحالة تربط الموقّع والـ namespace.
+
+## عدّاد الطفرات
+
+كل namespace يحمل عدّاد طفرات رتيبًا (`mutations: u64`) — جيل CAS
+anti-replay لعملياته المحمية.
+
+```text
+mutations_binding = BLAKE3-256("SCONE-BINDING-MUTATIONS-V1" ||
+                               id[32] || generation_be64 || counter_be64)
+```
+
+- **المعاملات المحمية** (تتحقق من الربط ثم تزيد العدّاد):
+  `SetRecordDelegates`، `SetTldOperator`، `SetDomainOperator`،
+  `TransferTld`، `TransferDomain`.
+- **معلّم الجيل**: `registered_at` للنطاقات (ثابت طوال حياة
+  الـ namespace)، `valid_until` للـ TLDs (مختلف بنيويًا في كل حياة —
+  إعادة المطالبة تحدث فقط بعد مدة متعددة السنوات كاملة زائد فترة
+  السماح). بدونه، namespace مات ثم أُعيد تسجيله (العدّاد صفّر) قد
+  يعيد تسليح معاملة من حياة سابقة عندما يبلغ العدّاد القيمة نفسها.
+- **التحقق**: التطبيق يعيد اشتقاق الربط من الحالة الحالية ويقارنه
+  بالقيمة المحمولة (set-types) أو يتحقق من الـ PoW ضده (النقل).
+  الانحراف رفض مُنمَّط (`StaleStateBinding` / إثبات غير محسول) لا
+  يغيّر شيئًا.
+- **لماذا عدّاد**: دالة نقية للحالة الحالية تعود لقيمتها السابقة
+  عندما تعود الحالة إليها مشروعًا — تنازل A→B→A، مجموعة مندوبين
+  `∅ → {9,10} → ∅`. الـ replay يعيد تسليح نفسه. العدّاد لا يعود
+  أبدًا. العدّاد مُلتزَم في ورقة SMT للـ namespace (V4) ومكشوف في
+  استجابة name-state ليتمكن العملاء من fetch-then-bind بثقة.
 
 ## الحمولة الموقّعة
 
@@ -711,4 +827,5 @@ scone domains                            # ما تملكه
 |---|---|---|
 | 1 | تضمين `public_key` + `signature`، حمولة `SCONE-TX-SIG-V1`، بايت إصدار `0x01`، `RegisterDomain` تحمل الاسم، `RegisterTld` (0x93)، عائلة M8a: `TransferTld` (0x47)، `RevokeTld` (0x6B)، `SetTldOpen` (0xB8)، `AssignDomain` (0xD4)، `RenewDomain` (0x3C) — صيغ wire معيارية؛ M8b: حقل `network` موقّع في رأس كل حمولة، `RegisterTld` تحمل الاسم، قواعد حالة كاملة، صعوبات PoW لكل شبكة | مُستبدَل |
 | 1 (2026-09، wire بلا network) | **إزالة حقل `network` من الـ wire لكل المعاملات**: يعيش network_id في حمولة التوقيع فقط (`signing_payload(tx, network)` يحقنه في الرأس)؛ فصل الشبكات يستند إلى التوقيع (`InvalidSignature` على حمولة أجنبية، يختفي خطأ `WrongNetwork`)؛ يبقى `TX_FORMAT_VERSION` بقيمة `0x01` (testnet قابل لإعادة الإطلاق، لا تعايش)؛ **تتغير جميع الـ TxIds** (الـ TxId هو hash ترميز الـ wire الموقّع، الذي يفقد 14–15 بايتًا)؛ هاش PoW والتكوين وأدلة البيانات لكل شبكة دون تغيير | مُستبدَل |
-| 1 (2026-10، ملح epoch للـ PoW) | **هاش PoW ضد التعدين المسبق**: ملح `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + نواة Argon2id فوق `nonce_le`، مع `epoch = block_height / 144` للكتلة التي تطبِّق المعاملة؛ حمولة إثبات الـ wire من 12 إلى **20 بايتًا** (`nonce_le ‖ epoch_le ‖ difficulty_le`)، يُتحقق من الـ epoch المصرَّح به مقابل نافذة صلاحية epoch الكتلة المطبِّقة (رفض مُصنَّف `ProofEpochMismatch`)، وبالجهد الأفضل `(height+1)/144` عند قبول الـ mempool، وعلم `--epoch` على مسارات الـ offline؛ تغيير كاسر قبل الـ mainnet: الحمولة القديمة 12 بايت تُرفض، **تتغير جميع الـ TxIds** (ينمو حقل `proof` بـ 8 بايتات) | الحالي |
+| 1 (2026-10، ملح epoch للـ PoW) | **هاش PoW ضد التعدين المسبق**: ملح `BLAKE3("SCONE-POW-V1-ARGON2" ‖ network ‖ challenge ‖ epoch_le)` + نواة Argon2id فوق `nonce_le`، مع `epoch = block_height / 144` للكتلة التي تطبِّق المعاملة؛ حمولة إثبات الـ wire من 12 إلى **20 بايتًا** (`nonce_le ‖ epoch_le ‖ difficulty_le`)، يُتحقق من الـ epoch المصرَّح به مقابل نافذة صلاحية epoch الكتلة المطبِّقة (رفض مُصنَّف `ProofEpochMismatch`)، وبالجهد الأفضل `(height+1)/144` عند قبول الـ mempool، وعلم `--epoch` على مسارات الـ offline؛ تغيير كاسر قبل الـ mainnet: الحمولة القديمة 12 بايت تُرفض، **تتغير جميع الـ TxIds** (ينمو حقل `proof` بـ 8 بايتات) | مُستبدَل |
+| 1 (2026-10، عدّاد الطفرات) | **روابط CAS ضد الـ replay**: عدّاد طفرات رتيب لكل namespace (`DomainState`/`TldState::Private`)، خمس معاملات محمية تتحقق-ثم-تزيد (`SetRecordDelegates` 0x66 جديد، `SetTldOperator`، `SetDomainOperator`، `TransferTld`، `TransferDomain`)؛ إثبات التنازل يُعدَّن لربط العدّاد (تحديات `SCONE-TLD-XFER-V1`/`SCONE-DOMAIN-XFER-V1` الثابتة مسحوبة من الاستخدام)؛ الـ set-types تحمل حقل wire موقّع `state_binding` بـ 32 بايت؛ أوراق SMT V4 تُلزم بالعدّاد (V2/V3 مسحوبة — V3 لم تُسلَّم قط)؛ ترميزات التخزين +8 بايت لكل نطاق / +8 لكل TLD خاص؛ `NameState` يكشف العدّادات و`registered_at`؛ تغيير كاسر قبل الـ mainnet: تنسيق الحالة + الـ wire، **إعادة تصفير testnet**، اللقطات القديمة تُرفض عند الاستيراد | الحالي |

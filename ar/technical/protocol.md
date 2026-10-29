@@ -323,7 +323,7 @@ Message = disc u8 || payload
 | `0x0c` | `GetStatus` | كلاهما | — | — | `NodeStatus` |
 | `0x0d` | `NodeStatus` | كلاهما | حالة العقدة (الشبكة، القمة، الارتفاع، NAT، النطاقات، mempool، الأقران، النهائية، المشغّلون الطازجون) | — | — |
 | `0x0e` | `LookupName` | كلاهما | `name(str)` | — | `NameState` |
-| `0x0f` | `NameState` | كلاهما | الحالة on-chain للاسم + الـ TLD | — | — |
+| `0x0f` | `NameState` | كلاهما | الحالة on-chain للاسم + الـ TLD، بما فيها جيل CAS (عدّادات الطفرات، registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | كلاهما | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | كلاهما | النطاقات الحية للمالك + الـ TLD | — | — |
 | `0x12` | `Error` | رد | رسالة خطأ على مستوى التطبيق (`str`) | — | — |
