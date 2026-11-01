@@ -12,7 +12,8 @@ Gegnermodell: ein beliebig feindseliger p2p-Knoten (kann beliebige
 Bytes über QUIC/UDP senden), ein feindseliger Tx-Einreicher, ein
 neugieriger Relay-Betreiber, ein gestohlenes Datenverzeichnis. PER
 KONSTRUKTION AUSGESCHLOSSEN: der Endclient (DNS ist von Natur aus
-öffentlich), die globale Verfügbarkeit (Chaos bereits getestet).
+öffentlich), die globale Verfügbarkeit (Chaos bereits getestet —
+Batterie `tests/adversarial*.rs`).
 
 Asset-Tabelle, nach Kritikalität geordnet:
 1. **Eigentum** (Zustands-Chain: Register/Update/Transfer/Assign) —
@@ -26,10 +27,19 @@ Asset-Tabelle, nach Kritikalität geordnet:
 
 ## 1. Automatisiertes statisches Audit (Tag 1 — mechanisch)
 
-- `cargo audit` (Abhängigkeits-CVEs: libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + Durchsicht von `unsafe` (erwartet ≈ 0).
+- `cargo audit` (Abhängigkeits-CVEs: libp2p/quinn/rustls/redb/ed25519);
+  Akzeptanzen in `audit.toml` nachverfolgt (RUSTSEC-2024-0436
+  akzeptiert: ungepflegtes `paste`, keine bekannte Schwachstelle).
+- `cargo geiger` + Durchsicht von `unsafe` (erwartet ≈ 0 —
+  verifiziert: das einzige `unsafe` lebt in Tests;
+  `#![forbid(unsafe_code)]` in scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (bereits grün, als CI-Schranke halten).
+  (bereits grün; als lokale Pre-Merge-Schranke halten — ein CI
+  existiert noch nicht).
+- Noch existiert kein Fuzz-Harness: das erste Lieferobjekt ist die
+  `fuzz/`-Crate gegen die fünf Dekodierer (`decode_complete`,
+  `parse_query`, `extract_answers`, Eintragsdatei-Parser,
+  Schlüsseldatei-Parser).
 - Fuzzing der Dekodierungsgrenzen (Tag 2-3):
   `cargo-fuzz` auf `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — das ist DIE
@@ -45,7 +55,8 @@ Asset-Tabelle, nach Kritikalität geordnet:
 Nach Asset-Kritikalität geordnet, 1 Komponente = 1 Checkliste:
 
 ### 2.1 scone-crypto + Identitätsableitung (Tag 4)
-- OwnerId = BLAKE3(pubkey): Byte-Kanonisierung prüfen (keine
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)): Byte-Kanonisierung prüfen (keine
   mehrdeutige Darstellung → 2 Schlüssel, 1 Owner).
 - Ed25519: strikte DESERIALISIERUNG (nicht-kanonischer Schlüssel
   abgelehnt?), Verifikation mit Kontext-Trennung (jede Verwendung
@@ -55,7 +66,7 @@ Nach Asset-Kritikalität geordnet, 1 Komponente = 1 Checkliste:
   Nullung, Dateiberechtigungen, Padding-Oracle auf dem Geheimtext.
 
 ### 2.2 Transaktionsanwendung (Tag 5) — der Kern
-Für Jede Transaction-Variante (heute 13):
+Für Jede Transaction-Variante (heute 19):
 - Ist die Tx unter Replay idempotent (eindeutige Txid,
   Nonce/Sequenz)?
 - Geht die Eigentumsprüfung jedem Effekt voraus? (Signer == Owner
@@ -112,8 +123,10 @@ Für jeden Befund der manuellen Durchsicht ein Test, der ihn beweist:
   der malformede/nichtübereinstimmende Nachrichten sendet) — SimNet
   um eine Rolle „passiv byzantinisch“ erweitern;
 - echtes 30-Knoten-Mesh mit 3 feindseligen Knoten (zufällige Bytes,
-  Bursts ungültiger Txs, gefälschte DHT-Einträge) — die
-  Chaos-Batterie existiert, die Angreiferrolle hinzufügen;
+  Bursts ungültiger Txs, gefälschte DHT-Einträge) — heute eine
+  Zielscheibe: die bestehende Batterie ist `tests/adversarial*.rs`
+  (adversarial, adversarial_consensus, adversarial_dos) plus die
+  Sim-Szenarien; um die Angreiferrolle erweitern;
 - Kreuzprüfungen: zwei Implementierungen der Dekodierung (das
   protocol.md-Dokument ist NORMATIV — ein Auditor implementiert das
   Wire NUR nach dem Dokument und vergleicht Bytes; jede Abweichung
@@ -138,7 +151,8 @@ Kostenvorteil.
       Spitz-Divergenz oder Cache-Korruption
 - [ ] Dokument/Code-Abweichung: null (durch die duale
       Wire-Implementierung verifiziert)
-- [ ] Blockierende CVEs: null (cargo audit)
+- [ ] Blockierende CVEs: null (cargo audit; akzeptierte RUSTSECs
+      in `audit.toml` nachverfolgt)
 - [ ] Externes Audit des Krypto-/Wire-/Tx-Umfangs erfolgt (falls
       budgetiert)
 

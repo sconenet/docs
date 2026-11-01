@@ -52,7 +52,7 @@ Cuerpo firmado (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (la clave del firmante aparece en la
 cola del cuerpo, como en toda tx) `‖ signature[64]`, es decir
-~230 bytes codificados — **sin PoW**: el coste es la presencia
+~200–215 bytes codificados — **sin PoW**: el coste es la presencia
 continua (un heartbeat por época, durante meses).
 
 El firmante ES el operador: `owner` siempre se re-deriva de
@@ -309,5 +309,5 @@ re-jugabilidad de la cadena (ventana/purga) o la elección
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validación | hecho |
 | 2 | blockchain | ventana deslizante (journaled), pool filtrado, elección, ~15 tests | hecho |
 | 3 | network | emisión automática, relay de tx | hecho |
-| 4 | CLI | `tx build heartbeat`, muestra `fresh operators` en `scone status` | hecho |
+| 4 | CLI | emisión automática por el relay (§7); muestra `fresh operators` en `scone status`; constructor offline retirado (cli-simplify-v1) | hecho |
 | 5 | docs | este RFC consolidado en forma normativa, espejo fr/en | hecho |

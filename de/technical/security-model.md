@@ -9,8 +9,8 @@ Das Komitee der Epoche N+1 wird aus dem Samen
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`
 gezogen, über den **Berechtigungspool, der beim von Checkpoint N
 finalisierten Block eingefroren wurde**. `signing_hash` ist der
-Hash des **Inhalts** des Checkpoints (Epoche, Höhe, Block, prev,
-State-Root — Signaturmenge ausgeschlossen): der Samen ist eine reine
+Hash des **Inhalts** des Checkpoints (Epoche, Höhe, Recovery, Block,
+prev, State-Root — Signaturmenge ausgeschlossen): der Samen ist eine reine
 Funktion von WAS finalisiert wurde, nie davon, WELCHE
 Quorum-Teilmenge es signiert hat — zwei Sichten mit verschiedenen
 (beide gültigen) Teilmengen desselben Checkpoints wählen

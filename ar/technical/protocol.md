@@ -9,16 +9,20 @@
 
 ## إصدار البروتوكول
 
-- ثابت: `PROTOCOL_VERSION: u32 = 1` (في `scone-protocol`)؛
+- ثابت: `PROTOCOL_VERSION: u32 = 2` (في `scone-protocol`)؛
 - يحمله `Hello.version` (المصافحة) و`BlockHeader.version`؛
 - قواعد التوافق:
   - الإصدار المستلَم **أعلى** من الإصدار المحلي ← رفض
     (`ProtocolError::UnsupportedVersion`)؛ العقدة لا تخمّن
     صيغة إصدار لا تعرفه؛
   - الإصدار `0` ← غير صالح؛
-  - توجد مجموعة صيغ واحدة فقط: بايتات إصدار المعاملة
-    (`0x01`) وإصدار الكتلة يجب أن تطابق القيم المحلية
-    **بالضبط**؛
+  - الكتل يجب أن تكون بالإصدار `2` **بالضبط**: الإصدار `1`
+    (صيغة الكتلة السابقة للتوقيعات، مرحلة M1) صيغة غير
+    متوافقة، تُرفض صراحةً بدل تفسيرها تفسيرًا خاطئًا؛
+  - `Hello` يتسامح مع الإصدارين `1..=2` (مصافحة فقط — لا يحمل
+    كتلة)؛
+  - بايت إصدار صيغة المعاملة (`0x01`) يجب أن يطابق القيمة
+    المحلية **بالضبط**؛
 - لا فصل major/minor في هذه المرحلة: عدد صحيح واحد، يُرفع
   عند أي كسر لصيغة الـ wire.
 
@@ -37,8 +41,11 @@
   7-بت، الأدلى أولًا): لا ينطبق ترتيب بايتات الجهاز؛
 - عناوين IPv4/IPv6 والمعرّفات 32-بايت: مصفوفات بايتات خام،
   بلا بادئة طول؛
-- لا عدد صحيح عريض ثابت الحجم في الصيغة: قاعدة ترميز
-  واحدة للأعداد الصحيحة.
+- الاستثناء الوحيد: جسم نقطة التفتيش 116-بايت
+  (`CheckpointData`) أعداد صحيحة ثابتة العرض **little-endian**،
+  لا varints (انظر [نقطة التفتيش Checkpoint
+  (M5)](#نقطة-التفتيش-checkpoint-m5))؛ كل عدد صحيح آخر
+  يتبع قاعدة الـ varint الواحدة.
 
 ### Varint (LEB128 الأدنى)
 
@@ -80,11 +87,16 @@ u64)، `ff×10` (طويل جدًا).
 | `RecordHash` | 32 بايت خام |
 | `BlockHash` | 32 بايت خام |
 | `MerkleRoot` | 32 بايت خام |
-| `DomainName` | `str` (≤ 253 بايت، يعاد التحقق منه في `scone-core`) |
+| `DomainName` | `str` ≤ 253 بايت (A-label ASCII قانوني)، يعاد التحقق منه في `scone-core` |
 
 تبقى الاشتقاقات (`BLAKE3-256` + بادئات `SCONE-DOMAIN-V1`
 وغيرها) معرّفة في `scone-core` (انظر
 `/docs/en/general/naming.md`).
+
+أسماء الـ wire — `DomainName` والـ TLD الخاص بـ `REGISTER_TLD`
+— هي **A-label ASCII قانوني فقط**: البايتات غير ASCII تُرفض
+عند فك الترميز (`NonCanonical`). توحيد IDNA موجود فقط وقت
+الإنشاء (مُدخل المستخدم)؛ ولا يعمل أبدًا على الـ wire.
 
 ## المعاملات
 
@@ -102,7 +114,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-كل discriminant ثابت معتم اعتباطي (لا تسلسل منطقي؛
+الجدول أعلاه **مجموعة جزئية** (7 من أصل 19 نوع معاملة). كل
+discriminant ثابت معتم اعتباطي (لا تسلسل منطقي؛
 `0x00` غير صالح أبدًا) — الجدول المعياري الكامل في
 `/docs/en/technical/transactions.md`.
 
@@ -142,7 +155,7 @@ DomainId(name)` عند فك الترميز (يُعاد حسابه، لا يُو�
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 مطالبة بـ TLD (سجل منفصل عن سجل النطاقات، M7): يُحمَل
@@ -152,7 +165,11 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key
 TLD حر + غير محجوز لـ ICANN (`IcannTldReserved` — نطاقات
 Icann الجذرية لا يطالب بها أحد) + PoW بصعوبة العلامة
 **الحسب-طولية** (منحنى `pow_length` — انظر `blockchain.md`)؛
-والمطالَب يكون مغلقًا (assign فقط).
+والمطالَب يكون مغلقًا (assign فقط). الـ `open` قيمة منطقية
+قانونية (`0x00`|`0x01`؛ أي بايت آخر خطأ فك ترميز قاطع،
+`NonCanonical`): خيار المالك لـ TLD **مولود مفتوحًا**
+(`0x01` = مفتوح للتسجيل الذاتي عند الولادة). يُكتب بعد
+`proof` متغير الطول، قبل المفتاح العام مباشرة.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -160,8 +177,11 @@ Icann الجذرية لا يطالب بها أحد) + PoW بصعوبة العل�
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-ثابت يُعاد فحصه عند فك الترميز: `sequence > 0` و`owner` ==
-اشتقاق `public_key`. لا `timestamp`: الترتيب يمر عبر
+ثابت يُعاد فحصه عند فك الترميز: `sequence > 0` فقط — إضافة
+إلى التوقيع فوق الحمولة، متحقَّقًا مقابل `public_key` المضمّن.
+قاعدة السلطة (يجب أن يكون الموقّع مالك النطاق أو أحد مندوبي
+سجلاته، 3 على الأكثر) قاعدة **حالة** تفرضها `scone-blockchain`
+عند التطبيق، وليست فحص wire. لا `timestamp`: الترتيب يمر عبر
 `sequence`. تحمل المعاملة مراجع مدمجة فقط — محتوى DNS
 الكامل يبقى في الـ DHT (انظر أدناه).
 
@@ -194,7 +214,13 @@ RecordData = type.v || ttl.v || payload(type)
 | 33 | SRV | `priority.v`، `weight.v`، `port.v`، `target(name)` |
 | 257 | CAA | `flags u8`، `tag` (1–15 بايت)، `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (انظر أدناه) |
+| 32769 | NS4 | 4 بايتات (عنوان IPv4) |
+| 32770 | NS6 | 16 بايت (عنوان IPv6) |
 | غيره | Unknown | code.v + `bytes` ≤ 4096 |
+
+النوعان 32769 (`NS4`) و32770 (`NS6`) نوعان خاصان بـ Scone
+(نطاق غير IANA، نفس عائلة `GEOROUTE`): تفويض إلى خادم أسماء
+مُعيَّن بعنوان IPv4/IPv6 بدلًا من الاسم.
 
 مثال: `A 192.0.2.1` (بTTL قدره 86,400) ←
 `01 80 a3 05 c0 00 02 01`
@@ -321,19 +347,19 @@ Message = disc u8 || payload
 | `0x0a` | `Checkpoint` | كلاهما | `Checkpoint` | موقّعون ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | كلاهما | — | — | نافذة نقاط التفتيش |
 | `0x0c` | `GetStatus` | كلاهما | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | كلاهما | حالة العقدة (الشبكة، القمة، الارتفاع، NAT، النطاقات، mempool، الأقران، النهائية، المشغّلون الطازجون) | — | — |
+| `0x0d` | `NodeStatus` | كلاهما | حالة العقدة (الشبكة، القمة، الارتفاع، NAT، النطاقات، mempool، الأقران، epoch المُنهى، حجم نافذة نقاط التفتيش، المشغّلون الطازجون) | — | — |
 | `0x0e` | `LookupName` | كلاهما | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | كلاهما | الحالة on-chain للاسم + الـ TLD، بما فيها جيل CAS (عدّادات الطفرات، registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | كلاهما | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | كلاهما | النطاقات الحية للمالك + الـ TLD | — | — |
-| `0x12` | `Error` | رد | رسالة خطأ على مستوى التطبيق (`str`) | — | — |
+| `0x12` | `Error` | رد | رسالة خطأ على مستوى التطبيق (`str`، ≤ 4096 بايت، يُفحص عند الترميز وعند فك الترميز) | — | — |
 
 ### نقطة التفتيش Checkpoint (M5)
 
 تذهب نقطة التفتيش المجمّعة إلى الـ wire كالتالي: وسم
 `SCONE-CKPT-V1` || جسم `CheckpointData` (116 بايت، LE — مطابق
-لنهاية preimage التوقيع: `epoch(8) height(8) block_hash(32)
-prev_checkpoint_hash(32) state_root(32) recovery(4)`) ||
+لنهاية preimage التوقيع: `epoch(8) height(8) recovery(4)
+block_hash(32) prev_checkpoint_hash(32) state_root(32)`) ||
 `count.v` || `pk[32] ‖ sig[64]` لكل موقّع، **مرتّبة بـ pk
 تصاعديًا، بلا تكرارات**، `count ≤ 64`
 (`MAX_CHECKPOINT_SIGNERS`). فك ترميز صارم: الاقتطاع، الوسم
@@ -419,12 +445,15 @@ record_hash). ويوفّر الـ DHT *المحتوى*. يُقبل سجل الـ
 | `InvalidVarint` | varint غير أدنى أو فيض أو طويل جدًا |
 | `IntegerOutOfRange` | عدد صحيح لا يسع نوعه الهدف |
 | `UnsupportedVersion` | إصدار صفر أو أعلى من المحلي |
+| `PowNotSignable` | صيغة pow-to-owner مُمرَّرة عبر مسار توقيع (لا توقَّع أبدًا — الإثبات المُستخرَج بالتعدين هو التخويل) |
 | `UnknownDiscriminant` | discriminant معاملة/رسالة غير معروف |
 | `LimitExceeded` | طول أو عدد يتجاوز حدًا |
 | `InvalidUtf8` | سلسلة غير UTF-8 |
+| `InvalidTransactionKey` | المفتاح العام Ed25519 المضمّن ليس نقطة منحنى صالحة |
 | `TrailingBytes` | بايتات متبقية بعد قيمة كاملة |
 | `Validation` | خرق ثابت من ثوابت `scone-core` |
 | `NonCanonical` | ترميز صالح لكل حقل لكن غير قانوني |
+| `InvalidDelegateSet` | مجموعة مندوبي السجلات خارج الحدود أو غير قانونية (≤ 3 مفاتيح، تصاعدي صارم، بلا تكرارات) |
 
 فك الترميز لا يُسبب panic أبدًا على بيانات الشبكة.
 
@@ -436,7 +465,11 @@ record_hash). ويوفّر الـ DHT *المحتوى*. يُقبل سجل الـ
 - **معاملات السلسلة**: كل `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` تضمّن `public_key` (32 بايت) + `signature`
   (64 بايت) فوق الحمولة
-  `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`؛
+  `"SCONE-TX-SIG-V1" || disc || version || network_id(str ≤ 16) ||
+  body(tx_without_signature)` — يُحقن `network_id` كأول حقل من
+  المعاملة المرمَّزة (بعد الـ discriminant وإصدار الصيغة
+  مباشرة)، ربطًا لكل توقيع بشبكة واحدة (الـ wire نفسه لا يحمل
+  حقل `network`، انظر أعلاه)؛
   المواصفة المعيارية الكاملة: `/docs/en/technical/transactions.md`؛
 - **سجلات الـ DHT** (`SignedDnsRecord`): الحمولة الموقّعة هي
   الترميز القانوني للـ `DnsRecord`؛ التحقق يقاطع

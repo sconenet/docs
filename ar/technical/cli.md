@@ -18,7 +18,8 @@
   الترحيل أصلًا.
 - رسائل الخطأ الموجهة للمستخدم من الـ CLI
   (`scone: <error>`) تبقى في stderr: هذه تجربة استخدام، لا
-  سجلات.
+  سجلات. الأمر الفاشل يطبع أيضًا سطر stderr ثانيًا،
+  `[Failed: <error>]`، على غرار أسطر الحالة للأوامر الناجحة.
 
 ## المستويات و`--verbose` / `-v`
 
@@ -35,7 +36,7 @@
 `scone identity list -vv` متكافئان).
 
 **لماذا يبقى `scone relay` في INFO افتراضيًا**: المُرحّل
-daemon — يجب أن يسجّل نشاطه (استماع RPC/p2p، الكتل المقبولة
+daemon — يجب أن يسجّل نشاطه (استماع p2p، الكتل المقبولة
 والمنتجَة، الأقران المتصلون، الرفض) ليكون قابلًا للتشغيل،
 دون اشتراط علم. أما الأوامر الأحادية فتبقى صامتة (WARN)
 كي لا تلوّث طرفية أو سكربتًا.
@@ -70,9 +71,11 @@ RUST_LOG=scone_network=trace,info scone relay   # حسب الـ target
   العملية الحقيقية — نفس المتغير، نفس الأثر)؛
 - وإلا فالقيمة الافتراضية المدمجة في clap.
 
-المتغيرات القابلة للتكرار (`SCONE_BOOTSTRAP`،
-`SCONE_DNS_UPSTREAM`) تتراكم: سطر واحد لكل قيمة في `.env`
-(dotenvy يضيف).
+يحمل `.env` قيمة واحدة لكل متغير: يطبّق dotenvy **أول** ظهور
+لمتغير (التكرارات تُتخطى بصمت) ولا يتراكم أبدًا؛ كما تفوز
+بيئة العملية الحقيقية فوق الملف. تتطلب بذور bootstrap متعددة
+أو خوادم DNS upstream متعددة إذًا أعلام `--bootstrap` /
+`--dns-upstream` متكررة في سطر الأوامر.
 
 الجدول الكامل لمتغيرات `SCONE_*` (الشبكة، الاستماع P2P،
 الـ bootstrap، التكوين، UPnP، سطح DNS، المقاييس، ملف
@@ -84,13 +87,15 @@ gitignore).
 
 ## دلالات المستويات (اصطلاح الكود)
 
-- `error!`: الإخفاقات (اليوم بلا مواضع استدعاء — إخفاقات
-  الشبكة تُبتلع كـ `warn!` ولا تظهر إلا الإخفاقات المحلية
-  القاتلة كخطأ مُصنَّف من `run()`)؛
+- `error!`: الإخفاقات المحلية القاتلة (الموقّع معطَّل عند حالة
+  موقّع غير قابلة للقراءة أو تالفة، مخزن غير قابل للاستخدام،
+  فشل الاستعادة من تشعب عميق، عبارة مرور anchor غير محفوظة) —
+  إخفاقات الشبكة تُبتلع كـ `warn!` ولا تظهر إلا الإخفاقات
+  المحلية القاتلة كخطأ مُصنَّف من `run()`)؛
 - `warn!`: مدخلات شبكة عدائية أو خبيثة مرفوضة، معاملات
   قديمة مُخلاة من الـ mempool، معاملات متعارضة مهملة أثناء
   الإنتاج، إخفاقات صادرة/واردة، عدم تطابق مفاتيح DHT؛
-- `info!`: كتلة مقبولة/منتجَة، استماع RPC/p2p، قرين متصل،
+- `info!`: كتلة مقبولة/منتجَة، استماع p2p، قرين متصل،
   إقلاع المُرحّل (نقاط فحص الحالة)؛
 - `debug!`: تفاصيل داخلية (معاملة مقبولة، قرين منفصل، ذهاب
   وإياب RPC، تعداد مخزن المفاتيح، أحداث kad تحت
@@ -110,8 +115,9 @@ gitignore).
 - **دون `--identity`** عندما يحتوي مخزن المفاتيح على هوية
   واحدة (تُستخدم بصمت؛ إن وُجدت عدة هويات ← الخطأ
   يعدّدها).
-- محذوفة (الـ stubs تقترح البديل): `show`، `submit`،
-  `lookup`، `owned`.
+- محذوفة: `show`، `submit`، `lookup`، `owned` — بلا stubs؛
+  clap يرفض هذه الأسماء بخطأه العام «unrecognized
+  subcommand» مع اقتراح أقرب اسم.
 - جديدة: `scone domain renew <name>`، `scone domains`،
   `scone domain get|set` (سجل مفرد، دون ملف).
 
@@ -155,7 +161,7 @@ scone tld renew mytld               # تجديد صريح
 والتشغيل البيني مع الويب/API تبقى السطحية الكاملة
 متاحة:
 
-لكل إجراء مسار أساسي واحد فقط؛ تمت إزالة الأسماء المستعارة الجذرية السابقة (`show` و`lookup` و`owned` و`renew`) (remove-cli-aliases)، وكذلك ذكر `domain info` الذي لم يطابق أي أمر حقيقي قط.
+لكل إجراء مسار أساسي واحد فقط؛ تمت إزالة الأسماء المستعارة الجذرية السابقة (`show` و`lookup` و`owned` و`renew`) (remove-cli-aliases)؛ ويبقى `domain info` اسمًا مستعارًا للتوافق مع `domain get`.
 
 السطحية السداسية غير المتصلة (الأوامر الفرعية `tx
 build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):
@@ -164,8 +170,12 @@ build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):
 لك PoW الفتح)، `scone tld transfer <tld> <owner>`،
 `scone tld revoke <tld>`، `scone domain assign <name> <owner>`
 (مالك الـ TLD، TLD خاص) و`scone domain transfer
-<name> <owner>`. لكل منها: قراءة الحالة، التوقيع، الإرسال،
-الـ txid. انتقل حلّ سجلات DNS إلى `scone domain resolve
+<name> <owner>`. لكل منها: التوقيع، الإرسال،
+الـ txid. مسارات التنازل (`tld transfer`، `domain transfer`)
+تقرأ الحالة on-chain مسبقًا على جانب العميل — إثبات التنازل
+مرتبط بجيل الحالة الحالي — بينما `tld open` و`tld revoke`
+و`domain assign` لا تقرأ الحالة على جانب العميل إطلاقًا (العقدة
+هي التي تفرض). انتقل حلّ سجلات DNS إلى `scone domain resolve
 <name>` (السابق `record get`)؛ وقناة النشر السداسية
 (`record put`) اختفت — التحرير يمر عبر `domain set` /
 `domain update`.
@@ -189,8 +199,9 @@ build|sign|verify`، `submit tx`) أُزيلت (remove-tx-surface-v2):
   و`scone tld register <tld> --to <pubkey>` / `scone tld renew
   <tld> --to <pubkey>` يرسلون إثباتًا يربط الـ challenge الخاص
   به مفتاح **المستفيد**؛ ويُعاد حساب الـ `owner` على السلسلة
-  كـ `hash(pubkey_dest)` (التجديد لا يغيّر الملكية أبدًا). دون
-  `--proof` يستخرج الأمر الإثبات بنفسه؛ ومع `--proof -`/FILE
+  كـ `hash(pubkey_dest)` (التجديد لا يغيّر الملكية أبدًا). أوامر
+  `--to` تعدّن إثباتها في مكانها دائمًا — `--proof` موجود
+  **فقط** على `domain register --to`: مع `--proof -`/FILE
   يستهلك حمولة `scone-domain-pow-to-v1` ويرفض إثباتًا مستخرجًا
   لمستفيد **آخر**. نمط الأنابيب: `scone domain mine n.tld
   --mine-for <pubkey> | scone domain register n.tld --to
@@ -220,8 +231,9 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 تسجيل TLD/نطاق (منحنى الطول). الشبكة المختارة تحدد معاملات
 Argon2id (mainnet: 64 MiB، t=2 — التكلفة الحقيقية؛
 testnet/devnet: الملف الشخصي الخفيف، إثباتات بالميلي ثانية).
-كل worker يخصّص مسار Argon2id خاصًا به بحجم 64 MiB — اضبط
-`--cores` حسب الذاكرة المتاحة.
+كل worker يخصّص مسار Argon2id خاصًا به — 64 MiB على الملف
+الشخصي mainnet، 8 KiB على الملف الشخصي الخفيف testnet/devnet —
+اضبط `--cores` حسب الذاكرة المتاحة.
 
 ## البُنى: dev مقابل mainnet مفعّلة (mainnet-compile-gate)
 
@@ -234,8 +246,7 @@ mainnet` (وخدمات المسجّل بـ `SCONE_NETWORK=mainnet`)
 cargo build --release --features mainnet
 ```
 
-يعرض `scone --version` علامة `+mainnet` في تلك البنى، ويقول
-سجل إقلاع المُرحّل `build: mainnet-enabled`.
+يعرض `scone --version` علامة `+mainnet` في تلك البنى.
 
 يتتبع `--network` الافتراضي البنية أيضًا: `mainnet` في البنى
 المفعّلة بالـ mainnet (الملف الرسمي يضع المستخدمين في شبكة

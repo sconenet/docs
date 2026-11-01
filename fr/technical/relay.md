@@ -18,7 +18,7 @@ disparu).
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  port éphémère     │  ├─ identify  (découverte d'adresses)  │
+  port fixe 4001    │  ├─ identify  (découverte d'adresses)  │
   par défaut) ◄─────┤  ├─ ping      (vérification de vie)    │
                     │  ├─ kad       (DHT d'enregistrements)  │
                     │  └─ reqres    (messages scone-prot.)   │
@@ -64,8 +64,6 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
 
 1. **Seeds explicites** (`--bootstrap`, multiaddrs complètes) — toujours
    prioritaires ; fournir une liste non vide REMPLACE tout le reste.
-   `--no-builtin-seeds` vide les seeds embarquées pour des déploiements
-   100 % privés.
 2. **Seeds embarquées** (`builtin_seeds(network)` dans
    `scone-network/src/config.rs`) — figées à chaque publication
    officielle de binaire, par réseau. Un relais non configuré rejoint
@@ -98,9 +96,9 @@ UPnP reste **désactivé par défaut** (`enable_upnp` = `false` dans
 consentement. **La découverte mDNS a été supprimée**
 (remove-mdns-discovery, 2026-10-22) : le peering vient
 exclusivement du bootstrap explicite, des seeds builtin et de
-Kademlia — le flag hérité `--mdns`/`SCONE_MDNS` reste accepté
-sans effet (compatibilité des scripts, même traitement que
-`--rpc`).
+Kademlia — les flags hérités `--mdns`/`SCONE_MDNS` sont
+SUPPRIMÉS : les passer est aujourd'hui une erreur clap (aucun
+tel argument n'existe).
 
 ### Optimisation de la topologie locale (toujours active)
 
@@ -180,11 +178,13 @@ l'affiche (`scone status`). Les adresses privées comptent
 (`only_global_ips = false`) : un maillage LAN teste sa joignabilité
 LAN.
 
-Un relais joignable active le **hop** circuit-relay v2 (il peut relayer
+Chaque relais exécute le **hop** circuit-relay v2 (il peut relayer
 du trafic pour des pairs NATés) et **DCUtR** (hole-punching : deux
 nœuds connectés via circuit tentent une connexion directe et libèrent
-le relais). Un relais jugé NATé demande automatiquement une réservation
-au premier pair joignable connu et écoute à travers lui (adresse
+le relais) **INCONDITIONNELLEMENT** ; seule la demande de réservation
+du côté NATé dépend du verdict : un relais jugé NATé demande
+automatiquement une réservation
+au premier pair joignable CONNECTÉ et écoute à travers lui (adresse
 `/p2p/<relay>/p2p-circuit`).
 
 Règle de production : un nœud NATé relayé ne devrait pas devenir
@@ -245,9 +245,10 @@ C'est délibérément borné : jamais plus d'un bloc en vol par pair.
    [Découverte des pairs](#découverte-des-pairs)) : `--bootstrap`
    explicite (doit finir par `/p2p/<peer-id>`) SINON les seeds
    embarquées du réseau SINON l'annuaire appris (`peers.json`) ;
-5. numérotation de chaque multiaddr et inscription dans la table
-   Kademlia (une numérotation morte est ignorée — les autres font le
-   réseau).
+5. inscription de chaque multiaddr de seed dans le swarm ET la
+   table Kademlia (les numérotations elles-mêmes sont faites par
+   le bootstrap automatique de Kademlia ; un pair mort ne répond
+   simplement jamais).
 
 ### Réception d'une transaction (soumission P2P ou CLI `submit tx`)
 
@@ -272,6 +273,14 @@ C'est délibérément borné : jamais plus d'un bloc en vol par pair.
    pré-contrôle de fenêtre de grâce ; `RenewDomain` → domaine connu +
    propriétaire, pré-contrôle PoW de renouvellement (liée à
    l'expiration courante) à la hauteur suivante ;
+   `TransferDomain` → domaine connu + propriétaire ;
+   `SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator` →
+   propriétaire + `state_binding` CAS = génération courante ; la
+   famille pow-to-owner (`RegisterTldPow`/`RenewTldPow`/
+   `RegisterDomainPow`/`RenewDomainPow`) → pré-contrôles de forme
+   nom/preuve (pas de signataire, pas de signature) ;
+   `Slash`/`Heartbeat` → passage à travers (validés en entier au
+   push) ;
 4. insertion au mempool (capacité fixe, dédup par `TxId` —
    re-soumettre une tx déjà dans le pool est un no-op) ;
 5. diffusion aux pairs (sauf l'émetteur).
@@ -367,6 +376,11 @@ atteint via le binaire, clap le surcharge toujours) :
 - **rattrapage de finalité** : un relais dont la base est vide (boot
   d'un nouveau nœud) demande `GetCheckpoints` à un pair à chaque
   tick tant que la base n'est pas restaurée ;
+- **battement de cœur proof-of-service** : à chaque frontière
+  d'époque le relais émet automatiquement sa transaction
+  `Heartbeat` (signée par la clé d'ancre, au plus une par époque,
+  seulement tant que l'identité détient un siège vivant) par le
+  chemin mempool normal ;
 - un relais sans clé d'ancre reste **passif** : il accumule, finalise
   et relaie, mais ne signe jamais ;
 - `GetCheckpoints` → la fenêtre `checkpoint_window()` est servie ;
@@ -378,9 +392,11 @@ atteint via le binaire, clap le surcharge toujours) :
 Un bloc sœur à la même hauteur, ou un bloc dont le parent n'est pas le
 sommet courant (`ParentNotTip`/`UnknownParent`), n'est JAMAIS perdu :
 il est **parqué** (map bornée, `PARKED_CAP = 2048` blocs, ~KiB
-chacun — RAM bornée au pire cas ; un parking plein ignore
-silencieusement les nouveaux venus). Les hachages déjà proposés à
-`accept_block` sont dédupliqués (`seen_blocks`) : un bloc perdant
+chacun — RAM bornée au pire cas ; un parking plein ÉVINCE
+l'entrée la plus basse en `(height, hash)` et insère le bloc
+frais — jamais le nouveau venu). Les hachages déjà proposés à
+`accept_block` sont dédupliqués (`seen_blocks` — FIFO borné de
+32 000 entrées) : un bloc perdant
 re-gossipé n'est pas ré-évalué.
 
 À CHAQUE tick `Produce`, `reconsider_parked` :
@@ -397,6 +413,16 @@ hauteurs égales : le bloc gagnant, proposé une fois puis refusé, est
 périodiquement ré-évalué au lieu d'être oublié pour toujours (constat
 chaos-30 : deux blocs sœurs à 15 ms d'écart).
 
+**Détecteur de blocage de fork profond** : 40 ticks de production
+consécutifs sans progrès canonique tandis que le nœud est bloqué
+(parking non vide ou adoption heurtant l'erreur de fenêtre élaguée
+`BlockPruned`) déclenchent `recover_deep_fork` : la chaîne en RAM et
+le parking sont réinitialisés, la chaîne re-démarre depuis le store,
+et le relais se resynchronise auprès des pairs — le dernier recours
+honnête d'une partition plus longue que la fenêtre RAM (journalisé,
+auto-récupérant ; sans lui un nœud bloqué reste en split-brain
+jusqu'à un redémarrage manuel).
+
 **Persistance des réorgs** : adopter une autre branche ne peut pas
 passer par l'ajout monotone (`NonMonotonicHeight`). Le relais applique
 `rewind_to_height(point de fork)` puis `persist_state_snapshot`
@@ -412,8 +438,23 @@ replay) — jamais fatal.
 complète exactement la hauteur attendue déclenche la requête de la
 hauteur suivante, jusqu'à épuisement (`Pong` = rien de plus) ou
 `MAX_SYNC_ROUNDS` (10 000) lots — une borne absolue même contre un pair
-menteur. Les blocs reçus passent par la validation complète : un pair
+menteur. **Tirage en arrière déclenché par un orphelin** : un bloc
+reçu parqué sur `UnknownParent` (son parent est inconnu localement —
+p. ex. un fork qui a grandi pendant notre déconnexion) déclenche un
+`GetBlocks(start_height = block.height − 1)` immédiat vers le MÊME
+pair ; le segment de fork manquant se matérialise et le bloc parqué
+se connecte lors d'une vidange `reconsider_parked` ultérieure. Borné :
+un tirage par orphelin, dédupliqué par `seen_blocks` à la
+re-proposition. Les blocs reçus passent par la validation complète :
+un pair
 malveillant ne peut pas faire accepter quoi que ce soit d'invalide.
+
+À chaque tick de production s'exécute aussi une re-vérification
+périodique (`recheck_sync`) : chaque pair connecté déjà à jour reçoit
+un `GetBlocks(hauteur locale + 1)` borné (une requête par pair par
+tick ; la réponse est un `Pong` immédiat quand il n'y a rien de
+nouveau). C'est ce qui guérit les îles partitionnées : un pair qui a
+fini son rattrapage apprend quand même les blocs produits ensuite.
 
 ### DHT d'enregistrements
 
@@ -436,6 +477,17 @@ malveillant ne peut pas faire accepter quoi que ce soit d'invalide.
   DHT.
 - Kademlia tourne en mode serveur, sans TTL d'enregistrement (la
   chaîne gouverne la validité, pas le temps).
+- Plomberie de gossip des records (bornée, anti-tempête) :
+  (a) chaque tick de production gosse une PAGE du cache persistant
+  local aux pairs connectés (256 records, marche par curseur d'un
+  tick à l'autre — RAM bornée par tick, couverture complète en
+  plusieurs ticks quelle que soit la taille du cache) ;
+  (b) un message `Record` reçu n'est re-gossipé aux autres pairs
+  que s'il est NOUVEAU ou DIFFÉRENT du cache local (sinon chaque
+  récepteur re-transmettrait pour toujours) ;
+  (c) la publication rejette un record portant plus de
+  **12 serveurs de noms NS distincts** (`MAX_NS_PER_DOMAIN`,
+  toutes formes — hostname, v4, v6).
 
 ### Vérification des enregistrements (règle « la chaîne fait autorité »)
 
@@ -476,15 +528,18 @@ Un point d'accès HTTP (format texte Prometheus 0.0.4, exposition écrite
 Le bind effectif est annoncé sur stdout (contrat lisible par machine,
 comme `p2p:`) : une ligne `metrics: <addr>` dès l'écoute.
 
-**19 compteurs** (`counter`, monotones — chemins chauds :
+**27 séries de compteurs** (`counter`, monotones — chemins chauds :
 `fetch_add(Relaxed)` sur un `Arc<Metrics>` partagé, jamais une entrée
-de consensus) :
+de consensus), plus deux séries geo étiquetées (rendues avant les
+compteurs simples, une ligne par étiquette — même nom, jeux
+d'étiquettes distincts ; émises seulement une fois non vides) :
 
 | Groupe | Séries |
 |---|---|
 | Chaîne | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (étiqueté) | `scone_dns_geo_by_continent_total{continent}` (code UN M49), `scone_dns_geo_by_country_total{country}` (code ISO 3166-1) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Réseau de pairs | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -525,7 +580,8 @@ Messages de contrôle servis par le relais :
 - rejet applicatif → `Message::Error(msg)` (atteint le client comme
   message lisible, pas un EOF).
 
-Le client monte un swarm libp2p minimal (request-response + identify),
+Le client monte un swarm libp2p minimal (request-response
+SEULEMENT — pas d'identify),
 timeout d'appel 30 s (aller-retour 20 s). Défaut `--peer` :
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (nœud de dev local ;
 la multiaddr complète avec le vrai peer id est annoncée par le relais
@@ -561,10 +617,14 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 Chaque commande de contrôle parle QUIC directement à la multiaddr du
 relais (`--peer`, nœud local par défaut — unification RPC→p2p, plus de
-canal TCP JSON). Relais absent → message clair « p2p node unreachable —
-is a relay running? », sortie non nulle. Le drapeau `--rpc` est
-conservé mais **obsolète et ignoré** (le serveur RPC a été supprimé ;
-compatibilité de scripts uniquement).
+canal TCP JSON). Relais absent → sortie non nulle avec un message
+lisible : quand `--peer`/`SCONE_PEER` est fourni, « p2p node
+unreachable — is a relay running? (...) » ; sur le défaut du relais
+local, « no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`) ». Le drapeau hérité `--rpc` est SUPPRIMÉ :
+le passer est aujourd'hui une erreur clap (aucun tel argument
+n'existe).
 
 ### Configuration par environnement (`.env`)
 
@@ -587,16 +647,12 @@ jamais committer un vrai `.env`). Variables :
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (défaut), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | répertoire de données (défaut `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | multiaddr d'écoute P2P (défaut : toutes interfaces, port éphémère) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | seeds de bootstrap, **répétable** (une ligne par valeur — dotenvy accumule) ; remplace les seeds intégrées |
+| `SCONE_LISTEN` | `--listen` | multiaddr d'écoute P2P (défaut : `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | seeds de bootstrap — **répéter le flag CLI** pour en avoir plusieurs (`--bootstrap A --bootstrap B`) ; dans `.env`, UNE valeur par variable (dotenvy garde la PREMIÈRE occurrence, il n'accumule pas) ; remplace les seeds intégrées |
 | `SCONE_GENESIS` | `--genesis` | fichier de genèse (nœuds fondateurs) |
-| `SCONE_MDNS` | `--mdns` | (obsolète — découverte mDNS supprimée ; accepté, ignoré) |
 | `SCONE_UPNP` | `--upnp` | mappage de port UPnP (`true` = activé) |
 | `SCONE_DNS_ADDR` | `--dns` | adresse de bind du serveur DNS UDP |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | replis récursifs, **répétable** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | plafond d'entrées du cache DNS |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | plafond mémoire du cache DNS (p. ex. `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | plafond de requêtes DNS concurrentes |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | replis récursifs — **répéter le flag CLI** pour en avoir plusieurs (`--dns-upstream A --dns-upstream B`) ; une valeur par variable dans `.env` |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | adresse du point d'accès métriques (`ADDR:PORT`) |
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | jeton bearer du point d'accès métriques |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | profil de topologie (`tiny`/`small`/`default`/`high`/`very-high`/`devtest` ; défaut `default`) |
@@ -740,7 +796,7 @@ Le binaire `scone-genesis` (crate `scone-genesis`) prépare le manifeste
 |---|---|
 | Trame P2P | `MAX_MESSAGE_LEN` (1 MiB) avant parsing |
 | Mempool | 4096 tx (rejet typé au-delà) ; `MAX_PENDING_PER_DOMAIN = 4` tx en attente par domaine |
-| Grâce mempool | `MAX_GRACE_ATTEMPTS = 10` réinsertions d'une tx évacuée pour un motif non définitif (≈ 7 min à 40 s/cycle), puis éviction |
+| Grâce mempool | `MAX_GRACE_ATTEMPTS = 10` réinsertions d'une tx évacuée pour un motif non définitif (≈ 20 s au tick de production par défaut de 2 s), puis éviction |
 | Parking de forks | `PARKED_CAP = 2048` blocs concurrents |
 | Points de contrôle accumulés | `MAX_PENDING_CHECKPOINTS = 256` (éviction : plus petit hachage de données) |
 | Attentes DHT simultanées | `MAX_DHT_WAITERS` (256) ; recherche DHT bornée à 30 s (`DHT_LOOKUP_TIMEOUT`) |
@@ -748,6 +804,11 @@ Le binaire `scone-genesis` (crate `scone-genesis`) prépare le manifeste
 | Enregistrement DHT | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | Cache DHT persistant (disque) | double borne LRU : `DHT_CACHE_MAX_ENTRIES` (100 000 entrées) ET `DHT_CACHE_MAX_BYTES` (2 GiB) — la première atteinte évince par ordre de clé ; éviction GC dans la MÊME transaction que le bloc (un domaine tué par le GC de la chaîne ne laisse jamais d'entrée orpheline) |
 | Cache négatif DHT | `DHT_NEGATIVE_TTL_SECS` (30 s), cap FIFO `DHT_NEGATIVE_CAP` (4 096) |
+| Timeout de requête req-res | 10 s par requête, 64 flux concurrents (côté relais) |
+| Timeout de requête Kademlia | 10 s |
+| Timeout de connexion inactive | 300 s |
+| Point d'accès métriques | 64 scrapes concurrents ; échéance de 5 s sur la lecture de l'en-tête |
+| Carnet d'adresses (RAM) | garde d'insertion à 2× le cap persisté (cap persisté : 2 000 entrées) |
 | Chaîne en RAM | genèse + fenêtre de sommet (historique servi depuis le store) |
 
 Règle anti-boucle (H2) : une transaction n'est re-diffusée que si elle

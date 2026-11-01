@@ -75,16 +75,18 @@ scone-core       ← Protokolltypen (hängt von scone-crypto ab)
 scone-protocol  ← Binärformat Wire/Blockchain
     ▲
 scone-blockchain← Blockchain-Logik, kanonischer Zustand (im Speicher)
-    ▲               └ scone-topology (reine Engine, null Netzwerk/FS/
-                     async; gespeist von scone-network) — scone-genesis
-                     (einmaliges Mainnet-Genesis-Werkzeug-Binary)
+    ▲
 scone-storage   ← lokale Persistenz: redb-Backend + verifizierte Snapshots
     ▲
 scone-network   ← p2p-Relay: libp2p/QUIC, Mempool, Sync, DHT, DNS
     ▲
-scone-keystore  ← verschlüsselte `.sconekey`-Schlüsseldateien (hängt von scone-crypto ab)
-    ▲
 scone           ← Binärdatei / Anwendung
+
+scone-keystore  ← verschlüsselte `.sconekey`-Schlüsseldateien (hängt
+                     nur von scone-crypto ab); genutzt von scone-network
+scone-topology  ← reine Mesh-Engine, null Netzwerk/FS/async; gespeist
+                     von scone-network, das ihre Entscheidungen anwendet
+scone-genesis   ← einmaliges Mainnet-Genesis-Werkzeug-Binary
 ```
 
 ### Entscheidung: `scone-core` hängt von `scone-crypto` ab
@@ -97,6 +99,9 @@ darf den Kern nicht kontaminieren. Lösung:
   Funktionen über Bytes (plus der OS-Zufallsgenerator für die
   Schlüsselerzeugung), null Core-Typen, keine Netzwerk-/Dateisystem-/async-Abhängigkeiten → keine Zirkularität möglich;
 - `scone-core` nutzt es ausschließlich für Hashing;
+- `scone-core` hängt außerdem direkt von `argon2` (Registrierungs-
+  PoW) und `idna` (internationalisierte Namen) ab — reine
+  Abhängigkeiten, die Schichtung bleibt gewahrt;
 - Ed25519-Signaturen und Schlüssel leben in `scone-crypto` und
   arbeiten auf Bytes (kanonische Nutzlasten, erzeugt von
   `scone-protocol`).
@@ -111,9 +116,9 @@ tokio/async, Netzwerk, Dateien, OS, DNS-Server, Blockchain-Logik.
 
 **scone-crypto** — kryptografische Primitive. Heute: `hash256`
 (BLAKE3), Ed25519-Signaturen und Schlüssel (`SigningKey`,
-`PublicKey`, `Signature`, strenge Stapelverifikation), AEAD-Hülle
-von Eintragsgruppen (XChaCha20-Poly1305). Geplant: Merkle-Baum.
-Regel: keine Eigenbau-Algorithmen, nur geprüfte Abhängigkeiten.
+`PublicKey`, `Signature`, strenge Stapelverifikation). Geplant:
+Merkle-Baum. Regel: keine Eigenbau-Algorithmen, nur geprüfte
+Abhängigkeiten.
 
 **scone-protocol** — Binärformat des Protokolls: kanonische
 Kodierung/Dekodierung (minimales LEB128-Varint, schlanke 32-Byte-Bezeichner)
@@ -151,7 +156,7 @@ Kademlia-DHT für `SignedDnsRecord`, UDP+TCP-DNS-Server (GeoDNS immer
 aktiv — eingebettete GeoIP-Tabelle, rekursiver Fallback), die
 Checkpoint-/Heartbeat-Schleife der Anker (die CLI spricht direktes
 p2p-QUIC mit dem Relay, kein lokales RPC mehr). Erreichbarkeit und
-Erkennung: AutoNAT v2 (Urteil erreichbar/NATed), Circuit-Relay v2 +
+Erkennung: AutoNAT v1 (Urteil erreichbar/NATed), Circuit-Relay v2 +
 DCUtR für NATed Knoten und UPnP (QUIC-Portfreigabe durch
 den Router, Opt-in). Konfiguration über eine `.env`-Datei (siehe `.env.example`).
 Referenz: `/docs/en/technical/relay.md`.
@@ -211,13 +216,17 @@ jüngste Blöcke H+1..H+k (Relay, steigende Höhe)
 synchronisiert — beim Boot wird NUR das Suffix über H abgespielt
 ```
 
-Zwei Knotenprofile:
+Knotenprofile (GEPLANT — ein solches Betreiber-Flag existiert heute
+nicht: jeder aktuelle Knoten behält alle Blöcke, und der oben
+beschriebene Opt-in-Snapshot-Import ist die einzige
+Aufbewahrungssteuerung):
 
-- **Archivknoten** (Betreiber-Flag): behält alle historischen Blöcke,
+- **Archivknoten** (geplant): behält alle historischen Blöcke,
   stellt sie dem Netzwerk bereit, startet über die bestehenden Pfade;
-- **Vollzustands-Knoten**: besitzt den vollständigen Zustand bei H und
-  das Suffix, aber nicht die Historie unter H — er validiert
-  zukünftige Blöcke und stellt Zustand bereit, keine Historie.
+- **Vollzustands-Knoten** (geplant): besitzt den vollständigen
+  Zustand bei H und das Suffix, aber nicht die Historie unter H —
+  er validiert zukünftige Blöcke und stellt Zustand bereit, keine
+  Historie.
 
 Dieser Pfad ist OPT-IN: der Import eines verifizierten Snapshots ist
 eine explizite Aktion des Betreibers (`import_verified_snapshot`),

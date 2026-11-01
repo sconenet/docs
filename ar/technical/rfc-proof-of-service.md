@@ -47,7 +47,8 @@ Heartbeat {
 الجسم الموقّع (wire، `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (يظهر مفتاح الموقّع في ذيل الجسم،
-كما في كل معاملة) `‖ signature[64]`، أي ~230 بايتًا مرمَّزة —
+كما في كل معاملة) `‖ signature[64]`، أي ~200–215 بايتًا
+مرمَّزة —
 **بلا PoW**: الكلفة هي الحضور المستمر (نبضة واحدة لكل epoch،
 لأشهر).
 
@@ -296,5 +297,5 @@ else :
 | 1 | core + protocol | `Heartbeat`، `SetTldOperator`، `SetDomainOperator`، wire، تحقق | منجز |
 | 2 | blockchain | نافذة منزلقة (مُسجَّلة)، مجموع مرشَّح، انتخاب، ~15 اختبارًا | منجز |
 | 3 | network | إصدار تلقائي، ترحيل المعاملات | منجز |
-| 4 | CLI | `tx build heartbeat`، عرض `fresh operators` في `scone status` | منجز |
+| 4 | CLI | الإصدار التلقائي من المُرحّل (§7)؛ عرض `fresh operators` في `scone status`؛ أُزيل بانِي النبضة دون اتصال (cli-simplify-v1) | منجز |
 | 5 | docs | تجميع هذا الـ RFC في صيغة معيارية، مرآة fr/en | منجز |

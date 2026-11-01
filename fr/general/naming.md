@@ -40,7 +40,8 @@ aux TLD plus courte.
   forme canonique A-label
 - limite codée : `TldName::MAX_LEN = 63` octets
 - valides : `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, un TLD
-  d'exactement 63 octets, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  d'exactement 63 octets, `éxemple` (→ `xn--exemple-2ua`, mappage
+  illustratif — non figé par un test), `例子`
   (→ `xn--fsqu00a`)
 - invalides : un TLD dont l'A-label dépasse 63 octets, `ABC`, `-ab`,
   `ab-`, chaîne vide
@@ -169,7 +170,8 @@ ce qui appartient à quelqu'un. Résumé normatif :
 ### TLD privé
 
 - **Naissance — PoW** : revendiqué par preuve de travail, difficulté
-  selon la longueur (mainnet : 1 caractère ≈ 34 j de calcul ;
+  selon la longueur (mainnet, sur la machine de référence à
+  8 cœurs : 1 caractère ≈ 34 j de calcul ;
   plancher ≈ 4,3 j à 10+ caractères). Le demandeur devient
   propriétaire et détient un **siège PoS** (pool d'éligibilité des
   validateurs — battements de cœur exigés pour rester frais,
@@ -212,7 +214,8 @@ ce qui appartient à quelqu'un. Résumé normatif :
 
 ### Domaine sous un TLD ouvert
 
-- **Naissance — PoW** (courbe réduite vs TLD : mainnet 1 caractère ≈
+- **Naissance — PoW** (courbe réduite vs TLD, sur la machine de
+  référence à 8 cœurs : mainnet 1 caractère ≈
   8,5 j, plancher ≈ une demi-journée).
 - **Renouvellement — PoW identique à la naissance** (même courbe de
   difficulté ; le défi est lié à l'expiration courante, donc

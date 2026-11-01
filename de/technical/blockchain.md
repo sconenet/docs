@@ -155,15 +155,15 @@ TLDs (jedes zusätzliche Zeichen teilt die Kosten durch ~1.22), und
 `log₂(1.40) ≈ 0.480` Bit/Zeichen für Domains — Domains zerfallen
 schneller: Ihr Wert steckt in der TLD, die sie trägt. Eine offen
 geborene TLD liegt beim privaten Apex − 1; eine Domain beim privaten
-Apex − 2 (Mainnet: private TLD 25, offene TLD 24, Domain 23).
+Apex − 2 (Mainnet: private TLD 28, offene TLD 27, Domain 26).
 Mainnet-Benchmarks (Memory-Hard-Argon2id, ~11.4 H/s Single-Thread):
-private TLD 1 Zeichen = 28 Bits ≈ 30 Tage, 9+ Zeichen = 25-Bit-Floor
+private TLD 1 Zeichen = 28 Bits ≈ 30 Tage, 10+ Zeichen = 25-Bit-Floor
 ≈ 3,8 Tage; offene TLD 1 Zeichen = 27 Bits ≈ 15 Tage; Domain
 1 Zeichen = 26 Bits ≈ 3,8 Tage, 9+ Zeichen = 22-Bit-Floor ≈ 11,5 h.
 **8-Kern-Referenzmaschine** (Rekalibrierung 2026-10 — die CLI mint
 Multi-Core), ~11.4 H/s/Kern. Das **Öffnen** einer bestehenden
 privaten TLD (`SetTldOpen`) bleibt auf flacher Schwierigkeit
-(`open_tld_pow_difficulty`: 6 Bits Testnet / 22 Bits Mainnet): die
+(`open_tld_pow_difficulty`: 6 Bits Testnet / 26 Bits Mainnet): die
 Tx trägt nur die `tld_id`, der Name hat seine Länge bei der
 Erstellung bezahlt. **Zwei weitere flache Beweise** vervollständigen
 die Familie (Konsens-Anti-Spam, dasselbe Epochensalz und Fenster wie
@@ -187,7 +187,7 @@ Uhr, kein Netzwerk):
 
 | Feld | Wert |
 |---|---|
-| `version` | `PROTOCOL_VERSION` (`1`) |
+| `version` | `PROTOCOL_VERSION` (`2`) |
 | `height` | `0` |
 | `prev_hash` | 32 Null-Bytes (kein vorheriger Block) |
 | `tx_root` | Merkle-Wurzel der leeren Liste |
@@ -255,12 +255,16 @@ schnellen lokalen Iteration:
 ## Kanonischer Zustand
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- Enum (Owner-Option): die Open/Private-Invariante ist
-               -- strukturell; die Todesfrist lebt außerhalb des Eintrags
-               -- (tld_floors-Tabelle + journlierte Todesplanung)
+               -- strukturell; die Laufzeit lebt IM Eintrag, nur der
+               -- abgeleitete Todesplan (Laufzeit + Karenz) lebt
+               -- außerhalb (tld_deaths/tld_floors + journlierte
+               -- Todesplanung)
 `mutations` ist der MONOTONE Mutationszähler des Namespace — die
 CAS-Anti-Replay-Generation seiner geschützten Operationen
 (`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
@@ -275,6 +279,21 @@ veraltete Generation gebaute Transaktion ist eine typisierte
 Zurückweisung (`StaleStateBinding`), die nichts mutiert. Vollständige
 Ableitung und Rational: `transactions.md`, „Der Mutationszähler";
 Sicherheitsanalyse: `security-model.md`.
+
+`record_delegates` (KSK/ZSK-lite): eine vom Eigentümer verwaltete
+Menge von höchstens `MAX_RECORD_DELEGATES` = 3 öffentlichen
+Schlüsseln, die `UpdateDomain` für DIESE Domain neben dem Eigentümer
+signieren dürfen (Eigenoperation stets gültig). Gepflegt durch
+`SetRecordDelegates` (0x66, nur durch den Eigentümer — Delegierte
+können die Menge nie bearbeiten, nicht einmal sich selbst
+hinzufügen oder aus ihr entfernen; CAS-gebunden an den
+Mutationszähler wie jede geschützte Operation, die sie
+inkrementiert); die Menge wird bei `TransferDomain` geleert (die
+Zone des neuen Eigentümers beginnt ohne fremde
+Operatorschlüssel) und stirbt mit der Domain — kein Ablauf, die
+Lebensdauer des Namens begrenzt jede Vergabe. Im Domain-Blatt
+committet (`SCONE-LEAF-DOM-V4`, Delegierten-Suffix nach dem
+Zähler).
 
 ChainState   = NetworkParams                  (gebundenes Netzwerk, M8b)
                + DomainId -> DomainState      (direkter Zugriff, im Speicher)
@@ -325,18 +344,26 @@ Mainnet-Knoten gepoolt, und umgekehrt).
   Namen), auf der **längenbasierten** Schwierigkeit des Labels
   (`pow_length`): private Geburt → `tld_difficulty`
   (Netzwerk-Apex), offene Geburt (`open = 0x01`) →
-  `open_tld_difficulty` (Apex − 2) — der Digest wird von Grund auf
+  `open_tld_difficulty` (Apex − 1) — der Digest wird von Grund auf
   neu berechnet (Salz `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖
   epoch`, Argon2id-Kern), die selbstdeklarierte Schwierigkeit muss
   der erwarteten gleichen, und die vom Proof **deklarierte Epoche**
-  muss `height/POW_WINDOW` des anwendenden Blocks gleichen
-  (Epochen-Salz gegen Pre-Mining — typisierte Zurückweisung
-  `ProofEpochMismatch`, siehe `transactions.md`);
-- bei Anwendung: `open = 0x01` → `{ Open }` (niemands —
-  Self-Service, PoS-Sitz freigegeben, Todes-Untergrenze gelegt bei
-  `now + Karenz`); `open = 0x00` → `{ Private { owner } }` —
-  **standardmäßig geschlossen** (nur assign); das Öffnen erfolgt
-  explizit über `SetTldOpen`.
+  muss im rückwärtigen Gültigkeitsfenster des anwendenden Blocks
+  liegen: ein Proof bleibt gültig, solange
+  `declared_epoch ≤ block_epoch < declared_epoch + W`, mit
+  `W = 1 << max(0, difficulty − 16)` Epochen (`POW_WINDOW_REF_BITS`
+  = 16 — strenge Einzel-Epochen-Gleichheit bei Schwierigkeit ≤ 16,
+  das Fenster verdoppelt sich pro zusätzlichem Bit darüber,
+  kalibriert auf die mittlere Mining-Zeit; nur rückwärtig: ein
+  Proof kann nie für die Zukunft gemint werden — Epochen-Salz
+  gegen Pre-Mining, typisierte Zurückweisung `ProofEpochMismatch`,
+  siehe `transactions.md`);
+- bei Anwendung: `open = 0x01` → `{ Open { until } }` (niemands —
+  Self-Service; der Schlüssel gewährt keine PoS-Sitz und nichts
+  wird gelernt; Todes-Untergrenze gelegt bei
+  `now + OPEN_TLD_FLOOR_SECS` — 1 Jahr); `open = 0x00` →
+  `{ Private { owner } }` — **standardmäßig geschlossen** (nur
+  assign); das Öffnen erfolgt explizit über `SetTldOpen`.
 
 **REGISTER (RegisterDomain)**:
 
@@ -364,7 +391,11 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
 **UPDATE (UpdateDomain)**:
 
 - die Domain muss existieren (nicht abgelaufen);
-- `tx.owner` muss der aktuelle Owner sein;
+- `tx.owner` muss der aktuelle Owner der Domain sein — und der
+  SIGNER darf der Owner ODER einer seiner Record-Delegierten sein
+  (`tx.owner` bleibt der Domain-Owner, auch wenn ein Delegierter
+  signiert; sonst `RecordSignerUnauthorized` — jede andere Variante
+  behält die strenge Owner↔Schlüssel-Ableitung);
 - `tx.sequence` muss **genau** `current_sequence + 1` sein (keine
   Lücken, kein Replay);
 - bei Anwendung: `sequence` rückt vor, `record_hash` wird ersetzt.
@@ -374,7 +405,13 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
 - die TLD muss existieren und **privat** sein (sonst `UnknownTld` /
   `TldIsOpen` — eine offene TLD gehört niemandem);
 - der Signer muss der aktuelle Owner sein (sonst `NotTldOwner`);
-- bei Anwendung: `owner = new_owner` (die Identität des Empfängers
+- **obligatorisches Abtretungs-PoW** (Anti-Churn, flach): die
+  Challenge ist an die AKTUELLE Zähler-Bindung des Namespace im
+  Zustand gebunden (`tld_binding(tld_id, valid_until, mutations)`)
+  und das Proof mint auf der flachen `transfer_pow_difficulty`
+  (dasselbe Epochen-Salz wie die Registrierungen);
+- bei Anwendung: `owner = new_owner` und der Mutationszähler wird
+  inkrementiert (+1) (die Identität des Empfängers
   ist opak; die Bindung an die Schlüssel, die sie ausgeben können,
   geschieht durch nachfolgende Txs). Keine Sequenz: die zuerst
   angewandte Übertragung gewinnt (Chain-Reihenfolge).
@@ -400,11 +437,12 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
 - **Öffnen = obligatorisches PoW**: `pow::verify` auf der Challenge
   `SCONE-TLD-OPEN-V1 || tld_id` auf der flachen
   `open_tld_pow_difficulty` des Netzwerks (6 Bits Testnet /
-  22 Bits Mainnet), Epochen-Salz eingeschlossen (das Proof reist im
+  26 Bits Mainnet), Epochen-Salz eingeschlossen (das Proof reist im
   signierten Feld `open_proof` der Tx);
 - bei Anwendung: `TldState::Open` — **der Owner wird gelöscht**
-  (unumkehrbar, PoS-Sitz freigegeben), eine Todes-Untergrenze wird
-  bei `now + Karenz` gelegt.
+  (unumkehrbar; der Sitz-Freigabe-Fall: die PoS-Sitz des früheren
+  Owners wird freigegeben), eine Todes-Untergrenze wird bei
+  `now + OPEN_TLD_FLOOR_SECS` (1 Jahr) gelegt.
 
 **ASSIGN_DOMAIN (0xD4)**:
 
@@ -412,15 +450,28 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
   (sonst `TldIsOpen`: eine offene TLD ist nur Self-Service), Signer =
   Eigentümer der TLD (`NotTldOwner`);
 - die Domain muss frei sein (gleiche Karenz-Regel wie REGISTER);
+- **obligatorisches PoW** (Anti-Spam, flach): das Proof mint die
+  Challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ kanonischer Name` auf der
+  flachen `assign_pow_difficulty` des Netzwerks (16 Bits Mainnet /
+  4 Bits Testnet / 1 Bit Devnet) — dasselbe Epochen-Salz und
+  Fenster wie die Registrierungen (flach per Entscheidung: die
+  Exklusivität des Namespace wurde bei der TLD-Erstellung bezahlt,
+  keine Doppelbesteuerung nach Länge);
 - bei Anwendung: `{ owner: assignee, sequence: 0, record_hash:
-  None, registered_at: now, valid_until: now + 1 Jahr }`. **Kein
-  PoW**: der Namespace-Eigentümer bürgt.
+  None, registered_at: now, valid_until: now + 1 Jahr }`.
 
 **TRANSFER_DOMAIN (0xE2, M8c)**:
 
 - die Domain muss existieren (sonst `UnknownDomain`), Signer =
   aktueller Owner (`NotOwner`);
-- bei Anwendung: `owner = new_owner` (der PoS-Sitz folgt der Domain
+- **obligatorisches Abtretungs-PoW** (Anti-Churn, flach): die
+  Challenge ist an die AKTUELLE Zähler-Bindung des Namespace im
+  Zustand gebunden (`domain_binding(domain_id, registered_at,
+  mutations)`) und das Proof mint auf der flachen
+  `transfer_pow_difficulty` (dasselbe Epochen-Salz wie die
+  Registrierungen);
+- bei Anwendung: `owner = new_owner` und der Mutationszähler wird
+  inkrementiert (+1) (der PoS-Sitz folgt der Domain
   in den Owner-Pool, symmetrisch zu `TransferTld`). Keine Sequenz:
   die zuerst angewandte Übertragung gewinnt (Chain-Reihenfolge).
 
@@ -433,8 +484,9 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
     den öffentlichen Schlüssel des Signers
     (`effective_operator(tld_owner) == renew.public_key` — die
     Delegation wird immer VOM TLD-Eigentümer gelesen, nie
-    umgekehrt). Das Feld `proof` muss leer sein (ein nicht-leeres
-    Proof = Zurückweisung).
+    umgekehrt). Das Feld `proof` muss leer sein oder exakt 20
+    Null-Bytes enthalten (jedes andere nicht-leere Proof =
+    Zurückweisung).
   - **offene TLD**: **PoW**-Autorisierung — der Signer ist der
     aktuelle Domain-Owner (sonst `NotOwner`), und das Proof mint
     die Verlängerungs-Challenge: gleiche Schwierigkeit wie die
@@ -452,6 +504,46 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
   schiebt auch die Todes-Untergrenze der zugrunde liegenden offenen
   TLD auf (die Tx trägt den kanonischen Namen zu diesem Zweck).
 
+**Pow-to-Owner-Familie (D2)**: `RegisterTldPow` (0x2A),
+`RenewTldPow` (0x57), `RegisterDomainPow` (0x84), `RenewDomainPow`
+(0xC3) tragen **keinen Signer und keine Signatur** — der geminte
+Proof IST die gesamte Autorisierung (nur strukturelle Validierung
+auf der Transaktionsebene; die Signaturverifikation wird
+übersprungen). Jede Challenge ist `tag ‖ name ‖ öffentlicher
+Schlüssel des Empfängers ‖ Länge ‖ Netzwerk-Id`
+(`pow_challenge_to`): ein Proof ist NUR durch den Schlüssel
+verwertbar, für den er bestimmt ist, und nur in seinem Netzwerk
+(kein Replay gestohlener Proofs, kein netzwerkübergreifendes
+Replay), und der Empfänger (`pubkey_dest`) ist ein Parameter, nie
+ein Signer. Regeln bei der Anwendung:
+
+- `RegisterTldPow`: spiegelt REGISTER_TLD (freier, nicht-ICANN-
+  Name; längenbasierte Schwierigkeit nach Geburtsart; `open`-Flag
+  und Lebens-Untergrenze der offenen Geburt), schreibt aber
+  `pubkey_dest` gut; der Schlüssel des Empfängers wird beim ersten
+  Auftauchen gelernt (private Geburt — PoS-Beteiligter);
+- `RenewTldPow` / `RenewDomainPow`: die Verlängerungs-Challenge
+  hängt das AKTUELLE Ablaufdatum an (Big-Endian, 8 B) — ein
+  geminter Proof bezahlt genau eine Laufzeit (Anti-Wiederverwendung)
+  — und ist an den aktuellen On-Chain-Owner GEBUNDEN: der Empfänger
+  muss ihm gleich sein (`NotTldOwner` / `NotOwner`), eine
+  Verlängerung kann nie den Besitzer wechseln; feste Laufzeit wie
+  bei den signierten Pfaden;
+- `RegisterDomainPow` / `RenewDomainPow`: **nur unter offenen TLDs**
+  (`TldClosed` unter einer privaten TLD — in einem privaten
+  Namespace ist die Erstellung eine Zuweisung und die Verlängerung
+  bleibt auf dem Owner-Signatur-Pfad).
+
+**Weitere Transaktionstypen**: `Slash` (0x15 — Äquivokations-Nachweis:
+der Schlüssel des Täters verlässt den Berechtigungs-Pool auf
+Lebenszeit; der Täter muss bei der Anwendung im lebenden Pool sein,
+idempotent, Domains/TLDs werden nicht beschlagnahmt), `Heartbeat`
+(0x71 — Anti-Replay pro Operator: strikt steigender Zeitstempel,
+ein Heartbeat pro Operator und Epoche), `SetTldOperator` (0xA9) /
+`SetDomainOperator` (0x5E — Operator-Delegation). Ihre vollständigen
+Anwendungsregeln sind in
+`/docs/en/technical/transactions.md` spezifiziert.
+
 **Deterministische GC (M8b)**: vor der Anwendung der Transaktionen
 eines Blocks wertet die Chain die Abläufe zum **Zeitstempel des
 Parent-Blocks** aus: jede Domain, deren `valid_until ≤ now`, wird aus
@@ -466,9 +558,15 @@ Uhr, unabhängig von den Domains.
 
 - **Private TLD**: der Claim eröffnet eine **3-Jahres-Laufzeit**
   (`TLD_TERM_SECS`). Die Verlängerung (`RenewTld`, 0x8F) bezahlt ein
-  **PoW gleich der Erstellung** und setzt exakt 3 Jahre zurück
-  (feste Laufzeit, bei Anwendung neu abgeleitet). Bei Ablauf öffnet
-  sich eine **60-Tage-Karenz** (`TLD_GRACE_SECS`): die Verlängerung
+  **PoW gleich der Erstellung** (Challenge = `tld_challenge(name) ‖
+  aktuelles Ablaufdatum`, Big-Endian 8 B — an die aktuelle Frist
+  gebunden, Anti-Wiederverwendung: ein geminter Proof bezahlt genau
+  eine Laufzeit) und setzt exakt 3 Jahre zurück (feste Laufzeit,
+  bei Anwendung neu abgeleitet); der Mutationszähler bleibt
+  erhalten. Die Verlängerung ist nur erlaubt, solange
+  `now ≤ valid_until + 60 d` (danach `TldExpiredFrozen`). Bei
+  Ablauf öffnet sich eine **60-Tage-Karenz**
+  (`TLD_GRACE_SECS`): die Verlängerung
   bleibt möglich, aber **jede andere Verwaltungsoperation ist
   eingefroren** — insbesondere `AssignDomain` (typisierte
   Zurückweisung `TldExpiredFrozen`): ein abgelaufener Eigentümer
@@ -554,6 +652,15 @@ bare Münze genommen:
 2. `height` == Spitzhöhe + 1;
 3. `version` == `PROTOCOL_VERSION` **exakt** (jede andere Version —
    niedriger oder höher — wird abgelehnt, nicht neu interpretiert);
+3bis. **Kettenzeit-Fenster**: der Zeitstempel des Parent-Blocks ist
+   die EINZIGE Zeitquelle der Chain (Ablauf-GC, `valid_until`-
+   Fristen) — der Block muss erfüllen `parent_time ≤ timestamp ≤
+   parent_time + MAX_TIMESTAMP_DRIFT_SECS` (10 Jahre; typisierter
+   Fehler `InvalidTimestamp`). Höhe 1, der Ursprung der Kettenzeit,
+   committet seinen Zeitstempel wie er ist, muss aber denselben
+   Headroom unter `u64::MAX` lassen, damit kein einzelner Block je
+   ein GC-Fenster eröffnen kann, das den gesamten Zeitraum
+   abdeckt;
 4. Transaktionszahl ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` über die Transaktionen in Blockreihenfolge neu
    berechnet;
@@ -574,12 +681,19 @@ bare Münze genommen:
    (`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`, begrenzt); die Signatur
    deckt den *Produzenten-Signatur-Hash* = den `BlockHash` des
    Headers **mit geleertem Feld `consensus`** (die Nutzlast lebt in
-   diesem Feld; den vollen Hash zu signieren wäre zirkulär); der
-   Produzent muss zur beim `timestamp` des Blocks autorisierten
-   Menge gehören (per Checkpoint gewähltes Komitee, plus
-   freigeschaltete Recovery-Ziehungen; Bootstrap: Eigentümer
-   lebender Domains — ein leerer Pool = offene Produktion, sonst
-   wäre die erste Registrierung unmöglich). Die Genesis (Höhe 0,
+   diesem Feld; den vollen Hash zu signieren wäre zirkulär); im
+   finalisierten Regime muss der Produzent zum GESAMTEN
+   EINGEFRORENEN POOL gehören (berechtigte Owners beim letzten
+   finalisierten Checkpoint — das gewählte Komitee plus
+   Recovery-Ziehungen sind nur die Signiermenge des Checkpoints,
+   nie ein Produktionsfilter); vor der ersten Finalität und unter
+   `BOOTSTRAP_OPEN_MAX_HEIGHT` (1000) wird die
+   Zugehörigkeitsprüfung ÜBERSPRUNGEN — jede gültige
+   Produzentensignatur produziert (das Bootstrap-Komitee ist noch
+   keine Konsens-Tatsache: zwei Ansichten mit derselben Spitze
+   würden unterschiedliche Mengen berechnen und die Chain
+   einfrieren); jenseits dieses Fensters ohne Finalität ist die
+   Validierung strikt gegen den lokalen Pool. Die Genesis (Höhe 0,
    leere Nutzlast) ist strukturell und nie betroffen. Typisierter
    Fehler `InvalidProducer`;
 7. für jede Transaktion, der Reihe nach: **kryptografische**
@@ -644,10 +758,12 @@ konkurrierende Blöcke aus:
   Tie-Break (kleinster Spitz-Hash in lexikografischer Ordnung —
   zwei Knoten mit denselben Blöcken wählen immer denselben
   Gewinner, getestet);
-- **Finalitätsuntergrenze**: ein Zweig, dessen einer Vorfahre einem
-  finalisierten Checkpoint widerspricht (enthalten im
-  `prev_checkpoint_hash` eines akzeptierten Checkpoints), wird
-  abgelehnt (typisierter Fehler
+- **Finalitätsuntergrenze**: ein Zweig wird abgelehnt, es sei
+  denn, er enthält an der exakten Höhe den Block JEDER
+  BEHALTENEN finalisierten Checkpoints (das Behalten-Fenster sind
+  die letzten `CHECKPOINT_KEEP` = 64 Checkpoints; ältere fallen
+  aus der Prüfung heraus — ihre Blöcke können das RAM-Fenster
+  verlassen haben) (typisierter Fehler
   `Consensus("branch contradicts a finalized checkpoint")`);
 - Adoption = Replay ab Genesis der Blöcke des gewinnenden Zweigs
   (bit-exakte Determinismus getestet: zwei Knoten, die dieselben
@@ -709,21 +825,25 @@ laden. Vier Bausteine:
 ### KV-Backend (`state_backend.rs`)
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
 - `Pkey` = die 32 rohen Bytes der `DomainId`/`TldId` — EIN
   geordneter Schlüsselraum (disjunkte Ableitungspräfixe), Werte =
-  die Kodierungen `SCONE-ENTRY-DOM-V1` (88 feste Bytes) /
-  `SCONE-ENTRY-TLD-V1` (variabel: 33 Bytes privat / 1 Byte offen,
-  Owner-Option-Enum — Flag + bedingter Owner, kein Feld `until`
-  mehr);
+  die Kodierungen `SCONE-ENTRY-DOM-V1` (96-Byte-Basis: owner 32 ‖
+  sequence 8 ‖ record_hash 32 ‖ registered_at 8 ‖ valid_until 8 ‖
+  mutations 8, plus optionales Record-Delegierten-Suffix — Anzahl
+  1 B + n×32 B Schlüssel, strikt aufsteigend, n ≤ 3) /
+  `SCONE-ENTRY-TLD-V1` (49 B privat: Flag ‖ owner ‖ valid_until BE
+  ‖ mutations BE / 9 B offen: Flag ‖ until BE — Owner-Option-Enum);
 - `MemoryBackend` (BTreeMap) = Referenzimplementierung (Dev,
   Tests); KEINE konkrete Abhängigkeit in `scone-blockchain` (redb
   im Crate verboten) — Protokoll/Konsens hängen allein vom TRAIT
@@ -856,7 +976,9 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 - `pool` = `eligible_validators(Zeitstempel des finalisierten
   Blocks)` — die Finalität liest NIE wieder den lebenden Zustand:
   jede Registrierung (Claim, Transfer, Bann) nach dem Checkpoint
-  zählt nur für spätere Epochen;
+  zählt nur für spätere Epochen; ein HINTER der Spitze akzeptierter
+  Checkpoint friert seinen Pool über ein Sandbox-Replay auf die
+  eigene Höhe des Checkpoints ein (`pool_at_height`);
 - `seed` = `next_seed(signing_hash(checkpoint))` — der Samen der
   NÄCHSTEN Epoche leitet sich vom **Inhalts**-Hash des Checkpoints
   ab (keyed, Signaturmenge ausgeschlossen — zwei Sichten mit
@@ -967,7 +1089,10 @@ festem Samen byte für byte reproduzierbar ist.
   Peers (gleiche Partition) nur beim ersten Anblick — Relay-Regel
   H2 (schneidet Schleifen). Ein geparkter (Waisen-)Block wird NIE
   neu gesendet; Empfangslücken werden durch den
-  Synchronisierungspfad (`GetBlocks`) gefüllt, wie im Relay.
+  Synchronisierungspfad (`GetBlocks`) gefüllt — wie im Relay, das
+  jetzt ZUSÄTZLICH einen sofortigen rückwärtigen Pull auslöst,
+  wenn ein Block auf `UnknownParent` parkt; das Sim hat einen
+  solchen waisen-ausgelösten Pull nicht.
 - **Produktion**: ein globaler Produktionsschritt pro Intervall;
   jede Partitiongruppe produziert höchstens EINEN Block pro Runde,
   durch ihren autorisierten Knoten mit der besten Höhe. Während des
@@ -1004,7 +1129,7 @@ festem Samen byte für byte reproduzierbar ist.
 
 | Test | Was bewiesen wird |
 |---|---|
-| `convergence_simple` | 8 Knoten, 5 ‰ Verlust, Latenz 1–5 Ticks, 500 Blöcke: dieselbe Spitze, derselbe `state_root_smt` überall; aktive Finalität; nie zwei inkompatible Checkpoints pro Epoche. |
+| `convergence_simple` | 8 Knoten, 5 % Verlust, Latenz 1–5 Ticks, 500 Blöcke: dieselbe Spitze, derselbe `state_root_smt` überall; aktive Finalität; nie zwei inkompatible Checkpoints pro Epoche. |
 | `partition_then_heal` | Partition 4a/4b für ~300 Blöcke: beide Seiten produzieren, Heilung → Konvergenz mit Reorg des verlierenden Zweigs; gekreuzte Checkpoint-Fenster widersprechen nie einer geteilten Epoche (vor und nach der Heilung). |
 | `crash_restart` | Absturz bei h≈200, Neustart bei h≈400: Resynchronisation durch Abspielen der Netzwerk-Blöcke — dieselbe Höhe, Spitze, Zustand; die Transaktion nach dem Absturz ist für den auferstandenen Knoten sichtbar. |
 | `duplicate_and_delay` | 10 ‰ Duplikation: Endhöhe, Zustandswurzel und Anzahl finalisierter Checkpoints identisch zum Lauf ohne Duplikation (Idempotenz: TxReplay/Seen-Sets absorbieren Duplikate). |
@@ -1018,7 +1143,8 @@ Tests gesenkt), `Horizont` 200k–500k virtuelle Ticks. Jeder Test
 bettenet einen Wanduhr-Wächter < 60 s im Debug-Modus ein
 (`assert_under_60s`). Die dominierenden Kosten sind der
 Validierungskern (~9 ms pro leerem `push_block_with_gc` im Debug,
-Ed25519 unoptimiert): Szenarien bleiben unter ~8 Knoten × 500
+Ed25519 unoptimiert, auf der 8-Kern-Referenzmaschine): Szenarien
+bleiben unter ~8 Knoten × 500
 Blöcke.
 
 ### Grenzen

@@ -36,12 +36,22 @@ relay M4):
   **mantenido** (`meta["domain_count"]`), nunca un `COUNT(*)`;
 - `iterate_domains(after, max) -> DomainPage` — paginación por
   cursor (lotes de 100 por defecto), orden ascendente de bytes del
-  `DomainId`;
+  `DomainId`; un cursor `None` significa que el paseo está
+  completo (agotamiento natural de la tabla);
 - `put_tld_state` / `tld_state` / `tld_count` / `iterate_tlds` —
   mismos contratos para el registro de TLDs (`tld_count` mantenido,
   cursor acotado) (M7d);
+- `put_states(...)` — reescritura atómica de las tablas de estado
+  vivo: upserts Y eliminaciones de dominios/TLDs + contadores
+  mantenidos, en UNA transacción (único llamante: la persistencia
+  de reorg);
+- `put_owner_keys` / `clear_owner_keys` / `iterate_owner_keys` —
+  el mapa propietario→clave aprendido (resolución del pool PoS),
+  persistido en la tabla `owner_keys`;
 - `put_dht_cache` / `dht_cache` — bytes opacos de
   `SignedDnsRecord`;
+- `dht_cache_page(after, max)` — paseo paginado de la caché DHT en
+  orden ascendente de `DomainId` (cursor `None` = paseo completo);
 - `resolve_name(canonical)` / `resolve_tld(tld)` — índice
   persistente Nombre→Id (P0.2), búsqueda puntual O(1), sin iteración
   sobre dominios (por defecto `None` = backend sin índice, el
@@ -79,6 +89,7 @@ Reglas:
 | `domains` | `DomainId` (32 B, orden de bytes) | `DomainStateBytes` (abajo) |
 | `tlds` | `TldId` (32 B, orden de bytes) | `TldStateBytes` (abajo, M7d) |
 | `dht_cache` | `DomainId` (32 B) | bytes de `SignedDnsRecord` (opaco) |
+| `owner_keys` (pool PoS) | id de propietario (32 B, orden de bytes) | clave pública Ed25519 (32 B) — el mapa propietario→clave aprendido, espejado tras cada bloque |
 | `names_v3` (P0.2) | clave de índice (32 B, orden de bytes) | id destino (32 B) |
 | `name_reverse_v3` (P0.2) | id destino (32 B, orden de bytes) | `tag(1) ‖ nombre canónico` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -103,6 +114,7 @@ Claves de `meta`:
 | `tip_height` | `u64 BE` (hace `tip()` O(1)) |
 | `domain_count` | `u64 BE` (contador mantenido) |
 | `tld_count` | `u64 BE` (contador mantenido, M7d) |
+| `finality_v1` (PoS) | blob: `varint(window.len) ‖ checkpoints de la ventana ‖ checkpoint base ‖ varint(pool.len) ‖ claves del pool (32 B cada una, ordenadas, deduplicadas) ‖ seed(32) ‖ block_ts(8 BE)` — la finalidad persistida (ventana de checkpoints + base congelada), escrita por el bucle anchor del relay, restaurada en cada `load_chain` (emparejamiento ventana↔base + comprobaciones de curva en carga); ausente en los stores anteriores al 2026-10-21 (finalidad reconstruida desde cero); no está en la lista reservada de `meta_set` (escrita solo por la propia ruta de persistencia del nodo) |
 
 La cabecera `hash ‖ height` de `blocks_by_height` hace cada índice
 autocontenido (verificable sin leer el bloque); ambos índices se
@@ -118,16 +130,27 @@ del génesis siempre se re-deriva
 
 ## Formato de codificación `DomainStateBytes` (M8b)
 
-65 o 97 bytes según la etiqueta de versión inicial, enteros
+Una base de 97 o 65 bytes más un sufijo opcional de delegados de
+records (65 a 194 bytes en total), enteros
 big-endian de ancho fijo (canónico, comparable byte a byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash presente → exactamente 97 bytes
-tag = 0x02 : record_hash ausente  → exactamente 65 bytes
+tag = 0x01 : record_hash presente → base 97 bytes
+tag = 0x02 : record_hash ausente  → base 65 bytes
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); las claves son
+                 estrictamente ascendentes (el orden canónico del
+                 `BTreeSet`). Un conjunto vacío omite
+                 enteramente el sufijo — la base es entonces
+                 byte-idéntica al formato pre-delegación.
 ```
+
+El sobre de longitud es de 65..=194 bytes (base de 97 bytes + byte
+de count + 3 × claves de 32 bytes = 194 como máximo).
 
 - `registered_at` / `valid_until` (M8b): la expiración del registro
   (1 año en la reclamación, renovable, ver
@@ -147,10 +170,16 @@ Las codificaciones M7 (41/73 bytes, sin expiración) son
   justo tras un `RegisterDomain`);
 - `record_hash`: el compromiso on-chain actual del conjunto de
   registros DNS (`None` mientras no se haya aplicado ningún
-  `UpdateDomain`).
+  `UpdateDomain`);
+- `record_delegates`: las claves delegadas gestionadas por el
+  propietario autorizadas a firmar `UpdateDomain` (como mucho 3;
+  reglas de aplicación en
+  `transactions.md`).
 
 Decodificación **estricta** (`DomainStateBytes::decode`): etiqueta
-desconocida, longitud errónea o bytes sobrantes →
+desconocida, longitud errónea, bytes sobrantes, un delegate count
+superior a 3, claves delegadas no estrictamente ascendentes, o una
+clave delegada que no sea un punto de curva Ed25519 →
 `StorageError::Corrupted`, nunca un panic.
 
 ## Formato de codificación `TldStateBytes` (opción del propietario)
@@ -190,8 +219,9 @@ La etiqueta existe solo para la evolución del formato: un layout
 futuro sube la etiqueta y los lectores antiguos fallan con
 `Corrupted` en lugar de adivinar. Decodificación **estricta**
 (`TldStateBytes::decode`): etiqueta desconocida, longitud errónea,
-bytes sobrantes o flag no canónico → `StorageError::Corrupted`,
-nunca un panic.
+bytes sobrantes, un flag no canónico, o una entrada abierta cuyo
+`until` es cero (la firma de corrupción del codificador legado) →
+`StorageError::Corrupted`, nunca un panic.
 
 ## Garantías de atomicidad
 
@@ -216,10 +246,13 @@ nunca un panic.
    (`removed_tlds`) salen del almacén en la misma transacción,
    contadores decrementados — un reinicio nunca puede resucitar un
    registro caducado;
-8. los deltas del **índice de nombres** de P0.2 (upserts y
+8. cada upsert de piso de vida de TLD **y** los pisos de los TLDs
+   eliminados (`tld_floors_v1`, portados por `StateDelta.tld_floors`) —
+   el plan de muerte del GC sobrevive al reinicio;
+9. los deltas del **índice de nombres** de P0.2 (upserts y
    eliminaciones, ver abajo) — mismas garantías: una caída nunca
    deja una entrada de índice apuntando a un dominio ausente;
-9. `tip` y `tip_height`.
+10. `tip` y `tip_height`.
 
 redb hace commit estilo WAL: una caída a mitad de escritura deja el
 estado coherente **anterior**. **Un bloque escrito sin su estado
@@ -255,7 +288,8 @@ posible y sirve de ruta de control/reparación.
   canónicamente, lee del estado RAM el estado final de los dominios
   tocados Y los TLDs reclamados (ya actualizado por `push_block`),
   append atómico.
-- `load_chain(store)`: **sin replay** — lee tip + bloque tip
+- `load_chain(store, network)` (`NetworkParams`): **sin replay** —
+  lee tip + bloque tip
   (lecturas de bloque O(1)), restaura el estado de dominios en
   páginas de 100 (`DOMAIN_PAGE`) **y el registro de TLDs en páginas
   de 100** (`TLD_PAGE`, M7d — cerrando la ventana de reinicio: sin
@@ -263,7 +297,10 @@ posible y sirve de ruta de control/reparación.
   todo `RegisterDomain` bajo ese TLD con `UnknownTld`, aunque su
   disco contuviera el estado completo). La cadena RAM solo conserva
   génesis + tip; los bloques históricos quedan en el almacén y se
-  sirven desde él. Desde M8, `load_chain` reconstruye luego el
+  sirven desde él. Un store VACÍO arranca el génesis de la red
+  pedida; un store que contiene la cadena de OTRA red falla —
+  `Corrupted` en la ruta de estado completo, `Unusable` (→ replay)
+  en la ruta snapshot. Desde M8, `load_chain` reconstruye luego el
   **índice anti-replay TXID** (ver abajo).
 - `load_chain_replay(store)`: reproduce todos los bloques
   almacenados uno a uno (nunca todos en RAM) con validación
@@ -281,7 +318,8 @@ posible y sirve de ruta de control/reparación.
 - `touched_domains(block)`: ids de los dominios modificados por las
   transacciones del bloque, deduplicados, orden del bloque.
 - `touched_tlds(block)`: ids de los TLDs mutados por el bloque
-  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`),
+  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`,
+  `RegisterTldPow`),
   deduplicados, orden del bloque (M8b).
 - `store_block_with_removals(...)`: variante de `store_block` que
   recibe también los dominios eliminados por el GC del bloque (M8b)
@@ -307,12 +345,22 @@ minoría-pegajosa, relay + almacén):
 
 1. `rewind_to_height(fork_height)` — UNA transacción redb elimina
    los bloques por encima del punto de bifurcación y devuelve
-   `tip`/`tip_height` (el índice de nombres y los estados vivos se
-   corrigen en el paso siguiente);
+   `tip`/`tip_height` (las tablas de estado vivo se corrigen en el
+   paso siguiente);
 2. `persist_state_snapshot(store, chain)` — reescribe las tablas
-   vivas (`domains`, `tlds`, índice de nombres, pisos de TLD) desde
-   la exportación del estado RAM post-reorg: las tablas vivas
-   NUNCA describen la rama PERDEDORA al arrancar;
+   vivas `domains`/`tlds` (+ sus contadores mantenidos, vía
+   `NodeStore::put_states`, una transacción atómica) desde la
+   exportación del estado RAM post-reorg, luego reescribe las
+   claves de propietario aprendidas (clear-then-write — un
+   rollback des-aprende claves, así que solo upserts mantendría
+   los fantasmas de la rama perdedora). El índice de nombres
+   (`names_v3`/`name_reverse_v3`) y los pisos vivos de TLD
+   (`tld_floors_v1`) NO son reescritos por este paso. **Limitación
+   conocida (seguimiento de código pendiente)**: tras un reorg,
+   entradas fantasma del índice de nombres y filas de pisos
+   obsoletas de la rama perdedora pueden persistir hasta que los
+   propios deltas del sufijo re-añadido las sobreescriban o se
+   ejecute una reconstrucción (`rebuild_name_index`, replay);
 3. re-append monótono del sufijo adoptado (deltas ordinarios).
 
 Un fallo de persistencia en esta ruta se registra y se degrada (el
@@ -341,7 +389,8 @@ solo el sufijo por encima del snapshot.
   de escribirse. Una caída justo después nunca puede dejar un
   snapshot «por encima» de la cadena persistida.
 - **Atómico**: la congelación (vaciado + copia de las tablas
-  `domains`/`tlds` a `snapshot_v1_*`, escritura de
+  `domains`/`tlds` a `snapshot_v1_*`, de los `tld_floors_v1` vivos
+  a `snapshot_v1_floors`, y escritura de
   `snapshot_v1_meta`) ocurre en la MISMA transacción redb que el
   append del bloque disparador — una caída deja o el snapshot
   antiguo intacto, o el nuevo completo con su bloque (WAL de redb).
@@ -363,14 +412,22 @@ solo el sufijo por encima del snapshot.
    almacenado en `H` iguala el `tip_hash` del snapshot (**ancla**
    — un snapshot ajeno a la cadena persistida, alterado o de otro
    archivo se detecta aquí), el estado congelado se restaura en
-   páginas de 100 y luego solo los bloques `H+1..=tip` se
+   páginas de 100 — junto con las claves de propietario
+   persistidas (una clave inválida → `Unusable`) y los pisos
+   congelados (`snapshot_v1_floors`; cada `restore_tld_floor`
+   re-encola la muerte del TLD abierto) — luego solo los bloques
+   `H+1..=tip` se
    reproducen (validación completa, idéntica a los bloques vivos).
 3. El tip alcanzado por el replay debe igualar el tip almacenado.
-4. **Cualquier fallo en esta ruta (snapshot ausente, altura
-   inutilizable, ancla inválida, bytes no decodificables, replay
-   fallido) degrada silenciosamente a la carga completa pre-M6b**
-   (leyendo las tablas vivas, sin replay) — un snapshot malo nunca
-   hace fallar el arranque. La compatibilidad hacia atrás es el
+4. **Un snapshot presente pero inutilizable (ancla inválida,
+   entrada congelada no decodificable, replay del sufijo fallido,
+   altura por encima del tip) nunca hace fallar el arranque: el
+   motivo se registra como advertencia y la carga cae al replay
+   completo de cero-confianza (`load_chain_replay`)** — el log de
+   bloques es la autoridad. Solo una fila `snapshot_v1_meta`
+   ILEGIBLE (error del backend) degrada a la carga de estado
+   completo simple. La caída nunca es silenciosa.
+   La compatibilidad hacia atrás es el
    caso particular «sin snapshot»: un almacén escrito antes de M6b
    (sin las tablas `snapshot_v1_*`) carga idénticamente, siendo
    `snapshot_meta()` `None`.
@@ -412,7 +469,7 @@ Propiedades:
 - **El snapshot NO congela el índice**: el replay del sufijo del
   snapshot reconstruye las entradas por encima de H, el
   re-escaneo M8 añade la parte de la ventana POR DEBAJO de H
-  (mismo contrato que owner_keys/grace: reconstruido, nunca
+  (mismo contrato que las ventanas de gracia: reconstruido, nunca
   persistido).
 - **Coste**: ≤ 256 lecturas puntuales de bloque al arrancar,
   O(ventana) — independiente de la edad de la cadena.
@@ -518,10 +575,14 @@ herramienta de reparación, no una ruta de arranque.
 ### Lo que el snapshot NO compromete
 
 El estado RAM `ChainState` lleva estructuras internas no
-comprometidas por consenso (claves de propietarios, ventanas de
-gracia). NO se congelan: el replay del sufijo las reconstruye
+comprometidas por consenso. Las ventanas de gracia NO se congelan
+y nunca se persisten: el replay del sufijo las reconstruye
 aplicando las transacciones (determinista, mismo contenido que el
-replay completo para la ventana pertinente). El índice anti-replay
+replay completo para la ventana pertinente). Las claves de
+propietario SÍ se persisten — espejadas en la tabla viva
+`owner_keys` tras cada bloque (`put_owner_keys`) y restauradas
+por ambas rutas de arranque — pero el snapshot tampoco las embebe:
+la restauración lee la tabla persistida. El índice anti-replay
 TXID sigue el mismo contrato (M8, ver la sección anterior):
 reconstruido al arrancar, nunca congelado. La igualdad bit-exacta
 con `load_chain_replay` la verifica un test sobre el estado canónico
@@ -554,11 +615,17 @@ verifica la adherencia snapshot ↔ checkpoint por RECOMPUTACIÓN:
 3. **raíz SMT recomputada desde las entradas importadas ==
    `checkpoint.data.state_root`** — LA comprobación criptográfica:
    el estado entero (dominios + TLDs) se re-pliega en un SMT fresco
-   (`snapshot_verify::recompute_state_root`, hojas
-   `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1` exactamente como la ruta
-   viva) y la raíz debe igualar la que firmó el comité. Un
-   snapshot falsificado, truncado o incompleto se rechaza ANTES DE
-   CUALQUIER ESCRITURA;
+   (`snapshot_verify::recompute_state_root`) y la raíz debe igualar
+   la que firmó el comité. Las hojas son exactamente las de la ruta
+   viva (`finality.rs`): `SCONE-LEAF-DOM-V4` = tag ‖ id ‖ owner ‖
+   sequence(8 BE) ‖ registered_at(8 BE) ‖ valid_until(8 BE) ‖
+   mutations(8 BE) ‖ record_hash-o-cero(32) ‖ delegate count(1) ‖
+   claves delegadas ordenadas, y `SCONE-LEAF-TLD-V4` = tag ‖ id ‖
+   owner (ceros para un TLD abierto) ‖ until(8 BE) ‖ byte de
+   variante (0x01 privativo — seguido de mutations(8 BE) — o 0x00
+   abierto), luego `state_root = blake3("SCONE-STATE-SMT-V1" ‖
+   smt_root)`. Un snapshot falsificado, truncado o incompleto se
+   rechaza ANTES DE CUALQUIER ESCRITURA;
 4. **coherencias estructurales**: `height`/`tip_hash`/`state_root`
    del manifiesto == los del checkpoint; ids estrictamente
    crecientes (sin duplicados); índices de página secuenciales;
@@ -583,12 +650,19 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 dominio | 0x02 TLD | 0x03 piso de TLD) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B o TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — el sobre completo
+           consciente de los delegados) o TldStateBytes 10/50 B —
            los formatos canónicos de almacenamiento existentes,
            reutilizados; el kind 0x03 (piso de vida de un TLD
            abierto, opción del propietario) tiene un formato dedicado
            SIN prefijo de longitud: id(32) ‖ floor(8 BE), tamaño fijo)
 ```
+
+Derivaciones de hash: hash de página =
+`blake3("SCONE-SNAP-PAGE-HASH" ‖
+codificación completa de la página)`; hash del manifiesto (portado
+por el marcador P0.4) = `blake3("SCONE-SNAP-MAN-HASH" ‖
+codificación completa del manifiesto)`.
 
 Orden de páginas: todas las entradas de dominio (ids crecientes),
 luego todas las de TLD (ids crecientes), luego los pisos de vida
@@ -626,7 +700,10 @@ explícita: esperar el próximo intervalo/checkpoint).
 Verifica todo (ver arriba), luego escribe en UNA transacción redb:
 tablas vivas `domains`/`tlds` + contadores + `tip = (H, hash del
 checkpoint)`, tablas congeladas `snapshot_v1_*` ancladas al mismo
-bloque, y el marcador reservado
+bloque, los pisos de vida de los TLDs — escritos TANTO en la tabla
+viva `tld_floors_v1` COMO en la congelada `snapshot_v1_floors` (el
+arranque re-programa las muertes de los TLDs abiertos) — y el
+marcador reservado
 `meta["verified_snapshot_v1"]` (`height ‖ tip_hash ‖
 manifest_hash`). Destino: solo un almacén vacío (si no
 `SnapshotUnavailable`).
@@ -734,7 +811,10 @@ hacerle asignar:
   caso hostil; cada entrada ya está acotada a 64 KiB por
   `MAX_DHT_CACHE_ENTRY`), la cota que se alcance primero desaloja
   por orden de clave. Los contadores (entradas + bytes) se
-  mantienen en escritura — nunca un barrido para contar; la
+  mantienen en escritura — nunca un barrido para contar; el
+  desalojo GC de las filas DHT de un dominio muerto NO los
+  decrementa (sobreconteo conservador: la caché se desaloja un
+  poco antes); la
   reconstrucción exacta ocurre solo al abrir (el único barrido
   completo, al arrancar). Accesores
   `dht_cache_entries`/`dht_cache_bytes`, cotas ajustables vía
@@ -771,8 +851,8 @@ de un backup dudoso) debe arrancar vía `load_chain_replay`, no
 ## Concurrencia
 
 redb 4.x permite **un solo objeto `Database` por archivo y por
-proceso** (el doble `open` simultáneo falla con
-`DatabaseAlreadyOpen`). El modelo soportado: un `RedbStore` clonado
+proceso** (un doble `open` simultáneo se manifiesta como
+`StorageError::Database("…already open…")`). El modelo soportado: un `RedbStore` clonado
 (`Arc<Database>`) compartido entre hilos — escritores serializados
 por `&mut self` + el bloqueo interno de redb, lectores concurrentes
 (transacciones de lectura snapshot). Tras soltar todos los
@@ -803,8 +883,9 @@ Cada test usa su propio tmpfile redb (`tempfile`). Cobertura:
   del tip; arranque desde snapshot = replay completo bit-exacto
   (state_root + SMT, estado lógico completo, tip); snapshot
   alterado (tip_hash corrupto, estado no decodificable, altura >
-  tip, meta de longitud errónea) → fallback silencioso a la carga
-  completa, misma cadena final; sufijo reproducido < intervalo;
+  tip, meta de longitud errónea) → fallback registrado al replay
+  de cero-confianza
+  (`load_chain_replay`), misma cadena final; sufijo reproducido < intervalo;
   sustitución del snapshot (sin acumulación) al cruzar el
   intervalo; almacén pre-M6b sin tablas de snapshot carga
   idénticamente;

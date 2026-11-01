@@ -15,8 +15,7 @@
 ## نظرة عامة
 
 - **KDF**: Argon2id (v0x13)، المعاملات الافتراضية `m_cost`
-  = 64 MiB، `t_cost` = 3، `p_cost` = 1 (افتراضيات الـ crate
-  `argon2`).
+  = 64 MiB، `t_cost` = 3، `p_cost` = 1 (افتراضيات scone-keystore).
 - **التشفير**: XChaCha20-Poly1305 (AEAD)، مفتاح من 32 بايت
   مشتق من الـ KDF، وnonce عشوائي من 24 بايت لكل ملف.
 - **المحتوى المشفّر**: بذرة Ed25519 بالضبط (32 بايت)؛ ووسم
@@ -95,24 +94,32 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-لا بيانات مرتبطة (AAD) في v1. الـ nonce من 24 بايت، عشوائي لكل
+لا بيانات مرتبطة (AAD) في أي من الإصدارين. الـ nonce من 24 بايت،
+عشوائي لكل
 ملف، يجعل خطر إعادة استخدام الـ nonce مهملًا (ملفات المفاتيح
 تُكتب مرة واحدة فقط).
 
-## واجهة API (`scone-keystore`)
+## واجهة API (`scone-keystore`) — الدوال الأساسية
 
 | الدالة | الدور |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | يولّد مفتاحًا، ويكتب ملف المفاتيح المشفّر (ينشئ الأدلة الأصل)؛ **يرفض الكتابة فوق** ملف قائم (`Error::KeyfileExists`)؛ يعيد المفتاح في الذاكرة |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | نفسه، لكن يستبدل صراحةً ملف مفاتيح قائمًا |
 | `open(path, passphrase) -> SigningKey` | يفك التشفير ويعيد مفتاح التوقيع |
-| `list(dir) -> Vec<KeyEntry>` | يعدّد ملفات `*.sconekey` في دليل (مرتّبة بالاسم)؛ دليل غائب = قائمة فارغة |
+| `list(dir) -> Vec<KeyEntry>` | يعدّد ملفات `*.sconekey` في دليل (مطابقة اللاحقة غير حساسة لحالة الأحرف، مرتّبة بالاسم)؛ دليل غائب = قائمة فارغة |
+
+متغايرات العبارة/التسمية (`create_labeled`،
+`create_overwriting_labeled`، `create_with_phrase`،
+`create_with_phrase_overwriting`، `restore_from_phrase`) تغلّف
+نفس الإحكام مع تسمية عامة أو عبارة BIP39 يقدّمها المستدعي؛
+وهي خارج الجدول الأساسي أعلاه.
 
 يُصفَّر `GeneratedKey.signing_key` بالأصفار عند الإفلات من قبل
-`ed25519-dalek` (ميزة `zeroize` الافتراضية). مفتاح AEAD المشتق،
-والبذرة، والنص الواضح المفكوك مغلفة في `zeroize::Zeroizing`:
-يغطي الإفلات كل مسارات الخروج، بما فيها الأخطاء المُمرَّرة
-بـ `?`.
+`ed25519-dalek` (ميزة `zeroize` الافتراضية). مفتاح AEAD المشتق
+والنص الواضح المفكوك مغلفان في `zeroize::Zeroizing` — يغطي
+الإفلات كل مسارات الخروج، بما فيها الأخطاء المُمرَّرة بـ `?`.
+على مسار الإحكام تكون نسخة البذرة عابرة: مصفوفة عادية على
+المكدس تخرج من النطاق في نهاية نداء الإحكام.
 
 ## صلاحيات الملف
 
@@ -126,6 +133,7 @@ ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -143,11 +151,13 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   وحدها تعيد توليد نفس المفتاح (`scone identity restore`)؛
   ولا تُخزَّن في أي مكان أبدًا.
 - تقرأ `identity restore` العبارة **أبدًا كوسيط عملية**
-  (ظاهرة عبر `ps` وسجل الأوامر): موجه إدخال مخفي، أو
+  (ظاهرة عبر `ps` وسجل الأوامر): موجه إدخال مقنَّع، أو
   `--phrase-file <ملف>` أو `--phrase-env <VAR>`. **ترفض
   افتراضيًا** الكتابة فوق ملف مفاتيح قائم (`--force` يستبدله
-  صراحةً)؛ عبارة مرور anchor المولدة تُكتب بـ `0600` ويُبلَّغ عن
-  فشل كتابتها، ولا يُبتلع أبدًا.
+  صراحةً).
+- هوية anchor التلقائية للمُرحّل (ليست `identity restore`):
+  عبارة مرور anchor المولدة تلقائيًا تُكتب بـ `0600` ويُبلَّغ
+  عن فشل كتابتها، ولا يُبتلع أبدًا.
 - **يرفض** `identity generate` الكتابة فوق ملف مفاتيح قائم؛
   و`--force` يستبدله صراحةً (salt/nonce جديد، مفتاح جديد،
   عبارة جديدة).

@@ -7,9 +7,9 @@
 (الترميز) و[`scone-blockchain`](../../../crates/scone-blockchain)
 (التحقق).
 
-`PROTOCOL_VERSION` = **1**. توجد مجموعة صيغ واحدة فقط: أي بايت
-إصدار غير `0x01` (في معاملة) أو مختلف عن الإصدار المحلي (في
-كتلة) يُرفض بـ `UnsupportedVersion`.
+`PROTOCOL_VERSION` = **2**. توجد مجموعة صيغ واحدة فقط: بايت
+`version` معاملة غير `0x01` يُرفض بـ `UnsupportedVersion`؛ و`version`
+كتلة مختلف عن `PROTOCOL_VERSION` (`2`) يُرفض، لا يُعاد تفسيره.
 
 ## نظرة عامة
 
@@ -76,12 +76,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- يفحص `validate()` البنية: نفس الـ epoch، `signing_hash`
+- يفحص `validate()` البنية: نفس الـ epoch **ونفس**
+  `prev_checkpoint_hash` (سياق التعارض)، `signing_hash`
   مختلفان، توقيعان مختلفان، توقيع المُبلِّغ فوق الحمولة
   القانونية؛
 - قواعد الحالة (مُسجَّلة، قابلة للعكس عند إعادة التنظيم):
-  يجب أن يُتحقق من توقيعَي المتهم ضد الـ signing hash المختلفين
-  عند نفس الـ epoch؛ ويجب أن يكون المتهم في المجموع المؤهل
+  نقطتا إثبات التفتيش تحملان signing hash مختلفين، كلٌّ منهما
+  يتحقق — `verify_strict` — تحت مفتاح المخالف **الواحد** عند
+  نفس الـ epoch؛ ويجب أن يكون المتهم في المجموع المؤهل
   (وإلا `SlashOffenderNotInPool`)؛ ثم **الحظر** — يُزال
   المفتاح من مجموع PoS بصفة دائمة (قائمة سوداء في الحالة)؛
 - عقوبة دنيا: لا تُصادر نطاقات/TLD المتهم (قرار موثّق M9)؛
@@ -129,7 +131,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 بايت خام | اشتقاق `public_key` |
 | `timestamp` | varint | معلومة ترتيب (Unix، ثوانٍ) |
 | `proof` | `bytes` ≤ 256 | حمولة PoW التسجيل (انظر [أدناه](#إثبات-العمل-للتسجيل-pow)) |
-| `open` | `0x00\|0x01` | ولادة **مفتوحة**: يهبط الـ TLD مباشرة في `TldState::Open` (لا أحد، خدمة ذاتية + PoW، PoW واحد بسعر `open_tld_pow_difficulty` — أرخص من الخاص: مورد مشاع، لا مقعد PoS ولا حصرية)؛ ولادة **خاصة**: السلوك التاريخي (مالك، مقعد PoS، `tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | ولادة **مفتوحة**: يهبط الـ TLD مباشرة في `TldState::Open` (لا أحد، خدمة ذاتية + PoW، PoW واحد بمعدل منحنى الطول للمولود مفتوحًا `pow_length::open_tld_difficulty` — أرخص من الخاص: مورد مشاع، لا مقعد PoS ولا حصرية)؛ ولادة **خاصة**: السلوك التاريخي (مالك، مقعد PoS، منحنى الطول الخاص `pow_length::tld_difficulty`) |
 | `public_key` | 32 بايت خام | مفتاح Ed25519 العام للموقّع |
 | `signature` | **64 بايتًا بالضبط** | توقيع Ed25519 للحمولة الموقّعة |
 
@@ -184,14 +186,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | الحقل | النوع | القيود |
 |---|---|---|
-| `open` | 1 بايت | **بصرامة `0x00` أو `0x01`** (صيغة قانونية؛ أي قيمة أخرى ← خطأ فك ترميز، لا قسر أبدًا) |
-| `open_proof` | `proof` (طول varint + بايتات) | حقل **موقّع**؛ إلزامي ومُتحقق منه عندما `open = 0x01` (PoW الفتح، `open_tld_pow_difficulty` للشبكة، التحدي `SCONE-TLD-OPEN-V1 ‖ tld_id`)؛ فارغ عندما `open = 0x00` (الإغلاق مجاني) |
+| `open` | 1 بايت | **بصرامة `0x01`**: الإغلاق غير موجود — `open = 0x00` يُرفض بخطأ مُصنَّف `TldCloseUnsupported` (خيار مالك باتجاه واحد؛ يُرفض عند فك الترميز، الذي يشغّل `validate()`)، وأي بايت آخر خطأ فك ترميز، لا قسر أبدًا |
+| `open_proof` | `proof` (طول varint + بايتات) | حقل **موقّع**؛ إلزامي ومُتحقق منه (PoW الفتح، `open_tld_pow_difficulty` المسطح للشبكة، التحدي `SCONE-TLD-OPEN-V1 ‖ tld_id`)؛ لا يُستشار أبدًا خلاف ذلك، إذ لا تُقبل معاملة `open = 0x00` قط |
 
 الـ TLD **المغلق** = assign فقط (النطاقات تُنشأ حصرًا من مالك
 الـ TLD عبر `AssignDomain`)؛ الـ TLD **المفتوح** = أي أحد
 يستطيع أداء PoW التسجيل والمطالبة بنطاق حر
 (`RegisterDomain`). **الفتح** يكلّف إثبات عمل إضافيًا (أخف من
-مطالبة الـ TLD: ~3 أيام على mainnet مقابل ~أسبوع)، يُدفع
+مطالبة الـ TLD: 26 بت ≈ 8.5 أيام على آلة المرجع ذات الثمانية
+الأنوية، مقابل ≈ 34 يومًا لمطالبة خاصة بمحرف واحد)، يُدفع
 مرة واحدة من المالك في `SetTldOpen` — يسافر الإثبات في حقل
 `open_proof` الموقّع ولا يمكن استبداله بعد التوقيع.
 
@@ -232,9 +235,12 @@ name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_ke
 التطبيق، على حالة الكتلة):
 
 - **TLD مفتوح**: يكلّف التجديد **نفس PoW الإنشاء** — نفس
-  التحدي (`SCONE-DOMAIN-V1 ‖ canonical name`)، نفس الصعوبة
-  حسب طول العلامة وحسب الشبكة، نفس نافذة صلاحية الـ epoch.
-  لا يُجمع نطاق مجانًا أبدًا: كل مدة حياة تُدفع عملًا.
+  الصعوبة حسب طول العلامة وحسب الشبكة، نفس نافذة صلاحية
+  الـ epoch، لكن بتحدي مرتبط **بالانتهاء الحالي**:
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`.
+  لاحقة الانتهاء تجعل preimage التجديد مختلفًا عن التسجيل
+  وعن كل تجديد سابق: إثبات مُستخرَج واحد يدفع مدة واحدة
+  بالضبط. لا يُجمع نطاق مجانًا أبدًا: كل مدة حياة تُدفع عملًا.
 - **TLD خاص**: فضاء الأسماء حصة مالك الـ TLD (PoS). يجب أن
   تكون المعاملة **موقّعة من مالك الـ TLD** (أو مشغّله
   المفوَّض) — التوقيع هو التفويض، ويجب أن يكون حقل `proof`
@@ -264,8 +270,11 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (لاحقة منع
   إعادة الاستخدام تربط كل PoW بمدة واحدة)، نفس الصعوبة حسب
   الطول كالمطالبة الأولية؛
-- التجديد ليس مجمّدًا خلال المهلة — إنه عملية الإدارة
-  الوحيدة الباقية لمالك منتهية صلاحيته.
+- التجديد ليس مجمّدًا خلال المهلة — ولا عمليات المالك الأخرى:
+  تجميد الانتهاء يصيب `AssignDomain` **فقط** (`TldExpiredFrozen`).
+  تبقى `TransferTld` و`RevokeTld` و`SetTldOpen`
+  و`SetTldOperator` قابلة للتطبيق على TLD خاص منتهٍ (في
+  مهلة السماح).
 
 ## عائلة السلطة المفوَّضة — مرتبطة بالعدّاد (0xE2، 0xA9، 0x5E، 0x66)
 
@@ -366,7 +375,8 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 `sequence == current + 1` — هي الرابط الوحيد. التوقيع يغطي حقل
 `owner` عبر الحمولة الموقّعة: المندوب يوقّع «لأجل» namespace
 معين. تحفّظ: خريطة المالك→المفتاح تُتعلَّم بأول ظهور
-(تسجيل/إسناد)، update المندوب لا تستبدلها أبدًا.
+(تسجيل، إسناد، وأي update بمفتاح مالك لا يزال معرّفه
+شاغرًا)، update المندوب لا تستبدلها أبدًا.
 
 ### حدود صارمة
 
@@ -422,7 +432,10 @@ challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ networ
   (خاص ← TldClosed: الـ namespace الخاص يحتفظ بمسار توقيع
   المالك)؛
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
-  valid_until.v ‖ proof ‖ pubkey_dest.
+  valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW`
+  تحت TLD **مفتوح** فقط (مثل `RegisterDomainPow`: `TldClosed`
+  تحت TLD خاص)، بينما `RENEW_TLD_POW` يبقى تحت TLD **خاص**
+  فقط (`TldIsOpen` وإلا).
 
 ### حراس التطبيق (D3)
 
@@ -531,7 +544,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+الإضافات الخمس تتبع القاعدة نفسها — ترويسة
+`disc ‖ version ‖ network`، ثم جسم الـ wire الدقيق دون
+التوقيع الختامي (وفي `SlashTx`، توقيع المُبلِّغ). تنتهي
+`Heartbeat` بمفتاح الموقّع: نسخة ثانية من حقل `operator` يجب
+أن تكون مطابقة (رفض مُصنَّف خلاف ذلك).
 
 الخصائص:
 
@@ -621,60 +656,78 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 تسافر الصعوبة والـ epoch مع الإثبات، لكنهما **مصرَّح بهما من
 المنتج ومن ثم غير موثوقين أبدًا**: يقارن المُتحقق الصعوبة
-مقابل **الثابت البروتوكولي** لنوع التسجيل (الحمولة التي
-تختلف صعوبتها المصرَّحة عن الثابت — أدنى *أو* أعلى —
+مقابل القيمة التي يصفها البروتوكول لنوع الإثبات — منحنى الطول
+للتسجيلات (انظر
+[الصعوبات](#الصعوبات-منحنيات-حسب-الطول-m8b--معايرة-argon2id)
+أدناه)، والمعامل المسطح للتنازلات والإسنادات (الحمولة التي
+تختلف صعوبتها المصرَّحة عنه — أدنى *أو* أعلى —
 تُرفض، `InvalidProof`)، والـ epoch مقابل الخاص بالكتلة
 المطبِّقة (`ProofEpochMismatch` عند عدم التطابق). ثم يعاد
-التحقق من الـ nonce عند الثابت، ويُعاد حساب الهاش من الصفر.
+التحقق من الـ nonce عند تلك الصعوبة الموصوفة، ويُعاد حساب
+الهاش من الصفر.
 
-### الصعوبات (منحنى **حسب الطول**، M8b + معايرة مقيسة)
+### الصعوبات (منحنيات **حسب الطول**، M8b + معايرة Argon2id)
 
 الصعوبة ليست معاملًا مسطحًا: إنها دالة حتمية في **طول
 العلامة المنشأة** (`scone-core::pow_length` — الـ TLD لـ
-`RegisterTld`، العلامة اليسرى لـ `RegisterDomain`)، لكل شبكة:
+`RegisterTld`، العلامة اليسرى لـ `RegisterDomain`)، لكل شبكة.
+**منحنيان**، واحد لكل نوع كائن: ميل الـ TLD سطحي (كل محرف
+إضافي يقسم الكلفة على ~1.22)، وميل النطاق أشد (كل محرف
+إضافي يقسم الكلفة على ~1.40):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| الشبكة | TLD خاص (apex/floor) | TLD مولود مفتوحًا / نطاق (apex/floor) |
-|---|---|---|
-| testnet | 8 بت / 2 بت | 6 بت / 2 بت |
-| mainnet | 42 بت / 30 بت | 40 بت / 30 بت |
-| devnet | 2 بت / 1 بت | 1 بت / 1 بت |
+يبدأ كل نوع من قمته الخاصة وينتهي عند أرضيته الخاصة
+(`tld_difficulty`، `open_tld_difficulty`، `domain_difficulty` —
+الـ TLD المولود مفتوحًا يدفع منحنى الـ TLD ببت واحد تحت قمة
+الخاص، والنطاق يبدأ ببتين تحت القمة على الميل الأشد):
+
+| الشبكة | TLD خاص (قمة ← أرضية) | TLD مولود مفتوحًا (قمة ← أرضية) | نطاق (قمة ← أرضية) |
+|---|---|---|---|
+| testnet | 8 ← 2 بت | 7 ← 2 بت | 6 ← 1 بت |
+| mainnet | 28 ← 25 بت | 27 ← 25 بت | 26 ← 22 بت |
+| devnet | 2 ← 1 بت | 1 ← 1 بت | 1 ← 1 بت |
+
+سلّم mainnet (Argon2id بقيمة 64 MiB، t = 2، p = 1 عند ~11.4
+H/s لكل نواة — توقعات على آلة المرجع ذات الثمانية أنوية):
+
+| الطول | TLD خاص | TLD مولود مفتوحًا | نطاق |
+|---|---|---|---|
+| 1 | 28 بت ≈ 30 يومًا | 27 بت | 26 بت |
+| 3 | 27 بت | 26 بت | 25 بت |
+| 7 | 26 بت | 25 بت | 23 بت |
+| 10+ | 25 بت (أرضية) | 25 بت (أرضية) | 22 بت (أرضية) |
+
+أرضية الـ 25 بت ≈ 4.3 أيام على تلك الآلة؛ أنوية أكثر تنتهي
+أسرع، وأنوية أقل تستغرق أطول — خدمة الـ PoW المدفوعة تمتص
+الفارق.
 
 الـ TLD **المولود مفتوحًا** (`RegisterTld` بـ `open = 0x01`)
-يدفع منحنى "الفتح" (apex − 2، مثل `domain_difficulty`)؛
-**فتح TLD خاص قائم** (`SetTldOpen`) يبقى عند الصعوبة
-المسطحة (`open_tld_pow_difficulty`: 6 بت على testnet / 22 بت
+يدفع منحنى الـ TLD عند قمة − 1 (mainnet 27 ← 25 بت — **ليس**
+قمة النطاق)؛ **فتح TLD خاص قائم** (`SetTldOpen`) إثبات
+مسطّح مختلف (`open_tld_pow_difficulty`: 6 بت على testnet /
+26 بت
 على mainnet / 2 بت على devnet — المعاملة تحمل `tld_id`
-فقط، والاسم دفع ثمن طوله عند الإنشاء). قياسات mainnet (TLD
-خاص، ~6 M hash/ث): محرف واحد = 42 بت (≥ 7 أيام)، 5 محارف =
-40 بت (~يومان)، 19 محرفًا = 35 بت (~1.6 ساعة)، 29+ محرفًا =
-أرضية 30 بت (~3 دقائق). تعيش المنحنيات في
-`scone-core::pow_length` (الثوابت `MAINNET_APEX = 42`،
-`MAINNET_FLOOR = 30`، `TESTNET_APEX = 8`، `TESTNET_FLOOR =
-2`، `DEVNET_APEX = 2`، `DEVNET_FLOOR = 1`)؛ وتبقى المعاملات
-المسطحة (`tld_pow_difficulty`، إلخ) في
-`scone-core::network::NetworkParams`. تغيير قيمة = تغيير
+فقط، والاسم دفع ثمن طوله عند الإنشاء). تعيش المنحنيات في
+`scone-core::pow_length` (الثوابت `MAINNET_APEX = 28`،
+`MAINNET_FLOOR = 25`، `TESTNET_APEX = 8`، `TESTNET_FLOOR =
+2`، `DEVNET_APEX = 2`، `DEVNET_FLOOR = 1`)؛ وتخدم المعاملات
+المسطحة في `scone-core::network::NetworkParams` فقط
+الإثباتات التي تبقى مسطحة — فتح TLD قائم (`open_tld_pow_difficulty`،
+26 بت mainnet)، التنازلات (`transfer_pow_difficulty`، 16)
+والإسنادات (`assign_pow_difficulty`، 16) — زائد عرض الـ CLI.
+قمم التسجيل المسطحة السابقة (`RegisterTld` 24 بت /
+`RegisterDomain` 20 بت، معايرة حقبة BLAKE3 بـ ~7.7 M H/s)
+قيم تاريخية سابقة على المنحنيات. تغيير قيمة = تغيير
 توافقي **لتلك الشبكة**. ثابت: الـ devnet هو `NetworkParams`
 ثالث كامل وتبقى testnet متطابقة بصرامة مع ثوابتها قبل
 الـ devnet (معاملات Argon2id، المنحنيات، النوافذ) — لا يشارك
 الـ devnet أي ثابت مع الشبكات الأخرى خارج الكود نفسه.
-
-معايرة مقيسة للقمم المسطحة (2026-10، `cargo run --release
--p scone-core --example pow_bench` — إنتاجية أحادية الخيط
-~7.7 M H/s على x86-64 مرجعي):
-
-| النوع (mainnet) | الصعوبة | الزمن الحقيقي المتوسط |
-|---|---|---|
-| `RegisterTld` | 24 بت | ~7 ثوانٍ |
-| `RegisterDomain` | 20 بت | ~54 مللي ثانية |
-
-عند ~65 ث/كتلة: مطالبة TLD تكلّف ~0.1 كتلة من CPU أحادي
-النواة، ونطاق ~1 مللي ثانية من كتلة — رمزية للمستخدم، مكلفة
-للتصنيع على نطاق واسع (منع الاغتصاب). يعاد المعايرة إذا
-انخفضت الأهداف العتادية (ARM للجوال: أبطأ بـ ~4–8×).
 
 تفرعات الحالة (M8b، مُسلَّمة): تتطلب `RegisterTld` الـ PoW
 الخاص بها دائمًا؛ وتتطلبه `RegisterDomain` على TLD **مفتوح**
@@ -752,11 +805,11 @@ difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
 والطابع الزمني يوفرهما المستدعي؛ ويُستخدم الـ trait القائم
 `Consensus` بشكل متناظر مع التحقق.
 
-## أمثلة سداسية (متجهات حقيقية قابلة لإعادة الإنتاج — M8b)
+## أمثلة سداسية (متجهات توضيحية — M8b)
 
 ### RegisterDomain لـ `example.uip`، بطابع زمني 42، testnet
 
-الحمولة الموقّعة (متجه مثبَّت؛ ولّدتها تاريخيًا أدوات
+الحمولة الموقّعة (متجه توضيحي؛ ولّدته تاريخيًا أدوات
 الـ offline التي أُزيلت — تبقى القيم متجهات صالحة). يظهر
 الـ `network` هنا لأن هذه هي حمولة التوقيع (موضعه الوحيد)؛
 المعاملة الموقّعة على الـ wire ذاتها لا تحتوي منه شيئًا:
@@ -771,13 +824,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld لـ `uip`، بطابع زمني 42
 
-الحمولة الموقّعة (متجه مثبَّت) — الـ `TldId` هو متجه الاشتقاق
+الحمولة الموقّعة (متجه توضيحي) — الـ `TldId` هو متجه الاشتقاق
 المثبَّت في `/docs/en/general/naming.md`:
 
 ```text
@@ -795,7 +849,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 (كانت القيم الكاملة قابلة لإعادة الإنتاج عبر أدوات الـ
-offline التي أُزيلت؛ المتجهات أدناه تبقى مثبَّتة وصالحة.
+offline التي أُزيلت؛ المتجهات أدناه تبقى توضيحية وصالحة.
 يُعدَّن الـ PoW تلقائيًا عند صعوبة الشبكة — الـ nonces تختلف
 من تشغيل لتشغيل؛ فقط network/name/id/owner/pk ثابتة. منذ
 تغيير الـ wire بتاريخ 2026-09، لم يعد سداسي المعاملة الموقّعة

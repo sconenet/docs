@@ -77,16 +77,20 @@ scone-core       ← types du protocole (dépend de scone-crypto)
 scone-protocol  ← format binaire wire/blockchain
     ▲
 scone-blockchain← logique blockchain, état canonique (en mémoire)
-    ▲               └ scone-topology (moteur pur, zéro réseau/fs/
-                     async ; alimenté par scone-network) — scone-genesis
-                     (outil binaire one-shot de genèse mainnet)
+    ▲
 scone-storage   ← persistance locale : backend redb + snapshots vérifiés
     ▲
 scone-network   ← relais p2p : libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← fichiers de clés chiffrés `.sconekey` (dépend de scone-crypto)
-    ▲
 scone           ← binaire / application
+
+scone-keystore  ← fichiers de clés chiffrés `.sconekey` (dépend de
+                     scone-crypto uniquement) ; consommée par
+                     scone-network
+scone-topology  ← moteur pur de maillage, zéro réseau/fs/async ;
+                     alimenté par scone-network, qui applique
+                     ses décisions
+scone-genesis   ← outil binaire one-shot de genèse mainnet
 ```
 
 ### Décision : `scone-core` dépend de `scone-crypto`
@@ -100,6 +104,9 @@ concrète ne doit pas contaminer le core. Résolution :
   de clés), zéro type du core, aucune dépendance réseau/système de
   fichiers/async → aucune circularité possible ;
 - `scone-core` ne l'utilise que pour le hachage ;
+- `scone-core` dépend aussi directement d'`argon2` (PoW
+  d'enregistrement) et d'`idna` (noms internationalisés) —
+  dépendances pures, stratification respectée ;
 - les signatures et clés Ed25519 vivent dans `scone-crypto` et
   opèrent sur des octets (charges canoniques produites par
   `scone-protocol`).
@@ -114,8 +121,7 @@ tokio/async, réseau, fichiers, OS, serveur DNS, logique blockchain.
 
 **scone-crypto** — primitives cryptographiques. Aujourd'hui :
 `hash256` (BLAKE3), signatures et clés Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, vérification stricte par lots), enveloppe
-AEAD des groupes d'enregistrements (XChaCha20-Poly1305). Prévu :
+`PublicKey`, `Signature`, vérification stricte par lots). Prévu :
 arbre de Merkle. Règle : aucun algorithme maison, dépendances
 auditées uniquement.
 
@@ -156,7 +162,7 @@ Kademlia pour `SignedDnsRecord`, serveur DNS UDP+TCP (GeoDNS toujours
 actif — table GeoIP embarquée, repli récursif), la boucle de point
 de contrôle/battement de cœur des ancrès (le CLI parle directement
 en p2p QUIC au relais, plus de RPC local). Joignabilité et découverte :
-AutoNAT v2 (verdict joignable/sous NAT), circuit-relay v2 + DCUtR
+AutoNAT v1 (verdict joignable/sous NAT), circuit-relay v2 + DCUtR
 pour les nœuds sous NAT et UPnP (mappage du port QUIC par le
 routeur, opt-in). Configuration via un fichier `.env`
 (voir `.env.example`). Référence : `/docs/en/technical/relay.md`.
@@ -216,13 +222,15 @@ blocs récents H+1..H+k (relais, hauteur croissante)
 synchronisé — au démarrage, rejeu du SEUL suffixe au-dessus de H
 ```
 
-Deux profils de nœuds :
+Profils de nœuds (PRÉVU — aucun tel flag opérateur n'existe
+aujourd'hui : chaque nœud actuel conserve tous les blocs, et l'import
+de snapshot opt-in ci-dessus est le seul contrôle de rétention) :
 
-- **nœud d'archive** (flag opérateur) : garde tous les blocs
-  historiques, les sert au réseau, démarre via les chemins existants ;
-- **nœud à état complet** : détient l'état complet à H et le suffixe,
-  mais pas l'historique en dessous de H — il valide les blocs futurs
-  et sert l'état, il ne sert pas l'historique.
+- **nœud d'archive** (prévu) : garde tous les blocs historiques,
+  les sert au réseau, démarre via les chemins existants ;
+- **nœud à état complet** (prévu) : détient l'état complet à H et le
+  suffixe, mais pas l'historique en dessous de H — il valide les
+  blocs futurs et sert l'état, il ne sert pas l'historique.
 
 Ce chemin est OPT-IN : importer un snapshot vérifié est une action
 explicite de l'opérateur (`import_verified_snapshot`), jamais

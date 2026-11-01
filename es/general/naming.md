@@ -40,7 +40,8 @@ específico de TLD.
   forma canónica A-label
 - límite codificado: `TldName::MAX_LEN = 63` bytes
 - válidos: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, un TLD de
-  exactamente 63 bytes, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  exactamente 63 bytes, `éxemple` (→ `xn--exemple-2ua`, mapeo
+  ilustrativo — no fijado por ningún test), `例子`
   (→ `xn--fsqu00a`)
 - inválidos: un TLD cuya A-label supere 63 bytes, `ABC`, `-ab`,
   `ab-`, cadena vacía
@@ -174,8 +175,9 @@ gobierna lo que pertenece a alguien. Resumen normativo:
 ### TLD privativo
 
 - **Nacimiento — PoW**: reclamado por prueba de trabajo, dificultad
-  por longitud (mainnet: 1 carácter ≈ 34 d de computación; piso ≈
-  4,3 d a 10+ caracteres). El reclamante se convierte en
+  por longitud (mainnet, en la máquina de referencia de 8 núcleos:
+  1 carácter ≈ 34 d de computación; piso ≈ 4,3 d a 10+ caracteres).
+  El reclamante se convierte en
   propietario y ostenta un **asiento PoS** (pool de elegibilidad de
   validadores — heartbeats obligatorios para mantenerse fresco,
   delegación de operador disponible).
@@ -217,8 +219,9 @@ gobierna lo que pertenece a alguien. Resumen normativo:
 
 ### Dominio bajo un TLD abierto
 
-- **Nacimiento — PoW** (curva reducida frente al TLD: mainnet
-  1 carácter ≈ 8,5 d, piso ≈ medio día).
+- **Nacimiento — PoW** (curva reducida frente al TLD, en la máquina
+  de referencia de 8 núcleos: mainnet 1 carácter ≈ 8,5 d,
+  piso ≈ medio día).
 - **Renovación — PoW idéntica al nacimiento** (misma curva de
   dificultad; el reto está ligado a la expiración actual, y por
   tanto es distinto del registro y de cada renovación anterior):

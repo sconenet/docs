@@ -40,7 +40,8 @@ Grenze.
   Bindestrich), auf der kanonischen A-Label-Form
 - kodierte Grenze: `TldName::MAX_LEN = 63` Bytes
 - gültig: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, eine TLD mit
-  genau 63 Bytes, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  genau 63 Bytes, `éxemple` (→ `xn--exemple-2ua`, illustrative
+  Zuordnung — durch keinen Test fixiert), `例子`
   (→ `xn--fsqu00a`)
 - ungültig: eine TLD, deren A-Label 63 Bytes überschreitet, `ABC`,
   `-ab`, `ab-`, leere Zeichenkette
@@ -173,8 +174,9 @@ was jemandem gehört. Normative Zusammenfassung:
 ### Private TLD
 
 - **Geburt — PoW**: per Proof of Work beansprucht, Schwierigkeit nach
-  Länge (Mainnet: 1 Zeichen ≈ 34 d Rechenzeit; Untergrenze ≈ 4,3 d ab
-  10+ Zeichen). Der Claimant wird Eigentümer und hält einen **PoS-Sitz**
+  Länge (Mainnet, auf der 8-Kern-Referenzmaschine: 1 Zeichen ≈ 34 d
+  Rechenzeit; Untergrenze ≈ 4,3 d ab 10+ Zeichen). Der Claimant wird
+  Eigentümer und hält einen **PoS-Sitz**
   (Pool der Validator-Berechtigten — Heartbeats zur Frischeerhaltung
   erforderlich, Betreiber-Delegation verfügbar).
 - **Leben — PoS**: die Signatur des Eigentümers autorisiert alles im
@@ -216,8 +218,9 @@ was jemandem gehört. Normative Zusammenfassung:
 
 ### Domain unter einer offenen TLD
 
-- **Geburt — PoW** (reduzierte Kurve ggü. TLD: Mainnet 1 Zeichen ≈
-  8,5 d, Untergrenze ≈ ein halber Tag).
+- **Geburt — PoW** (reduzierte Kurve ggü. TLD, auf der 8-Kern-
+  Referenzmaschine: Mainnet 1 Zeichen ≈ 8,5 d, Untergrenze ≈ ein
+  halber Tag).
 - **Verlängerung — PoW identisch mit der Geburt** (gleiche
   Schwierigkeitskurve; die Challenge ist an das aktuelle Ablaufdatum
   gebunden und damit verschieden von der Registrierung und jeder

@@ -73,17 +73,19 @@ scone-core       ← tipos del protocolo (depende de scone-crypto)
 scone-protocol  ← formato binario wire/blockchain
     ▲
 scone-blockchain← lógica blockchain, estado canónico (en memoria)
-    ▲               └ scone-topology (motor puro, cero red/fs/
-                     async; alimentado por scone-network) — scone-genesis
-                     (binario de herramienta one-shot para el génesis
-                     de la mainnet)
+    ▲
 scone-storage   ← persistencia local: backend redb + snapshots verificados
     ▲
 scone-network   ← relay p2p: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← archivos de claves `.sconekey` cifrados (depende de scone-crypto)
-    ▲
 scone           ← binario / aplicación
+
+scone-keystore  ← archivos de claves `.sconekey` cifrados (depende
+                     solo de scone-crypto); consumido por scone-network
+scone-topology  ← motor puro de malla, cero red/fs/async; alimentado
+                     por scone-network, que aplica sus decisiones
+scone-genesis   ← binario de herramienta one-shot para el génesis
+                     de la mainnet
 ```
 
 ### Decisión: `scone-core` depende de `scone-crypto`
@@ -97,6 +99,9 @@ concreta no debe contaminar el core. Resolución:
   claves), cero tipos del core, sin dependencias de red/sistema de
   archivos/async → imposible la circularidad;
 - `scone-core` lo usa únicamente para hashear;
+- `scone-core` también depende directamente de `argon2` (PoW de
+  registro) y `idna` (nombres internacionalizados) — dependencias
+  puras, se respeta la estratificación;
 - Las firmas y claves Ed25519 viven en `scone-crypto` y operan sobre
   bytes (payloads canónicos producidos por `scone-protocol`).
 
@@ -110,9 +115,9 @@ tokio/async, red, archivos, SO, servidor DNS, lógica blockchain.
 
 **scone-crypto** — primitivas criptográficas. Hoy: `hash256`
 (BLAKE3), firmas y claves Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, verificación estricta por lotes), sobre
-AEAD de grupos de registros (XChaCha20-Poly1305). Previsto: árbol
-Merkle. Regla: nada de algoritmos caseros, solo dependencias auditadas.
+`PublicKey`, `Signature`, verificación estricta por lotes).
+Previsto: árbol Merkle. Regla: nada de algoritmos caseros, solo
+dependencias auditadas.
 
 **scone-protocol** — formato binario del protocolo: codificación/
 decodificación canónica (varint LEB128 mínimo, identificadores de
@@ -151,7 +156,7 @@ para `SignedDnsRecord`, servidor DNS UDP+TCP (GeoDNS siempre
 activado — tabla GeoIP embebida, fallback recursivo), el bucle de
 checkpoint/heartbeat de los anchors (el CLI habla p2p QUIC directo
 al relay, ya sin RPC local). Alcanzabilidad y descubrimiento:
-AutoNAT v2 (veredicto alcanzable/NATeado), circuit-relay v2 + DCUtR
+AutoNAT v1 (veredicto alcanzable/NATeado), circuit-relay v2 + DCUtR
 para nodos NATeados y UPnP (mapeo del puerto QUIC por
 el router, opt-in). Configuración vía un archivo `.env` (ver
 `.env.example`). Referencia: `/docs/en/technical/relay.md`.
@@ -212,13 +217,15 @@ bloques recientes H+1..H+k (relay, altura creciente)
 sincronizado — al arrancar, replay de SOLO el sufijo por encima de H
 ```
 
-Dos perfiles de nodo:
+Perfiles de nodo (PREVISTOS — hoy no existe tal flag de operador:
+cada nodo actual conserva todos los bloques, y el import opt-in de
+snapshot descrito arriba es el único control de retención):
 
-- **nodo archivo** (flag del operador): conserva todos los bloques
+- **nodo archivo** (previsto): conserva todos los bloques
   históricos, los sirve a la red, arranca por las rutas existentes;
-- **nodo de estado completo**: posee el estado completo en H y el
-  sufijo, pero no el historial por debajo de H — valida los bloques
-  futuros y sirve estado, no sirve historial.
+- **nodo de estado completo** (previsto): posee el estado completo
+  en H y el sufijo, pero no el historial por debajo de H — valida
+  los bloques futuros y sirve estado, no sirve historial.
 
 Esta ruta es OPT-IN: importar un snapshot verificado es una acción
 explícita del operador (`import_verified_snapshot`), nunca

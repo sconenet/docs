@@ -10,7 +10,7 @@ Les éléments marqués **(provisoire)** ne sont pas définitifs.
 
 ## Version du protocole
 
-- constante : `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`) ;
+- constante : `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`) ;
 - portée par `Hello.version` (poignée de main) et
   `BlockHeader.version` ;
 - règles de compatibilité :
@@ -18,9 +18,14 @@ Les éléments marqués **(provisoire)** ne sont pas définitifs.
     (`ProtocolError::UnsupportedVersion`) ; le nœud ne devine
     pas le format d'une version qu'il ne connaît pas ;
   - version `0` → invalide ;
-  - il n'y a qu'un seul jeu de formats : les octets de version
-    de transaction (`0x01`) et de bloc doivent correspondre
-    **exactement** aux valeurs locales ;
+  - les blocs doivent être **exactement** en version `2` : la
+    version `1` (format de bloc pré-signatures, jalon M1) est un
+    format incompatible, explicitement rejeté plutôt que mal
+    analysé ;
+  - `Hello` tolère les versions `1..=2` (poignée de main
+    seulement — il ne porte aucun bloc) ;
+  - l'octet de version du format de transaction (`0x01`) doit
+    correspondre **exactement** à la valeur locale ;
 - pas de découpage majeur/mineur à ce stade : un seul entier,
   incrémenté à toute rupture du format filaire.
 
@@ -42,8 +47,11 @@ Les éléments marqués **(provisoire)** ne sont pas définitifs.
   pas ;
 - adresses IPv4/IPv6 et identifiants de 32 octets : tableaux
   d'octets bruts, sans préfixe de longueur ;
-- il n'y a aucun entier large de taille fixe dans le format :
-  une seule règle d'encodage des entiers.
+- seule exception : le corps de point de contrôle de 116 octets
+  (`CheckpointData`) est en entiers de largeur fixe **petit
+  boutiste** (little-endian), pas des varints (voir
+  [Point de contrôle (M5)](#point-de-contrôle-m5)) ; tout autre
+  entier suit l'unique règle varint.
 
 ### Varint (LEB128 minimal)
 
@@ -87,11 +95,17 @@ long).
 | `RecordHash` | 32 octets bruts |
 | `BlockHash` | 32 octets bruts |
 | `MerkleRoot` | 32 octets bruts |
-| `DomainName` | `str` (≤ 253 octets, revalidé par `scone-core`) |
+| `DomainName` | `str` ≤ 253 octets (A-label ASCII canonique), revalidé par `scone-core` |
 
 Les dérivations (`BLAKE3-256` + préfixes `SCONE-DOMAIN-V1`,
 etc.) restent définies par `scone-core` (voir
 `/docs/en/general/naming.md`).
+
+Les noms filaires — `DomainName` et le TLD d'un `REGISTER_TLD` —
+sont **exclusivement des A-labels ASCII canoniques** : les octets
+non ASCII sont rejetés au décodage (`NonCanonical`). La
+canonicalisation IDNA n'existe qu'au moment de la construction
+(entrée utilisateur) ; elle ne s'exécute jamais sur le fil.
 
 ## Transactions
 
@@ -109,7 +123,9 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-Chaque discriminant est une constante arbitraire opaque (aucune
+Le tableau ci-dessus est un **sous-ensemble** (7 des 19 types de
+transactions). Chaque discriminant est une constante arbitraire
+opaque (aucune
 logique de séquence ; `0x00` jamais valide) — table normative
 complète dans `/docs/en/technical/transactions.md`.
 
@@ -151,7 +167,7 @@ dérivation BLAKE3 de cette clé (recalculée, jamais crue) ;
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 Revendication d'un TLD (registre distinct du registre de
@@ -163,6 +179,12 @@ non réservé ICANN (`IcannTldReserved` — les TLD racine ICANN ne
 sont revendicables par personne) + PoW à la difficulté **basée
 sur la longueur** de l'étiquette (courbe `pow_length` — voir
 `blockchain.md`) ; revendiqué = fermé (assignation seule).
+`open` est un booléen canonique (`0x00`|`0x01` ; tout autre
+octet est une erreur de décodage dure, `NonCanonical`) :
+l'option du propriétaire pour un TLD **né ouvert** (`0x01` =
+ouvert à l'enregistrement en libre-service dès la naissance).
+Il est écrit après le `proof` de longueur variable, juste avant
+la clé publique.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -170,8 +192,13 @@ sur la longueur** de l'étiquette (courbe `pow_length` — voir
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-Invariant revérifié au décodage : `sequence > 0` et `owner` ==
-dérivation de `public_key`. Pas de `timestamp` : l'ordre passe
+Invariant revérifié au décodage : `sequence > 0` seulement —
+plus la signature sur la charge, vérifiée contre la
+`public_key` embarquée. La règle d'autorité (le signataire doit
+être le propriétaire du domaine ou l'un de ses délégués de
+records, au plus 3) est une règle d'**état** appliquée par
+`scone-blockchain` à l'application, pas une vérification
+filaire. Pas de `timestamp` : l'ordre passe
 par `sequence`. La transaction ne porte que des références
 compactes — le contenu DNS complet reste dans le DHT (voir
 ci-dessous).
@@ -206,7 +233,14 @@ l'enregistrement : bornes `MIN_TTL = 1` .. `MAX_TTL =
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 o), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (voir ci-dessous) |
+| 32769 | NS4 | 4 octets (adresse IPv4) |
+| 32770 | NS6 | 16 octets (adresse IPv6) |
 | autre | Unknown | code.v + `bytes` ≤ 4096 |
+
+Les types 32769 (`NS4`) et 32770 (`NS6`) sont des types privés
+Scone (plage non-IANA, même famille que `GEOROUTE`) : délégation
+vers un serveur de noms désigné par adresse IPv4/IPv6 plutôt que
+par nom.
 
 Exemple : `A 192.0.2.1` (TTL 86 400) → `01 80 a3 05 c0 00 02
 01` (type, TTL varint, adresse).
@@ -341,20 +375,21 @@ de transport ne devrait pas dépasser `MAX_MESSAGE_LEN`
 | `0x0a` | `Checkpoint` | les deux | `Checkpoint` | signataires ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | les deux | — | — | fenêtre de points de contrôle |
 | `0x0c` | `GetStatus` | les deux | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | les deux | état du nœud (réseau, pointe, hauteur, NAT, domaines, mempool, pairs, finalité, opérateurs frais) | — | — |
+| `0x0d` | `NodeStatus` | les deux | état du nœud (réseau, pointe, hauteur, NAT, domaines, mempool, pairs, époque finalisée, taille de la fenêtre de points de contrôle, opérateurs frais) | — | — |
 | `0x0e` | `LookupName` | les deux | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | les deux | état on-chain du nom + TLD, incl. la génération CAS (compteurs de mutations, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | les deux | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | les deux | domaines + TLD vivants du propriétaire | — | — |
-| `0x12` | `Error` | réponse | message d'erreur applicatif (`str`) | — | — |
+| `0x12` | `Error` | réponse | message d'erreur applicatif (`str`, ≤ 4096 octets, vérifié à l'encodage et au décodage) | — | — |
 
 ### Point de contrôle (M5)
 
 Un point de contrôle agrégé part sur le fil tel que : étiquette
 `SCONE-CKPT-V1` || corps `CheckpointData` (116 o, LE —
 identique à la fin de la préimage de signature : `epoch(8)
-height(8) block_hash(32) prev_checkpoint_hash(32) state_root(32)
-recovery(4)`) || `count.v` || `pk[32] ‖ sig[64]` par
+height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) || `count.v` ||
+`pk[32] ‖ sig[64]` par
 signataire, **triés par pk croissant, sans doublons** `count ≤
 64` (`MAX_CHECKPOINT_SIGNERS`). Décodage strict : troncature,
 mauvaise étiquette, pk non canonique, doublons ou non-triés =
@@ -443,12 +478,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | varint non minimal, débordant ou trop long |
 | `IntegerOutOfRange` | entier ne tenant pas dans son type cible |
 | `UnsupportedVersion` | version nulle ou supérieure à la version locale |
+| `PowNotSignable` | forme pow-to-owner routée par un chemin de signature (elles ne sont jamais signées — la preuve minée est l'autorisation) |
 | `UnknownDiscriminant` | discriminant de transaction/message inconnu |
 | `LimitExceeded` | longueur ou compte au-delà d'une limite |
 | `InvalidUtf8` | chaîne non-UTF-8 |
+| `InvalidTransactionKey` | la clé publique Ed25519 embarquée n'est pas un point valide de la courbe |
 | `TrailingBytes` | octets restants après une valeur complète |
 | `Validation` | violation d'un invariant de `scone-core` |
 | `NonCanonical` | encodage valide champ par champ mais non canonique |
+| `InvalidDelegateSet` | jeu de délégués de records hors bornes ou non canonique (≤ 3 clés, strictement croissantes, sans doublons) |
 
 Le décodage ne panique jamais sur des données réseau.
 
@@ -460,7 +498,11 @@ Le décodage ne panique jamais sur des données réseau.
 - **transactions de chaîne** : chaque `RegisterDomain` /
   `RegisterTld` / `UpdateDomain` embarque `public_key` (32 o) +
   `signature` (64 o) sur la charge
-  `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)` ;
+  `"SCONE-TX-SIG-V1" || disc || version || network_id(str ≤ 16) || body(tx_without_signature)` —
+  le `network_id` est injecté comme premier champ de la
+  transaction encodée (juste après le discriminant et la version
+  de format), liant chaque signature à un seul réseau (le fil
+  lui-même ne porte aucun champ `network`, voir ci-dessus) ;
   spécification normative complète :
   `/docs/en/technical/transactions.md` ;
 - **enregistrements DHT** (`SignedDnsRecord`) : la charge

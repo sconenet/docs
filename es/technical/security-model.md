@@ -8,11 +8,11 @@ El comité de la época N+1 se sortea a partir de la semilla
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 sobre el **pool de elegibilidad congelado en el bloque finalizado
 por el checkpoint N**. `signing_hash` es el hash del **contenido**
-del checkpoint (época, altura, bloque, prev, raíz de estado — juego
-de firmas excluido): la semilla es una función pura de QUÉ se
-finalizó, nunca de QUÉ subconjunto de quórum lo firmó — dos vistas
-que contienen subconjuntos distintos (ambos válidos) del mismo
-checkpoint eligen el mismo comité.
+del checkpoint (época, altura, recuperación, bloque, prev, raíz de
+estado — juego de firmas excluido): la semilla es una función pura
+de QUÉ se finalizó, nunca de QUÉ subconjunto de quórum lo firmó —
+dos vistas que contienen subconjuntos distintos (ambos válidos) del
+mismo checkpoint eligen el mismo comité.
 
 ## Amenaza: hacer grinding de la semilla del comité
 

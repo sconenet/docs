@@ -9,16 +9,20 @@ Mit **(vorläufig)** markierte Punkte sind nicht endgültig.
 
 ## Protokollversion
 
-- Konstante: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`);
+- Konstante: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`);
 - getragen von `Hello.version` (Handshake) und `BlockHeader.version`;
 - Kompatibilitätsregeln:
   - empfangene Version **höher** als die lokale Version → Zurückweisung
     (`ProtocolError::UnsupportedVersion`); der Knoten rät nicht das
     Format einer Version, die er nicht kennt;
   - Version `0` → ungültig;
-  - es gibt nur einen Satz von Formaten: die
-    Transaktions-Versions-Bytes (`0x01`) und die Blockversion müssen
-    mit den lokalen Werten **exakt** übereinstimmen;
+  - Blöcke müssen **exakt** Version `2` sein: Version `1` (das
+    Blockformat vor den Signaturen, Meilenstein M1) ist ein
+    inkompatibles Format, ausdrücklich abgelehnt statt fehlgeparst;
+  - `Hello` toleriert die Versionen `1..=2` (nur Handshake — er
+    trägt keinen Block);
+  - das Transaktionsformat-Versionsbyte (`0x01`) muss mit dem
+    lokalen Wert **exakt** übereinstimmen;
 - keine Major/Minor-Aufteilung in dieser Phase: eine einzige ganze
   Zahl, bei jedem Wire-Format-Bruch erhöht.
 
@@ -38,8 +42,11 @@ Mit **(vorläufig)** markierte Punkte sind nicht endgültig.
   zuerst): native Byte-Reihenfolge findet keine Anwendung;
 - IPv4/IPv6-Adressen und 32-Byte-Bezeichner: rohe Byte-Arrays, ohne
   Längenpräfix;
-- es gibt keine Ganzzahl fester Breite im Format: eine einzige
-  Kodierregel für ganze Zahlen.
+- einzige Ausnahme: der 116-Byte-Checkpoint-Rumpf
+  (`CheckpointData`) ist Ganzzahlen fester Breite,
+  **Little-Endian**, keine Varints (siehe
+  [Checkpoint (M5)](#checkpoint-m5)); jede andere ganze Zahl folgt
+  der einzigen Varint-Regel.
 
 ### Varint (minimales LEB128)
 
@@ -82,10 +89,16 @@ Zurückweisungen: `80 00` (nicht minimal), `ff×9 02` (u64-Überlauf),
 | `RecordHash` | 32 rohe Bytes |
 | `BlockHash` | 32 rohe Bytes |
 | `MerkleRoot` | 32 rohe Bytes |
-| `DomainName` | `str` (≤ 253 Bytes, von `scone-core` revalidiert) |
+| `DomainName` | `str` ≤ 253 Bytes (kanonisches ASCII-A-Label), von `scone-core` revalidiert |
 
 Ableitungen (`BLAKE3-256` + `SCONE-DOMAIN-V1`-Präfixe usw.) bleiben
 durch `scone-core` definiert (siehe `/docs/en/general/naming.md`).
+
+Wire-Namen — `DomainName` und die TLD eines `REGISTER_TLD` — sind
+**nur kanonische ASCII-A-Labels**: Nicht-ASCII-Bytes werden beim
+Dekodieren abgelehnt (`NonCanonical`). Die IDNA-Kanonisierung
+existiert nur zur Konstruktionszeit (Nutzereingabe); auf dem Wire
+läuft sie nie.
 
 ## Transaktionen
 
@@ -103,7 +116,9 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-Jeder Diskriminant ist eine beliebige opake Konstante (keine
+Die Tabelle oben ist eine **Teilmenge** (7 der 19
+Transaktionstypen). Jeder
+Diskriminant ist eine beliebige opake Konstante (keine
 logische Sequenz; `0x00` nie gültig) — vollständige normative
 Tabelle in `/docs/en/technical/transactions.md`.
 
@@ -147,7 +162,7 @@ ist genau 64 Bytes.
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 Claim einer TLD (von der Domain-Registry getrenntes Register, M7):
@@ -158,7 +173,13 @@ jeder `DomainId`. Zustandsregeln (M8b): TLD frei + nicht
 ICANN-reserviert (`IcannTldReserved` — ICANN-Root-TLDs sind von
 niemandem beanspruchbar) + PoW mit der **längenbasierten**
 Schwierigkeit des Labels (`pow_length`-Kurve — siehe
-`blockchain.md`); beanspruchte ist geschlossen (nur assign).
+`blockchain.md`); beanspruchte ist geschlossen (nur assign). `open`
+ist ein kanonischer Boolescher (`0x00`|`0x01`; jedes andere Byte
+ist ein harter Dekodierfehler, `NonCanonical`): die Owner-Option
+für eine **offen geborene** TLD (`0x01` = offen für
+Self-Service-Registrierung bei der Geburt). Er wird nach dem
+variabel langen `proof` geschrieben, direkt vor dem öffentlichen
+Schlüssel.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -166,8 +187,13 @@ Schwierigkeit des Labels (`pow_length`-Kurve — siehe
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-Beim Dekodieren erneut geprüfte Invariante: `sequence > 0` und
-`owner` == Ableitung von `public_key`. Kein `timestamp`: die
+Beim Dekodieren erneut geprüfte Invariante: nur `sequence > 0` —
+plus die Signatur über die Nutzlast, verifiziert gegen den
+eingebetteten `public_key`. Die Autoritätsregel (der Signierende
+muss der Domain-Owner oder einer seiner Record-Delegierten sein,
+höchstens 3) ist eine **Zustands**regel, die von `scone-blockchain`
+bei der Anwendung erzwungen wird, keine Wire-Prüfung. Kein
+`timestamp`: die
 Reihenfolge läuft über `sequence`. Die Transaktion trägt nur
 kompakte Referenzen — der vollständige DNS-Inhalt bleibt im DHT
 (siehe unten).
@@ -201,7 +227,14 @@ Standard `DEFAULT_TTL = 86.400`).
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (siehe unten) |
+| 32769 | NS4 | 4 Bytes (IPv4-Adresse) |
+| 32770 | NS6 | 16 Bytes (IPv6-Adresse) |
 | andere | Unknown | code.v + `bytes` ≤ 4096 |
+
+Die Typen 32769 (`NS4`) und 32770 (`NS6`) sind private Scone-Typen
+(nicht-IANA-Bereich, dieselbe Familie wie `GEOROUTE`): Delegation
+an einen Nameserver, bezeichnet durch IPv4-/IPv6-Adresse statt
+durch Namen.
 
 Beispiel: `A 192.0.2.1` (TTL 86.400) → `01 80 a3 05 c0 00 02 01`
 (Typ, TTL-Varint, Adresse).
@@ -334,19 +367,20 @@ Transport-Frame sollte `MAX_MESSAGE_LEN` (1 MiB) nicht
 | `0x0a` | `Checkpoint` | beide | `Checkpoint` | Signer ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | beide | — | — | Checkpoint-Fenster |
 | `0x0c` | `GetStatus` | beide | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | beide | Knotenzustand (Netzwerk, Tip, Höhe, NAT, Domains, Mempool, Peers, Finalität, frische Betreiber) | — | — |
+| `0x0d` | `NodeStatus` | beide | Knotenzustand (Netzwerk, Tip, Höhe, NAT, Domains, Mempool, Peers, finalisierte Epoche, Größe des Checkpoint-Fensters, frische Betreiber) | — | — |
 | `0x0e` | `LookupName` | beide | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | beide | On-Chain-Zustand des Namens + TLD, inkl. der CAS-Generation (Mutationszähler, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | beide | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | beide | lebende Domains + TLDs des Owners | — | — |
-| `0x12` | `Error` | Antwort | Fehlermeldung auf Anwendungsebene (`str`) | — | — |
+| `0x12` | `Error` | Antwort | Fehlermeldung auf Anwendungsebene (`str`, ≤ 4096 Bytes, beim Kodieren und Dekodieren geprüft) | — | — |
 
 ### Checkpoint (M5)
 
 Ein aggregierter Checkpoint geht als Folgendes auf das Wire: Tag
 `SCONE-CKPT-V1` || Rumpf `CheckpointData` (116 B, LE — identisch mit
-dem Ende der Signatur-Preimage: `epoch(8) height(8) block_hash(32)
-prev_checkpoint_hash(32) state_root(32) recovery(4)`) || `count.v` ||
+dem Ende der Signatur-Preimage: `epoch(8) height(8) recovery(4)
+block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) || `count.v` ||
 `pk[32] ‖ sig[64]` pro Signer, **sortiert nach aufsteigendem pk, ohne
 Duplikate**, `count ≤ 64` (`MAX_CHECKPOINT_SIGNERS`). Strenges
 Dekodieren: Abschneidung, falscher Tag, nicht-kanonischer pk,
@@ -434,12 +468,15 @@ kanonisches Objekt → kanonische Binärkodierung → Hash / Signatur
 | `InvalidVarint` | nicht-minimaler, überlaufender oder zu langer Varint |
 | `IntegerOutOfRange` | Ganzzahl passt nicht in ihren Zieltyp |
 | `UnsupportedVersion` | Version null oder höher als lokal |
+| `PowNotSignable` | pow-to-owner-Form durch einen Signaturpfad geroutet (sie werden nie signiert — der geminte Proof ist die Autorisierung) |
 | `UnknownDiscriminant` | unbekannter Transaktions-/Nachrichten-Diskriminant |
 | `LimitExceeded` | Länge oder Anzahl jenseits einer Grenze |
 | `InvalidUtf8` | nicht-UTF-8-Zeichenkette |
+| `InvalidTransactionKey` | eingebetteter Ed25519-öffentlicher Schlüssel ist kein gültiger Kurvenpunkt |
 | `TrailingBytes` | Bytes, die nach einem vollständigen Wert bleiben |
 | `Validation` | Verletzung einer `scone-core`-Invarianten |
 | `NonCanonical` | feldweise gültige, aber nicht-kanonische Kodierung |
+| `InvalidDelegateSet` | Record-Delegierten-Menge außerhalb der Grenzen oder nicht-kanonisch (≤ 3 Schlüssel, strikt aufsteigend, keine Duplikate) |
 
 Das Dekodieren gerät bei Netzwerkdaten nie in Panik.
 
@@ -450,8 +487,14 @@ Das Dekodieren gerät bei Netzwerkdaten nie in Panik.
   Signaturen und schwache Schlüssel werden abgelehnt);
 - **Chain-Transaktionen**: jede `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` bettet `public_key` (32 B) + `signature` (64 B) über
-  der Nutzlast `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`
-  ein; vollständige normative Spezifikation:
+  der Nutzlast `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)`
+  ein — die `network_id` wird
+  als erstes Feld der kodierten Transaktion injiziert (direkt nach
+  dem Diskriminant und der Formatversion) und bindet jede Signatur
+  an ein Netzwerk (das Wire selbst trägt kein `network`-Feld, siehe
+  oben);
+  vollständige normative Spezifikation:
   `/docs/en/technical/transactions.md`;
 - **DHT-Einträge** (`SignedDnsRecord`): die signierte Nutzlast ist
   die kanonische Kodierung des `DnsRecord`; die Verifikation kreuzt

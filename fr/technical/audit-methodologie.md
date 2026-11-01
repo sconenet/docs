@@ -11,7 +11,7 @@ Modèle d'adversaire : un nœud p2p arbitrairement hostile (peut envoyer
 n'importe quels octets via QUIC/UDP), un soumetteur de tx hostile, un
 opérateur de relais curieux, un data-dir volé. EXCLUS par conception : le
 client final (le DNS est public par nature), la disponibilité globale
-(le chaos est déjà testé).
+(le chaos est déjà testé — batterie `tests/adversarial*.rs`).
 
 Table des actifs, par ordre de criticité :
 1. **La propriété** (chaîne d'état : Register/Update/Transfer/Assign) —
@@ -25,10 +25,19 @@ Table des actifs, par ordre de criticité :
 
 ## 1. Audit statique automatisé (jour 1 — mécanique)
 
-- `cargo audit` (CVEs de dépendances : libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + revue des `unsafe` (attendu ≈ 0).
+- `cargo audit` (CVEs de dépendances : libp2p/quinn/rustls/redb/ed25519) ;
+  acceptations suivies dans `audit.toml` (RUSTSEC-2024-0436 accepté :
+  `paste` non maintenu, aucun défaut connu).
+- `cargo geiger` + revue des `unsafe` (attendu ≈ 0 — vérifié : le seul
+  `unsafe` vit dans les tests ; `#![forbid(unsafe_code)]` dans
+  scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (déjà vert, garder comme barrière CI).
+  (déjà vert ; garder comme barrière locale pré-merge — pas de CI
+  pour l'instant).
+- Pas encore de harnais de fuzz : le premier livrable est la crate
+  `fuzz/` ciblant les cinq décodeurs (`decode_complete`,
+  `parse_query`, `extract_answers`, analyseur de fichier
+  d'enregistrements, analyseur de keyfile).
 - Fuzzing des frontières de décodage (jours 2-3) :
   `cargo-fuzz` sur `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — c'est LA
@@ -45,7 +54,8 @@ Table des actifs, par ordre de criticité :
 Ordonnée par criticité des actifs, 1 composant = 1 checklist :
 
 ### 2.1 scone-crypto + dérivation d'identité (jour 4)
-- OwnerId = BLAKE3(pubkey) : vérifier la canonicalisation des octets
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)) : vérifier la canonicalisation des octets
   (pas de représentation ambiguë → 2 clés, 1 propriétaire).
 - Ed25519 : DÉSÉRIALISATION stricte (clé non canonique rejetée ?),
   vérification avec séparation de contexte (chaque usage a son tag de
@@ -56,7 +66,7 @@ Ordonnée par criticité des actifs, 1 composant = 1 checklist :
   chiffré.
 
 ### 2.2 Application des transactions (jour 5) — le cœur
-Pour CHAQUE variante de Transaction (13 aujourd'hui) :
+Pour CHAQUE variante de Transaction (19 aujourd'hui) :
 - La tx est-elle idempotente au replay (txid unique, nonce/séquence) ?
 - Le contrôle de propriété précède-t-il tout effet ? (signataire ==
   propriétaire appris on-chain, jamais cru depuis la tx elle-même.)
@@ -108,8 +118,10 @@ Pour chaque constat de la revue manuelle, un test qui le prouve :
   malformés/dissidents) — étendre SimNet avec un rôle « byzantin
   passif » ;
 - vrai maillage de 30 nœuds avec 3 nœuds hostiles (octets aléatoires,
-  rafales de tx invalides, enregistrements DHT forgés) — la batterie
-  chaos existe, ajouter le rôle attaquant ;
+  rafales de tx invalides, enregistrements DHT forgés) — aspirationnel
+  aujourd'hui : la batterie existante est `tests/adversarial*.rs`
+  (adversarial, adversarial_consensus, adversarial_dos) plus les
+  scénarios sim ; l'étendre avec le rôle attaquant ;
 - contre-vérifications : deux implémentations du décodage (la doc
   protocol.md est NORMATIVE — un auditeur implémente le wire depuis la
   doc SEULE et compare les octets ; toute divergence = bug de la doc
@@ -133,7 +145,8 @@ spécification des exigences — un vrai gain de coût.
       de sommet ni corruption de cache
 - [ ] Divergence doc/code : zéro (vérifiée par la double
       implémentation wire)
-- [ ] CVEs bloquantes : zéro (cargo audit)
+- [ ] CVEs bloquantes : zéro (cargo audit ; RUSTSECs acceptés
+      suivis dans `audit.toml`)
 - [ ] Audit externe du périmètre crypto/wire/tx fait (si
       budgété)
 

@@ -11,7 +11,8 @@ Modelo de adversario: un nodo p2p arbitrariamente hostil (puede
 enviar cualquier byte por QUIC/UDP), un enviador de transacciones
 hostil, un operador de relay curioso, un data-dir robado. EXCLUIDO
 por diseño: el cliente final (el DNS es público por naturaleza), la
-disponibilidad global (el caos ya está probado).
+disponibilidad global (el caos ya está probado — batería
+`tests/adversarial*.rs`).
 
 Tabla de activos, por orden de criticidad:
 1. **Propiedad** (cadena de estado: Register/Update/Transfer/Assign)
@@ -25,10 +26,19 @@ Tabla de activos, por orden de criticidad:
 
 ## 1. Auditoría estática automatizada (día 1 — mecánica)
 
-- `cargo audit` (CVEs de dependencias: libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + revisión de `unsafe` (esperado ≈ 0).
+- `cargo audit` (CVEs de dependencias: libp2p/quinn/rustls/redb/ed25519);
+  aceptaciones registradas en `audit.toml` (RUSTSEC-2024-0436
+  aceptado: `paste` sin mantenimiento, sin fallo conocido).
+- `cargo geiger` + revisión de `unsafe` (esperado ≈ 0 — verificado:
+  el único `unsafe` vive en los tests; `#![forbid(unsafe_code)]` en
+  scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (ya en verde, mantener como barrera de CI).
+  (ya en verde; mantener como barrera local pre-merge — aún no
+  existe CI).
+- Aún no existe ningún harness de fuzzing: el primer entregable es
+  el crate `fuzz/` apuntando a los cinco decodificadores
+  (`decode_complete`, `parse_query`, `extract_answers`, parser de
+  archivos de registros, parser de keyfiles).
 - Fuzzing de las fronteras de decodificación (días 2-3):
   `cargo-fuzz` sobre `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — esta es LA
@@ -45,7 +55,8 @@ Tabla de activos, por orden de criticidad:
 Ordenada por criticidad del activo, 1 componente = 1 checklist:
 
 ### 2.1 scone-crypto + derivación de identidad (día 4)
-- OwnerId = BLAKE3(pubkey): comprobar la canonización de bytes
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)): comprobar la canonización de bytes
   (ninguna representación ambigua → 2 claves, 1 propietario).
 - Ed25519: DESERIALIZACIÓN estricta (¿se rechaza la clave no
   canónica?), verificación con separación de contextos (cada uso
@@ -55,7 +66,7 @@ Ordenada por criticidad del activo, 1 componente = 1 checklist:
   permisos de archivo, oráculo de padding sobre el cifrado.
 
 ### 2.2 Aplicación de transacciones (día 5) — el núcleo
-Para CADA variante de Transaction (13 hoy):
+Para CADA variante de Transaction (19 hoy):
 - ¿Es la tx idempotente bajo replay (txid único, nonce/secuencia)?
 - ¿La comprobación de propiedad precede a cualquier efecto?
   (signer == owner aprendido on-chain, nunca confiado desde la
@@ -110,8 +121,10 @@ Para cada hallazgo de la revisión manual, un test que lo demuestre:
   malformados/disconformes) — extender SimNet con un rol «bizantino
   pasivo»;
 - malla real de 30 nodos con 3 nodos hostiles (bytes aleatorios,
-  ráfagas de txs inválidas, registros DHT falsificados) — la
-  batería de caos existe, añadir el rol de atacante;
+  ráfagas de txs inválidas, registros DHT falsificados) —
+  aspiracional hoy: la batería existente es `tests/adversarial*.rs`
+  (adversarial, adversarial_consensus, adversarial_dos) más los
+  escenarios sim; extenderla con el rol de atacante;
 - verificaciones cruzadas: dos implementaciones de la decodificación
   (el doc protocol.md es NORMATIVO — un auditor implementa el wire
   a partir del doc SOLO y compara bytes; cualquier divergencia =
@@ -135,7 +148,8 @@ especificación de requisitos — una ventaja de coste real.
       de tip ni corrupción de caché
 - [ ] Divergencia doc/código: cero (verificada por la doble
       implementación wire)
-- [ ] CVEs bloqueantes: cero (cargo audit)
+- [ ] CVEs bloqueantes: cero (cargo audit; RUSTSECs aceptados
+      registrados en `audit.toml`)
 - [ ] Auditoría externa del ámbito cripto/wire/txs hecha (si está
       presupuestada)
 

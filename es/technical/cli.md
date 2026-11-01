@@ -17,7 +17,10 @@
   incluidos los del relay — el relay ya escribía a stderr antes de
   la migración.
 - Los mensajes de error orientados al usuario del CLI
-  (`scone: <error>`) se quedan en stderr: es UX, no logs.
+  (`scone: <error>`) se quedan en stderr: es UX, no logs. Un
+  comando que falla imprime también una segunda línea en stderr,
+  `[Failed: <error>]`, en espejo de las líneas de estado de los
+  comandos exitosos.
 
 ## Niveles y `--verbose` / `-v`
 
@@ -34,7 +37,7 @@ o después del subcomando (`scone -vv identity list` y
 `scone identity list -vv` son equivalentes).
 
 **Por qué `scone relay` se queda en INFO por defecto**: el relay es
-un daemon — debe registrar su actividad (escucha RPC/p2p, bloques
+un daemon — debe registrar su actividad (escucha p2p, bloques
 aceptados y producidos, pares conectados, rechazos) para ser
 operable, sin exigir un flag. Los comandos one-shot, en cambio, se
 mantienen silenciosos (WARN) para no ensuciar una terminal o un
@@ -70,8 +73,12 @@ flag CLI explícito  >  variable .env  >  valor por defecto integrado
   en el entorno real del proceso — misma variable, mismo efecto);
 - en caso contrario el valor por defecto integrado de clap.
 
-Las variables repetibles (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
-se acumulan: una línea por valor en `.env` (dotenvy añade).
+`.env` contiene UN solo valor por variable: dotenvy aplica la
+PRIMERA ocurrencia de una variable (los duplicados se saltan
+silenciosamente) y nunca acumula; el entorno real del proceso
+también gana al archivo. Varias semillas de bootstrap o upstreams
+DNS exigen por tanto repetir los flags `--bootstrap` /
+`--dns-upstream` en la línea de comandos.
 
 La tabla completa de las variables `SCONE_*` (red, escucha P2P,
 bootstrap, génesis, UPnP, superficie DNS, métricas, perfil de
@@ -82,14 +89,17 @@ comentada es `.env.example` en la raíz del repositorio (copiar a
 
 ## Semántica de niveles (convención del código)
 
-- `error!`: fallos (hoy sin puntos de llamada — los fallos de red se
-  tragan como `warn!` y solo los fallos locales fatales afloran
-  como error tipado desde `run()`);
+- `error!`: fallos locales fatales (signer desactivado ante un
+  estado del signer ilegible/corrupto, store inutilizable, fallo
+  de recuperación de fork profundo, passphrase del anchor no
+  persistida) — los fallos de red se tragan como `warn!` y solo
+  los fallos locales fatales afloran como error tipado desde
+  `run()`;
 - `warn!`: entradas de red hostiles o maliciosas rechazadas, txs
   obsoletas desalojadas del mempool, txs conflictivas descartadas
   durante la producción, fallos salientes/entrantes,
   desajuste de claves DHT;
-- `info!`: bloque aceptado/producido, escucha RPC/p2p, par
+- `info!`: bloque aceptado/producido, escucha p2p, par
   conectado, arranque del relay (checkpoints de estado);
 - `debug!`: detalles internos (tx aceptada, par desconectado, round
   trip RPC, listado del keystore, eventos kad bajo
@@ -109,8 +119,9 @@ del subcomando — el relay necesita sus logs desde el arranque).
 - **Sin `--identity`** cuando el keystore contiene una sola
   identidad (se usa en silencio; si hay varias → el error las
   lista).
-- Eliminados (los stubs sugieren el reemplazo): `show`, `submit`,
-  `lookup`, `owned`.
+- Eliminados: `show`, `submit`, `lookup`, `owned` — sin stubs;
+  clap rechaza estos nombres con su error genérico «unrecognized
+  subcommand» más una sugerencia del nombre más cercano.
 - Nuevos: `scone domain renew <name>`, `scone domains`, `scone
   domain get|set` (registro único, sin archivo).
 
@@ -186,8 +197,8 @@ disponible:
 
 cada acción tiene exactamente UNA ruta canónica; los antiguos
 alias de raíz (`show`, `lookup`, `owned`, `renew`) fueron
-eliminados (remove-cli-aliases), igual que `domain info`, que
-nunca correspondió a un comando real.
+eliminados (remove-cli-aliases); `domain info` permanece como
+alias de compatibilidad de `domain get`.
 
 La superficie hex offline (subcomandos `tx build|sign|verify`,
 `submit tx`) fue ELIMINADA (remove-tx-surface-v2): las operaciones
@@ -196,8 +207,13 @@ M8b que servía son ahora comandos de primera clase —
 de apertura se mina por ti), `scone tld transfer <tld> <owner>`,
 `scone tld revoke <tld>`, `scone domain assign <name> <owner>`
 (propietario del TLD, TLD privativo) y `scone domain transfer
-<name> <owner>`. Cada uno: lectura de estado, firma, envío, txid.
-La resolución de registros DNS pasó a `scone domain resolve <name>`
+<name> <owner>`. Cada uno: firma, envío, txid. Las rutas de
+transferencia (`tld transfer`, `domain transfer`) pre-leen el
+estado on-chain en el cliente — la prueba de cesión está ligada a
+la generación actual — mientras que `tld open`, `tld revoke` y
+`domain assign` no hacen lectura de estado en el cliente (el nodo
+lo hace cumplir). La resolución de registros DNS pasó a
+`scone domain resolve <name>`
 (ex-`record get`); el canal de publicación hex (`record put`)
 desapareció — la edición pasa por `domain set` / `domain update`.
 - `scone domain mine <name>` — mina SOLO la prueba de registro
@@ -221,8 +237,9 @@ desapareció — la edición pasa por `domain set` / `domain update`.
   `scone tld register <tld> --to <pubkey>` / `scone tld renew
   <tld> --to <pubkey>` envían una prueba cuyo challenge liga la
   clave del BENEFICIARIO; el `owner` on-chain se recalcula como
-  `hash(pubkey_dest)` (un renew NUNCA cambia de manos). Sin
-  `--proof`, el comando mina él mismo la prueba; con `--proof
+  `hash(pubkey_dest)` (un renew NUNCA cambia de manos). Los
+  comandos `--to` minan siempre su prueba in situ — `--proof` solo
+  existe en `domain register --to`: con `--proof
   -`/FILE consume un payload `scone-domain-pow-to-v1` y rechaza
   una prueba minada para OTRO beneficiario. Estilo pipe:
   `scone domain mine n.tld --mine-for <pubkey> | scone domain
@@ -254,7 +271,8 @@ TLD privativo, y los suelos de registro TLD/dominio (la curva de
 longitud). La red elegida determina los parámetros Argon2id
 (mainnet: 64 MiB, t=2 — el coste real; testnet/devnet: el perfil
 ligero, pruebas en milisegundos). Cada worker asigna su propio
-carril Argon2id de 64 MiB — dimensiona `--cores` según la RAM
+carril Argon2id — 64 MiB en el perfil mainnet, 8 KiB en el perfil
+ligero testnet/devnet — dimensiona `--cores` según la RAM
 disponible.
 
 ## Builds: dev vs mainnet habilitada (mainnet-compile-gate)
@@ -268,8 +286,7 @@ oficial distribuido se construye con:
 cargo build --release --features mainnet
 ```
 
-`scone --version` muestra `+mainnet` en esos builds, y el log de
-arranque del relay dice `build: mainnet-enabled`.
+`scone --version` muestra `+mainnet` en esos builds.
 
 El `--network` por defecto también sigue al build: `mainnet` en
 builds con mainnet habilitada (el binario oficial aterriza a los

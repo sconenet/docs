@@ -69,16 +69,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### قرار: `scone-core` يعتمد على `scone-crypto`
@@ -92,6 +94,9 @@ scone           ← binary / application
   صفر أنواع نواة، لا تبعيات شبكة/نظام ملفات/async ← لا دوران
   ممكن؛
 - يستخدمه `scone-core` للت hashing فقط؛
+- يعتمد `scone-core` أيضًا مباشرة على `argon2` (PoW التسجيل)
+  وعلى `idna` (الأسماء المُدوّلة) — تبعيات نقية،
+  والطبقات محترمة؛
 - توقيعات Ed25519 والمفاتيح تعيش في `scone-crypto` وتعمل على
   البايتات (الحمولات القانونية ينتجها `scone-protocol`).
 
@@ -106,8 +111,7 @@ libp2p، redb، tokio/async، الشبكة، الملفات، OS، خادم DNS�
 
 **scone-crypto** — البدائيات التشفيرية. اليوم: `hash256`
 (BLAKE3)، توقيعات ومفاتيح Ed25519 (`SigningKey`،
-`PublicKey`، `Signature`، تحقق دفعي صارم)، غلاف AEAD
-لمجموعات السجلات (XChaCha20-Poly1305). مخطط له: شجرة Merkle.
+`PublicKey`، `Signature`، تحقق دفعي صارم). مخطط له: شجرة Merkle.
 قاعدة: لا خوارزميات منزلية، تبعيات مدققة فقط.
 
 **scone-protocol** — الصيغة الثنائية للبروتوكول: ترميز/فك
@@ -144,7 +148,7 @@ PoW التسجيل (mine/verify، صعوبات لكل شبكة) يعيش في
 `SignedDnsRecord`، خادم DNS عبر UDP+TCP (GeoDNS مفعّل دائمًا —
 جدول GeoIP مدمج، تراجع تكراري)، حلقة checkpoint/heartbeat
 للـ anchors (يتحدث CLI مباشرة عبر p2p QUIC إلى المُرحّل، لم يعد
-هناك RPC محلي). قابلية الوصول والاكتشاف: AutoNAT v2 (حكم
+هناك RPC محلي). قابلية الوصول والاكتشاف: AutoNAT v1 (حكم
 قابل للوصول/خلف NAT)، circuit-relay v2 + DCUtR للعقد خلف NAT
 وUPnP (تخطيط منفذ QUIC من قبل الموجّه، opt-in). الإعداد عبر
 ملف `.env` (انظر `.env.example`). المرجع: `/docs/en/technical/relay.md`.
@@ -203,13 +207,16 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-ملفان تعريفان للعقدة:
+ملفات تعريف العقد (مخطَّط لها — لا توجد اليوم أي علامة
+مشغّل من هذا النوع: كل عقدة حالية تحتفظ بكل الكتل،
+واستيراد اللقطة الاختياري أعلاه هو أداة ضبط الاحتفاظ
+الوحيدة):
 
-- **عقدة أرشيف** (علامة المشغّل): تحتفظ بكل الكتل التاريخية،
+- **عقدة أرشيف** (مخطَّطة): تحتفظ بكل الكتل التاريخية،
   تقدّمها للشبكة، تبدأ عبر المسارات القائمة؛
-- **عقدة حالة كاملة**: تحمل الحالة الكاملة عند H واللاحقة،
-  لكنها لا تحمل التاريخ تحت H — تتحقق من الكتل المستقبلية
-  وتقدّم الحالة، ولا تقدّم التاريخ.
+- **عقدة حالة كاملة** (مخطَّطة): تحمل الحالة الكاملة عند H
+  واللاحقة، لكنها لا تحمل التاريخ تحت H — تتحقق من الكتل
+  المستقبلية وتقدّم الحالة، ولا تقدّم التاريخ.
 
 هذا المسار اختياري (OPT-IN): استيراد لقطة متحقق منها فعلٌ
 صريح من المشغّل (`import_verified_snapshot`)، ولا تلقائي أبدًا —

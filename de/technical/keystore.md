@@ -16,7 +16,7 @@ nach Gebrauch genullt (zeroized).
 ## Überblick
 
 - **KDF**: Argon2id (v0x13), Standardparameter `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (Standards des Crate `argon2`).
+  `t_cost` = 3, `p_cost` = 1 (scone-keystore-Standards).
 - **Verschlüsselung**: XChaCha20-Poly1305 (AEAD), 32-Byte-Schlüssel
   abgeleitet aus der KDF, 24 Bytes zufällige Nonce pro Datei.
 - **Verschlüsselter Inhalt**: genau der Ed25519-Seed (32 Bytes); das
@@ -100,24 +100,35 @@ Dann:
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-Keine zugeordneten Daten (AAD) in v1. Die 24-Byte-Nonce, zufällig
-pro Datei, macht das Nonce-Wiederverwendungsrisiko vernachlässigbar
+Keine zugeordneten Daten (AAD) in keiner der beiden Versionen. Die
+24-Byte-Nonce, zufällig pro Datei, macht das
+Nonce-Wiederverwendungsrisiko vernachlässigbar
 (Schlüsseldateien werden nur einmal geschrieben).
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — Kernfunktionen
 
 | Funktion | Rolle |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | Erzeugt einen Schlüssel, schreibt die verschlüsselte Schlüsseldatei (erstellt Elternverzeichnisse); **weigert sich zu überschreiben** einer bestehenden Datei (`Error::KeyfileExists`); gibt den Schlüssel im Speicher zurück |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | Gleich, ersetzt aber explizit eine bestehende Schlüsseldatei |
 | `open(path, passphrase) -> SigningKey` | Entschlüsselt und gibt den Signaturschlüssel zurück |
-| `list(dir) -> Vec<KeyEntry>` | Listet die `*.sconekey`-Dateien in einem Verzeichnis (nach Name sortiert); fehlendes Verzeichnis = leere Liste |
+| `list(dir) -> Vec<KeyEntry>` | Listet die `*.sconekey`-Dateien in einem Verzeichnis (Endungsabgleich ohne Groß-/Kleinschreibung, nach Name sortiert); fehlendes Verzeichnis = leere Liste |
+
+Die Phrase/Label-Varianten (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) wickeln
+dieselbe Versiegelung mit einem öffentlichen Label oder einer
+vom Aufrufer gelieferten BIP39-Phrase ein; sie stehen außerhalb
+der Kern-Tabelle oben.
 
 `GeneratedKey.signing_key` wird beim Drop von `ed25519-dalek`
-genullt (Standard-Feature `zeroize`). Der abgeleitete AEAD-Schlüssel,
-der Seed und das entschlüsselte Klartext sind in
-`zeroize::Zeroizing` eingewickelt: Drop deckt alle Ausgabepfade ab,
-einschließlich der über `?` weitergegebenen Fehler.
+genullt (Standard-Feature `zeroize`). Der abgeleitete AEAD-Schlüssel
+und das entschlüsselte Klartext sind in
+`zeroize::Zeroizing` eingewickelt — Drop deckt alle Ausgabepfade ab,
+einschließlich der über `?` weitergegebenen Fehler. Auf dem
+Siegel-Pfad ist die Seed-Kopie transient: ein schlichtes
+Stapel-Array, das am Ende des Versiegelungsaufrufs aus dem
+Gültigkeitsbereich fällt.
 
 ## Dateiberechtigungen
 
@@ -131,6 +142,7 @@ Generierungen können sich nicht stillschweigend überschreiben.
 
 ```bash
 scone identity generate <n> [--dir <verzeichnis>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <datei>] [--phrase-env VAR] [--dir <verzeichnis>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <verzeichnis>]
 scone identity show <n> [--dir <verzeichnis>] [--passphrase-env VAR]
 ```
@@ -148,6 +160,15 @@ scone identity show <n> [--dir <verzeichnis>] [--passphrase-env VAR]
   Wörter)** genau einmal an — frische 256-Bit-Entropie; allein die
   Wörter regenerieren denselben Schlüssel (`scone identity
   restore`); sie werden nirgends gespeichert.
+- `identity restore` liest die Phrase **nie als Prozessargument**
+  (über `ps` und die Shell-History sichtbar): maskierte Eingabe,
+  `--phrase-file <datei>` oder `--phrase-env <VAR>`. Es
+  **weigert sich standardmäßig, eine bestehende Schlüsseldatei zu
+  überschreiben** (`--force` ersetzt sie explizit).
+- Relay-Anker-Auto-Identität (nicht `identity restore`): die
+  automatisch erzeugte Anker-Passphrase wird mit `0600`
+  geschrieben, und ein Schreibfehler wird gemeldet, nie
+  verschluckt.
 - `identity generate` **weigert sich zu überschreiben** einer
   bestehenden Schlüsseldatei; `--force` ersetzt sie explizit (neues
   Salz/Nonce, neuer Schlüssel, neue Phrase).

@@ -52,7 +52,7 @@ Heartbeat {
 Signierter Rumpf (Wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (der Schlüssel des Signers erscheint am
-Ende des Rumpfes, wie bei jeder Tx) `‖ signature[64]`, also ~230
+Ende des Rumpfes, wie bei jeder Tx) `‖ signature[64]`, also ~200–215
 Bytes kodiert — **kein PoW**: die Kosten sind kontinuierliche
 Präsenz (ein Heartbeat pro Epoche, über Monate).
 
@@ -323,5 +323,5 @@ Chain-Wiederspielbarkeit (Fenster/Räumung) oder die Wahl
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, Wire, Validierung | erledigt |
 | 2 | blockchain | gleitendes Fenster (journliert), gefilterter Pool, Wahl, ~15 Tests | erledigt |
 | 3 | network | automatische Emission, Tx-Relay | erledigt |
-| 4 | CLI | `tx build heartbeat`, Anzeige `fresh operators` in `scone status` | erledigt |
+| 4 | CLI | automatische Relay-Emission (§7); Anzeige `fresh operators` in `scone status`; Offline-Builder entfernt (cli-simplify-v1) | erledigt |
 | 5 | docs | dieses RFC in normative Form konsolidiert, fr/en-Spiegel | erledigt |

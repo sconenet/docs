@@ -17,7 +17,7 @@
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -63,8 +63,7 @@ blockchain ← storage) يبقى متزامنًا ونقيًا.
 
 1. **بذور صريحة** (`--bootstrap`، multiaddrs كاملة) — تأخذ
    الأسبقية دائمًا؛ تقديم قائمة غير فارغة يستبدل كل ما
-   عداها. يفرغ `--no-builtin-seeds` البذور المدمجة لنشرات
-   خاصة 100%.
+   عداها.
 2. **بذور مدمجة** (`builtin_seeds(network)` في
    `scone-network/src/config.rs`) — مجمّدة عند كل إصدار رسمي
    للملف التنفيذي، لكل شبكة. المُرحّل غير المُهيَّأ ينضم إلى
@@ -95,9 +94,9 @@ blockchain ← storage) يبقى متزامنًا ونقيًا.
 (`enable_upnp` = `false` في `config.rs`): نشر عام لا يتحدث
 إلى أي موجّه دون موافقة. **أُزيل اكتشاف mDNS**
 (remove-mdns-discovery، 2026-10-22): يأتي الـ peering
-حصريًا من bootstrap الصريح والبذور المدمجة وKademlia — لا
-يزال flag القديم `--mdns`/`SCONE_MDNS` مقبولًا بلا أثر
-(توافق السكربتات، نفس معاملة `--rpc`).
+حصريًا من bootstrap الصريح والبذور المدمجة وKademlia —
+الـ flags القديمة `--mdns`/`SCONE_MDNS` **أُزيلت**: تمريرها
+خطأ clap اليوم (لا وسيط كهذا موجود).
 
 ### تحسين الطوبولوجيا المحلية (مفعل دائمًا)
 
@@ -175,11 +174,12 @@ scone relay --topology-profile tiny
 (`only_global_ips = false`): شبكة LAN تختبر قابلية وصولها
 المحلية.
 
-المُرحّل القابل للوصول يفعّل circuit-relay v2 **hop** (يستطيع
-ترحيل ترافيك لأقران خلف NAT) و**DCUtR** (خرق ثقب: عقدتان
+كل مُرحّل يشغّل circuit-relay v2 **hop** (يستطيع ترحيل
+ترافيك لأقران خلف NAT) و**DCUtR** (خرق ثقب: عقدتان
 متصلتان عبر دائرة تحاولان اتصالًا مباشرًا وتحرّران
-المُرحّل). والمُرحّل المحكوم عليه خلف NAT يطلب تلقائيًا
-حجزًا من أول قرين قابل للوصول معروف ويستمع عبره (العنوان
+المُرحّل) **بلا شروط**؛ فقط طلب حجز الطرف المحرون خلف NAT
+مقيد بالحكم: والمُرحّل المحكوم عليه خلف NAT يطلب تلقائيًا
+حجزًا من أول قرين **متصل** قابل للوصول ويستمع عبره (العنوان
 `/p2p/<relay>/p2p-circuit`).
 
 قاعدة الإنتاج: العقدة المحرونة خلف NAT لا ينبغي أن تصبح
@@ -240,8 +240,9 @@ scone relay --topology-profile tiny
    [اكتشاف الأقران](#اكتشاف-الأقران)): `--bootstrap` صريح
    (ينتهي بـ `/p2p/<peer-id>`) وإلا البذور المدمجة للشبكة
    وإلا الدليل المتعلَّم (`peers.json`)؛
-5. اتصال بكل multiaddr وتسجيله في جدول Kademlia (الاتصال
-   الميت يُتجاهل — البقية تكوّن الشبكة).
+5. تسجيل كل multiaddr للبذور في السرب **وفي** جدول Kademlia
+   (الاتصالات نفسها يقوم بها bootstrap الـ Kademlia التلقائي؛
+   القرين الميت لا يُجاب عليه ببساطة).
 
 ### استلام معاملة (إرسال P2P أو `submit tx` من الـ CLI)
 
@@ -267,6 +268,13 @@ scone relay --topology-profile tiny
    فحص مسبق لنافذة المهلة؛ `RenewDomain` ← نطاق معروف + مالك،
    فحص مسبق لـ PoW التجديد (مرتبط بالانتهاء الحالي) عند
    الارتفاع التالي؛
+   `TransferDomain` ← نطاق معروف + مالك؛ `SetRecordDelegates`،
+   `SetTldOperator`، `SetDomainOperator` ← مالك + CAS
+   `state_binding` = الجيل الحالي؛ عائلة pow-to-owner
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) ← فحوص مسبقة لشكل الاسم/الإثبات (لا
+   موقّع، لا توقيع)؛ `Slash`/`Heartbeat` ← عبور مباشر
+   (يُتحقق منهما كاملين وقت الدفع)؛
 4. إدراج في الـ mempool (سعة ثابتة، تنقية بالـ `TxId` —
    إعادة إرسال معاملة موجودة في الحوض no-op)؛
 5. بث إلى الأقران (عدا المرسل).
@@ -361,6 +369,10 @@ clap يتجاوزه دائمًا):
 - **لحاق النهائية**: مُرحّل قاعدته فارغة (إقلاع عقدة جديدة)
   يطلب `GetCheckpoints` من نظير عند كل tick حتى تُستعاد
   القاعدة؛
+- **نبضة proof-of-service**: عند كل حد epoch يصدر المُرحّل
+  تلقائيًا معاملة `Heartbeat` الخاصة به (موقَّعة بمفتاح
+  anchor، نبضة واحدة على الأكثر لكل epoch، وفقط ما دامت
+  الهوية تحمل مقعدًا حيًا) عبر مسار الـ mempool المعتاد؛
 - المُرحّل بلا مفتاح anchor يبقى **سلبيًا**: يراكم، يُنهي،
   ويرحّل، لكنه لا يوقّع أبدًا؛
 - `GetCheckpoints` ← تُقدَّم نافذة `checkpoint_window()`؛
@@ -372,9 +384,11 @@ clap يتجاوزه دائمًا):
 الكتلة الأخت عند نفس الارتفاع، أو الكتلة التي أبوها ليس
 القمة الحالية (`ParentNotTip`/`UnknownParent`)، لا تُفقد
 **أبدًا**: تُوقَّف (خريطة محدودة، `PARKED_CAP = 2048` كتلة،
-~KiB لكل منها — أسوأ حالة RAM محدودة؛ التوقيف الممتلئ يتجاهل
-الوافدين الجدد بصمت). الـ hashes المعروضة سلفًا على
-`accept_block` تُنقّى (`seen_blocks`): الكتلة الخاسرة المعاد
+~KiB لكل منها — أسوأ حالة RAM محدودة؛ التوقيف الممتلئ **يُخلّي**
+مدخل الأدنى `(height, hash)` ويدرج الكتلة الطازجة — لا
+الوافد الجديد أبدًا). الـ hashes المعروضة سلفًا على
+`accept_block` تُنقّى (`seen_blocks` — FIFO محدود من 32,000
+مدخل): الكتلة الخاسرة المعاد
 نشرها لا يعاد تقييمها.
 
 عند كل نبضة `Produce`، يعيد `reconsider_parked` النظر:
@@ -390,6 +404,14 @@ clap يتجاوزه دائمًا):
 دوريًا بدل نسيانها للأبد (اكتشاف chaos-30: كتلتان أختان
 بفارق 15 ms).
 
+**كاشف تعطل التشعب العميق**: 40 دورة إنتاج متتالية دون تقدم
+قانوني بينما العقدة محجوبة (توقيف غير فارغ أو تبنٍّ فرع يصطدم
+بخطأ نافذة المقصّاة `BlockPruned`) تطلق `recover_deep_fork`:
+تُصفَّر سلسلة الـ RAM والتوقيف، وتعيد السلسلة الإقلاع من
+المخزن، ويعيد المُرحّل المزامنة من الأقران — الملاذ الأخير
+الصادق لتقسيم أطول من نافذة الـ RAM (مُسجَّل، يتشفى ذاتيًا؛
+بدونه تبقى العقدة المتعطلة منقسمة الذهن حتى إعادة تشغيل يدوية).
+
 **ثبات إعادة التنظيم**: تبنّي فرع آخر لا يمر بالإلحاق الرتيب
 (`NonMonotonicHeight`). يطبّق المُرحّل `rewind_to_height(نقطة
 التشعب)` ثم `persist_state_snapshot` (إعادة كتابة الحالة
@@ -403,8 +425,20 @@ clap يتجاوزه دائمًا):
 `GetBlocks(start = local_height + 1)`. كل `Block` مستقبَلة
 تُكمل الارتفاع المتوقع بالضبط تُطلق طلب الارتفاع التالي، حتى
 النفاد (`Pong` = لا مزيد) أو `MAX_SYNC_ROUNDS` (10,000) دفعة —
-حدّ مطلق حتى ضد قرين كاذب. الكتل المستقبلة تمر بتحقق كامل:
+حدّ مطلق حتى ضد قرين كاذب. **السحب الرجعي المطلق من اليتيمة**:
+كتلة مستقبلة تتوقف عند `UnknownParent` (أبوها مجهول محليًا —
+مثلًا تشعب نما أثناء انفصالنا) تطلق فورًا
+`GetBlocks(start_height = block.height − 1)` إلى **نفس**
+القرين؛ يتجسد مقطع التشعب الناقص وتتصل الكتلة المتوقفة في
+تفريغ لاحق لـ `reconsider_parked`. محدود: سحب واحد لكل
+يتيمة، منقّى بـ `seen_blocks` عند إعادة العرض. الكتل المستقبلة تمر بتحقق كامل:
 لا يستطيع قرين خبيث تمرير أي شيء غير صالح.
+
+يشغّل كل نبضة إنتاج أيضًا فحصًا دوريًا (`recheck_sync`): كل
+قرين متصل سبق أن لحقه يحصل على `GetBlocks(local height + 1)`
+محدود واحد (طلب واحد لكل قرين لكل tick؛ والرد `Pong` فوري
+عندما لا جديد). هذا ما يشفي الجزر المقسومة: القرين الذي
+أنهى اللحاق يظل يعلم بالكتل المنتجة بعده.
 
 ### سجلات DHT
 
@@ -426,6 +460,16 @@ clap يتجاوزه دائمًا):
   DHT جديد.
 - يعمل Kademlia في نمط خادم، بلا TTL للسجلات (السلسلة تحكم
   الصلاحية، لا الزمن).
+- سبّاكة نشر السجلات (محدودة، مضادة للعواصف):
+  (أ) كل نبضة إنتاج تنشر **صفحة** من الذاكرة المستمرة المحلية
+  إلى الأقران المتصلين (256 سجلًا، مشي مؤشر عبر النبضات —
+  RAM محدود لكل نبضة، تغطية كاملة عبر عدة نبضات مهما كان حجم
+  الذاكرة)؛
+  (ب) رسالة `Record` مستقبَلة تُعاد نشرها إلى الأقران الآخرين
+  فقط عندما تكون **جديدة** أو **مختلفة** عن الذاكرة المحلية
+  (وإلا لأعاد كل مستقبل التمرير إلى الأبد)؛
+  (ج) النشر يرفض سجلًا بأكثر من **12 خادم أسماء NS مميزًا**
+  (`MAX_NS_PER_DOMAIN`، كل الصيغ — اسم مضيف، v4، v6).
 
 ### تحقق السجلات (قاعدة "السلسلة هي السلطة")
 
@@ -462,15 +506,18 @@ clap يتجاوزه دائمًا):
 يُعلن الربط الفعلي على stdout (عقد قابل للقراءة آليًا، مثل
 `p2p:`): سطر `metrics: <addr>` فور الاستماع.
 
-**19 عدادًا** (`counter`، رتيبة — المسارات الساخنة:
+**27 سلسلة عدادات** (`counter`، رتيبة — المسارات الساخنة:
 `fetch_add(Relaxed)` على `Arc<Metrics>` مشترك، وليس أبدًا
-مُدخل توافق):
+مُدخل توافق)، زائد سلسلتا geo موسومتان (تُعرضان قبل العدادات
+العادية، سطر لكل وسم — نفس الاسم، مجموعات وسوم متمايزة؛
+تصدران فقط حين تصبحان غير فارغتين):
 
 | المجموعة | السلاسل |
 |---|---|
 | السلسلة | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (موسومة) | `scone_dns_geo_by_continent_total{continent}` (رمز UN M49)، `scone_dns_geo_by_country_total{country}` (رمز ISO 3166-1) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | شبكة الأقران | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -510,7 +557,8 @@ clap يتجاوزه دائمًا):
 - رفض التطبيق ← `Message::Error(msg)` (يصل العميل كرسالة
   مقروءة، لا EOF).
 
-يرفع العميل سرب libp2p أدنى (request-response + identify)،
+يرفع العميل سرب libp2p أدنى (request-response
+**فقط** — بلا identify)،
 مهلة استدعاء 30 ث (ذهاب-إياب 20 ث). الافتراضي `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (عقدة تطوير
 محلية؛ الـ multiaddr الكامل بمعرّف القرين الحقيقي يعلنه
@@ -546,10 +594,13 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 كل أمر تحكم يتحدث QUIC مباشرة إلى multiaddr المُرحّل
 (`--peer`، العقدة المحلية افتراضيًا — توحيد RPC←p2p، لا قناة
-TCP JSON بعد الآن). المُرحّل غائب ← رسالة واضحة "p2p node
-unreachable — is a relay running?"، خروج غير صفري. يُحتفظ
-بالعلم `--rpc` لكنه **مهمل ومتجاهَل** (أُزيل خادم RPC؛ توافقية
-سكربتات فقط).
+TCP JSON بعد الآن). المُرحّل غائب ← خروج غير صفري مع رسالة
+مقروءة: عند تمرير `--peer`/`SCONE_PEER`، "p2p node
+unreachable — is a relay running? (...)"؛ وعلى الافتراضي
+المحلي، "no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)". الـ flag القديمة `--rpc` **أُزيلت**:
+تمريرها خطأ clap اليوم (لا وسيط كهذا موجود).
 
 ### الإعداد عبر البيئة (`.env`)
 
@@ -572,16 +623,12 @@ unreachable — is a relay running?"، خروج غير صفري. يُحتفظ
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (الافتراضي)، `mainnet`، `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | دليل البيانات (الافتراضي `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | multiaddr استماع P2P (الافتراضي: كل الواجهات، منفذ سريع) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | بذور bootstrap، **قابل للتكرار** (سطر لكل قيمة — dotenvy يراكم)؛ يستبدل البذور المدمجة |
+| `SCONE_LISTEN` | `--listen` | multiaddr استماع P2P (الافتراضي: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | بذور bootstrap — **كرّر علم الـ CLI** لعدة قيم (`--bootstrap A --bootstrap B`)؛ في `.env`، قيمة واحدة لكل متغير (dotenvy يحفظ **أول** ظهور، لا يراكم)؛ يستبدل البذور المدمجة |
 | `SCONE_GENESIS` | `--genesis` | ملف التكوين (عقد المؤسسين) |
-| `SCONE_MDNS` | `--mdns` | (متقادم — أُزيل اكتشاف mDNS؛ مقبول، مُهمَل) |
 | `SCONE_UPNP` | `--upnp` | تخطيط منافذ UPnP (`true` = مفعل) |
 | `SCONE_DNS_ADDR` | `--dns` | عنوان ربط خادم DNS عبر UDP |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | تراجعات تكرارية، **قابلة للتكرار** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | سقف مداخل ذاكرة DNS |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | سقف ذاكرة ذاكرة DNS (مثل `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | سقف استعلامات DNS المتزامنة |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | تراجعات تكرارية — **كرّر علم الـ CLI** لعدة قيم (`--dns-upstream A --dns-upstream B`)؛ قيمة واحدة لكل متغير في `.env` |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | توكن bearer لنقطة المقاييس |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | ملف الطوبولوجيا (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`؛ الافتراضي `default`) |
@@ -722,7 +769,7 @@ TXT free text (spaces normalized)
 |---|---|
 | إطار P2P | `MAX_MESSAGE_LEN` (1 MiB) قبل التحليل |
 | Mempool | 4096 معاملة (رفض مُصنَّف بعدها)؛ `MAX_PENDING_PER_DOMAIN = 4` معاملات معلقة لكل نطاق |
-| سماح Mempool | `MAX_GRACE_ATTEMPTS = 10` إعادة إدراج لمعاملة مطراحة لسبب غير نهائي (≈ 7 دقائق عند 40 ث/دورة)، ثم إخلاء |
+| سماح Mempool | `MAX_GRACE_ATTEMPTS = 10` إعادة إدراج لمعاملة مطراحة لسبب غير نهائي (≈ 20 ث عند نبضة الإنتاج الافتراضية 2 ث)، ثم إخلاء |
 | توقيف التشعب | `PARKED_CAP = 2048` كتلة متنافسة |
 | نقاط التفتيش المتراكمة | `MAX_PENDING_CHECKPOINTS = 256` (إخلاء: أدنى hash بيانات) |
 | منتظرو DHT المتزامنون | `MAX_DHT_WAITERS` (256)؛ بحث DHT محدود بـ 30 ث (`DHT_LOOKUP_TIMEOUT`) |
@@ -730,6 +777,11 @@ TXT free text (spaces normalized)
 | سجل DHT | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | ذاكرة DHT المستمرة (قرص) | حد LRU مزدوج: `DHT_CACHE_MAX_ENTRIES` (100,000 مدخل) و`DHT_CACHE_MAX_BYTES` (2 GiB) — أيهما أصاب أولًا يخلي بترتيب المفتاح؛ إخلاء الـ GC في نفس المعاملة كالكتلة (النطاق الذي تقتله GC السلسلة لا يخلف مدخلًا يتيمًا أبدًا) |
 | الذاكرة السلبية DHT | `DHT_NEGATIVE_TTL_SECS` (30 ث)، سقف FIFO `DHT_NEGATIVE_CAP` (4,096) |
+| مهلة طلب req-res | 10 ث لكل طلب، 64 تدفقًا متزامنًا (جانب المُرحّل) |
+| مهلة استعلام Kademlia | 10 ث |
+| مهلة الاتصال الخامل | 300 ث |
+| نقطة المقاييس | 64 سحبة متزامنة؛ مهلة 5 ث على قراءة الترويسة |
+| دفتر العناوين (RAM) | حارس إدراج عند 2× السقف المُخزَّن (السقف المخزَّن: 2,000 مدخل) |
 | السلسلة في RAM | التكوين + نافذة القمة (التاريخ يُقدَّم من المخزن) |
 
 قاعدة مضادة للحلقات (H2): لا يعاد بث المعاملة إلا إذا أُدرجت
