@@ -101,7 +101,9 @@ kommentierte Vorlage ist `.env.example` an der Repository-Wurzel
   der Produktion verworfen, Aus-/Eingehends-Fehlschläge,
   DHT-Schlüssel-Abweichung;
 - `info!`: Block angenommen/produziert, p2p-Listening, Peer
-  verbunden, Relay-Start (Zustands-Checkpoints);
+  verbunden, Relay-Start (Zustands-Checkpoints) und die
+  Build-Flavor-Zeile (`build: mainnet-enabled` /
+  `build: standard`);
 - `debug!`: interne Details (Tx angenommen, Peer getrennt,
   RPC-Roundtrip, Keystore-Auflistung, kad-Ereignisse unter
   `SCONE_KAD_DEBUG`);
@@ -251,6 +253,10 @@ Mainnet-Profil, 8 KiB im leichten Testnet/Devnet-Profil —
 dimensionieren Sie `--cores` auf den verfügbaren RAM.
 
 ## Builds: dev vs. mainnet-fähig (mainnet-compile-gate)
+
+Das Start-Log des Relays eröffnet mit dem Build-Flavor
+(`build: mainnet-enabled` / `build: standard`) — das
+Laufzeit-Gegenstück zum `+mainnet`-Versionsmarker.
 
 Standard-Builds enthalten **kein Mainnet**: `scone relay --network
 mainnet` (und Registrar-Dienste mit `SCONE_NETWORK=mainnet`)

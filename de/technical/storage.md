@@ -362,13 +362,13 @@ dedizierte Pfad (Sticky-Minority-Fix, Relay + Store):
    verlernt Schlüssel, alleinige Upserts würden die Phantome des
    verlierenden Zweigs behalten). Der Namensindex
    (`names_v3`/`name_reverse_v3`) und die lebenden TLD-Floors
-   (`tld_floors_v1`) werden von diesem Schritt NICHT neu
-   geschrieben. **Bekannte Einschränkung (Code-Follow-up
-   ausstehend)**: nach einem Reorg können Geister-Einträge im
-   Namensindex und veraltete Floor-Zeilen des verlierenden Zweigs
-   verweilen, bis die eigenen Deltas des neu angehängten Suffixes
-   sie überschreiben oder ein Neuaufbau (`rebuild_name_index`,
-   Replay) läuft;
+   (`tld_floors_v1`) werden in **derselben Transaktion** neu
+   geschrieben: Geister-Einträge des verlierenden Zweigs und
+   veraltete Floor-Zeilen werden entfernt (Delta gegen den
+   Post-Reorg-Zustand), sodass keine Geister-Bindung und kein
+   veralteter Floor den Reorg überlebt; der beim Boot laufende
+   `rebuild_name_index`/das Replay bleiben das Sicherheitsnetz
+   zur Reparatur nach einem Absturz;
 3. monotones erneutes Anhängen des adoptierten Suffixes
    (gewöhnliche Deltas).
 

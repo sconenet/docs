@@ -250,6 +250,9 @@ als ein Block in der Luft pro Peer.
 
 ### Start
 
+Das Start-Log eröffnet mit dem Build-Flavor
+(`build: mainnet-enabled` / `build: standard`).
+
 0. Netzwerk-Auflösung (`--network testnet|mainnet|devnet`,
    Testnet-Standard, solange das Projekt in Entwicklung ist —
    M8b). Das Datenverzeichnis ist **pro Netzwerk**

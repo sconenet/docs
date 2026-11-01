@@ -21,7 +21,7 @@ Auflösungspfad) —
 derselbe verifizierte Pfad wie die CLI.
 
 ```text
-              UDP+TCP :5353 (ohne Wert = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (ohne Wert = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -58,11 +58,11 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + rekursiver Fallback
 ```
 
-`--dns` OHNE Wert bindet `0.0.0.0:5353` — ALLE Schnittstellen (von
-jedem Netzwerk erreichbar, an dem der Host hängt; ein
-reines-Loopback-Standardwert ist ein markiertes Security-Follow-up).
-Eine explizite Adresse bindet präzise (`--dns 127.0.0.1:5353` =
-nur lokale Abfragen).
+`--dns` OHNE Wert bindet `127.0.0.1:5353` — sicher per
+Standard (nur lokale Abfragen). Öffentliche Erreichbarkeit ist
+Opt-in: eine explizite Adresse übergeben (`--dns 0.0.0.0:5353` =
+ALLE Schnittstellen, von jedem Netzwerk erreichbar, an dem der
+Host hängt).
 
 Das Relay kündigt die effektive Adresse auf stdout an
 (maschinenlesbarer Vertrag, wie `p2p:`): eine Zeile `dns: <addr>`,
@@ -473,17 +473,11 @@ identisch dekodiert (siehe den Test `geo_known_bytes`, eingefroren).
 
 ### Auswahl (Auflösung)
 
-> **Relay-Einschränkung (aktuelles Binary)**: nur die **World**-,
-> **Continent**- und **Country**-Scopes werden vom Resolver des
-> `scone relay` tatsächlich bedient. **Region**-, **Asn**- und
-> **IpPrefix**-Routen validieren On-Chain (Wire-Dekodierung,
-> Signatur, Eindeutigkeit) und zählen in der kanonischen Sortierung,
-> aber der Bedien-Pfad dekodiert Eintragssätze über eine
-> JSON-Form neu, die nur die drei v1-Scopes kennt: Routen mit
-> diesen Scopes werden vor der Auswahl verworfen und nie gewählt.
-> Eine Domain, deren EINZIGE Routen Region/Asn/IpPrefix tragen,
-> fällt auf den klassischen DNS-Pfad zurück (typisch NODATA auf
-> A/AAAA). Code-Follow-up ausstehend.
+Alle sechs Wire-Scopes werden vom Resolver bedient: der
+Bedien-Pfad dekodiert denselben Scope-Satz, den das Wire
+akzeptiert (world, continent, country, region, asn, ipPrefix) —
+eine On-Chain validierte Route wird nie vor der Auswahl
+verworfen.
 
 1. **Scope** — abnehmende Spezifität, **6 Stufen**: **längstes
    passendes IP-Präfix → exakte AS → exaktes Land → exakte Region
@@ -498,14 +492,10 @@ identisch dekodiert (siehe den Test `geo_known_bytes`, eingefroren).
      Land (opake Nummerierung, nur zuverlässig, wenn Veröffentlicher
      und Lokalisierer dieselbe teilen), aber mehr als das Kontinent
      (sie ist in ihrem Land enthalten, also erst recht in ihrem
-     Kontinent) — **nicht bedient** durch das aktuelle Relay (siehe
-     die Einschränkung oben).
-   - *Asn*: exakte AS-Nummer des Kunden (**nicht bedient** durch
-     das aktuelle Relay — siehe die Einschränkung oben).
+     Kontinent).
+   - *Asn*: exakte AS-Nummer des Kunden.
    - *Country*: exaktes Land.
-   - *Region*: exakte Unterteilung (opaker Bezeichner; **nicht
-     bedient** durch das aktuelle Relay — siehe die Einschränkung
-     oben).
+   - *Region*: exakte Unterteilung (opaker Bezeichner).
    - *Continent*: vom Lokalisierer bereitgestellt **oder aus dem
      Land abgeleitet** über die lokale Tabelle
      (`continent_of_country`); ein der Tabelle unbekanntes Land

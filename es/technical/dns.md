@@ -21,7 +21,7 @@ resolución) — la
 misma ruta verificada que el CLI.
 
 ```text
-              UDP+TCP :5353 (sin valor = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (sin valor = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -58,11 +58,11 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + fallback recursivo
 ```
 
-`--dns` SIN valor vincula `0.0.0.0:5353` — TODAS las interfaces
-(alcanzable desde toda red a la que esté conectado el host; un
-valor por defecto solo-loopback está anotado como seguimiento de
-seguridad). Pasa una dirección explícita para vincular con
-precisión (`--dns 127.0.0.1:5353` = solo consultas locales).
+`--dns` SIN valor vincula `127.0.0.1:5353` — seguro por defecto
+(solo consultas locales). La exposición pública es opt-in: pasa
+una dirección explícita (`--dns 0.0.0.0:5353` = TODAS las
+interfaces, alcanzable desde toda red a la que esté conectado el
+host).
 
 El relay anuncia la dirección efectiva en stdout (contrato
 legible por máquina, como `p2p:`): una línea `dns: <addr>` tan
@@ -476,17 +476,10 @@ por v1 se siguen decodificando idénticamente (ver el test
 
 ### Selección (resolución)
 
-> **Limitación del relay (binario actual)**: solo los ámbitos
-> **World**, **Continent** y **Country** son realmente servidos
-> por el resolvedor de `scone relay`. Las rutas **Region**,
-> **Asn** e **IpPrefix** validan on-chain (decodificación wire,
-> firma, unicidad) y cuentan en el orden canónico, pero la ruta
-> de servicio re-decodifica los conjuntos de registros mediante
-> una forma JSON que solo conoce los tres ámbitos v1: las rutas
-> que llevan esos ámbitos se descartan antes de la selección y
-> nunca son electas. Un dominio cuyas ÚNICAS rutas llevan
-> Region/Asn/IpPrefix cae a la ruta DNS clásica (típicamente
-> NODATA en A/AAAA). Seguimiento de código pendiente.
+Los seis ámbitos wire son servidos por el resolvedor: la ruta de
+servicio decodifica el mismo conjunto de ámbitos que acepta el
+wire (world, continent, country, region, asn, ipPrefix) — una
+ruta validada on-chain nunca se descarta antes de la selección.
 
 1. **Ámbito** — especificidad decreciente, **6 niveles**:
    **prefijo IP más largo → AS exacto → país exacto →
@@ -501,13 +494,10 @@ por v1 se siguen decodificando idénticamente (ver el test
      opaca, fiable solo si el publicador y el localizador
      comparten la misma), pero más que el continente (está
      contenida en su país, y por tanto a fortiori en su
-     continente) — **no servido** por el relay actual (ver la
-     limitación arriba).
-   - *Asn*: número de AS exacto del cliente (**no servido** por
-     el relay actual — ver la limitación arriba).
+     continente).
+   - *Asn*: número de AS exacto del cliente.
    - *Country*: país exacto.
-   - *Region*: subdivisión exacta (identificador opaco; **no
-     servido** por el relay actual — ver la limitación arriba).
+   - *Region*: subdivisión exacta (identificador opaco).
    - *Continent*: aportado por el localizador **o derivado del
      país** vía la tabla local (`continent_of_country`); un país
      desconocido para la tabla cae al continente explícito o al

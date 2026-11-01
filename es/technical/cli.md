@@ -100,7 +100,9 @@ comentada es `.env.example` en la raíz del repositorio (copiar a
   durante la producción, fallos salientes/entrantes,
   desajuste de claves DHT;
 - `info!`: bloque aceptado/producido, escucha p2p, par
-  conectado, arranque del relay (checkpoints de estado);
+  conectado, arranque del relay (checkpoints de estado) y la
+  línea de sabor del build (`build: mainnet-enabled` /
+  `build: standard`);
 - `debug!`: detalles internos (tx aceptada, par desconectado, round
   trip RPC, listado del keystore, eventos kad bajo
   `SCONE_KAD_DEBUG`);
@@ -276,6 +278,10 @@ ligero testnet/devnet — dimensiona `--cores` según la RAM
 disponible.
 
 ## Builds: dev vs mainnet habilitada (mainnet-compile-gate)
+
+El log de arranque del relay abre con el sabor del build
+(`build: mainnet-enabled` / `build: standard`) — la contraparte
+en tiempo de ejecución del marcador de versión `+mainnet`.
 
 Los builds por defecto **no llevan mainnet**: `scone relay --network
 mainnet` (y los servicios del registrar con `SCONE_NETWORK=mainnet`)

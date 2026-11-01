@@ -228,6 +228,9 @@ NATed पीयरों के लिए ट्रैफ़िक रिले 
 
 ### स्टार्टअप
 
+स्टार्टअप लॉग बिल्ड फ़्लेवर से खुलता है
+(`build: mainnet-enabled` / `build: standard`)।
+
 0. नेटवर्क रिज़ॉल्यूशन (`--network testnet|mainnet|devnet`, प्रोजेक्ट
    dev में होने तक डिफ़ॉल्ट testnet — M8b)। Data-dir **प्रति
    नेटवर्क** (`~/.scone/<network>/`): ग़ैर-रिक्त store जो दूसरे

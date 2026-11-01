@@ -227,6 +227,9 @@ scone relay --topology-profile tiny
 
 ### الإقلاع
 
+يفتتح سجل الإقلاع بسطر نكهة البناء
+(`build: mainnet-enabled` / `build: standard`).
+
 0. حلّ الشبكة (`--network testnet|mainnet|devnet`، وtestnet
    افتراضي ما دام المشروع قيد التطوير — M8b). دليل البيانات
    **لكل شبكة** (`~/.scone/<network>/`): المخزن غير الفارغ

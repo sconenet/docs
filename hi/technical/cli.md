@@ -95,7 +95,8 @@ profile, anchor) और प्रत्येक की semantics
   मेमपूल से निकाले गए बासी txs, उत्पादन के दौरान छोड़े गए
   परस्पर विरोधी txs, outbound/inbound विफलताएँ, DHT कुंजी बेमेल;
 - `info!`: ब्लॉक स्वीकृत/उत्पादित, p2p सुनना, पीयर
-  जुड़ा, रिले स्टार्टअप (अवस्था checkpoints);
+  जुड़ा, रिले स्टार्टअप (अवस्था checkpoints) और बिल्ड फ़्लेवर
+  पंक्ति (`build: mainnet-enabled` / `build: standard`);
 - `debug!`: आंतरिक विवरण (tx स्वीकृत, पीयर विच्छिन्न, RPC
   round trip, keystore सूचीकरण, `SCONE_KAD_DEBUG` के अंतर्गत kad
   घटनाएँ);
@@ -267,6 +268,10 @@ testnet/devnet: हल्की प्रोफ़ाइल, मिलीसे�
 उपलब्ध RAM के अनुसार `--cores` साइज़ करें।
 
 ## Builds: dev बनाम mainnet-सक्षम (mainnet-compile-gate)
+
+रिले स्टार्टअप लॉग बिल्ड फ़्लेवर से खुलता है
+(`build: mainnet-enabled` / `build: standard`) — `+mainnet`
+वर्शन मार्कर का रनटाइम समकक्ष।
 
 डिफ़ॉल्ट builds में **कोई mainnet नहीं**: `scone relay --network
 mainnet` (और `SCONE_NETWORK=mainnet` वाले registrar services)

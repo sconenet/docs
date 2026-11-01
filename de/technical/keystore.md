@@ -122,13 +122,10 @@ vom Aufrufer gelieferten BIP39-Phrase ein; sie stehen außerhalb
 der Kern-Tabelle oben.
 
 `GeneratedKey.signing_key` wird beim Drop von `ed25519-dalek`
-genullt (Standard-Feature `zeroize`). Der abgeleitete AEAD-Schlüssel
-und das entschlüsselte Klartext sind in
-`zeroize::Zeroizing` eingewickelt — Drop deckt alle Ausgabepfade ab,
-einschließlich der über `?` weitergegebenen Fehler. Auf dem
-Siegel-Pfad ist die Seed-Kopie transient: ein schlichtes
-Stapel-Array, das am Ende des Versiegelungsaufrufs aus dem
-Gültigkeitsbereich fällt.
+genullt (Standard-Feature `zeroize`). Der abgeleitete AEAD-Schlüssel,
+das entschlüsselte Klartext und die Seed-Kopie auf dem Siegel-Pfad
+sind in `zeroize::Zeroizing` eingewickelt — Drop deckt alle
+Ausgabepfade ab, einschließlich der über `?` weitergegebenen Fehler.
 
 ## Dateiberechtigungen
 

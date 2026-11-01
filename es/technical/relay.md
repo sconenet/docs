@@ -245,6 +245,9 @@ en vuelo por par.
 
 ### Arranque
 
+El log de arranque abre con el sabor del build
+(`build: mainnet-enabled` / `build: standard`).
+
 0. resolución de red (`--network testnet|mainnet|devnet`, testnet
    por defecto mientras el proyecto está en desarrollo — M8b). El
    data-dir es **por red** (`~/.scone/<network>/`): un almacén no

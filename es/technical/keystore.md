@@ -121,11 +121,10 @@ núcleo de arriba.
 
 `GeneratedKey.signing_key` se pone a cero al hacer drop por
 `ed25519-dalek` (feature `zeroize` por defecto). La clave AEAD
-derivada y el texto plano descifrado van envueltos en
-`zeroize::Zeroizing` — el Drop cubre todas las rutas de salida,
-incluidos los errores propagados con `?`. En la ruta de sellado la
-copia de la semilla es transitoria: un array puro de pila que sale
-de ámbito al final de la llamada de sellado.
+derivada, el texto plano descifrado y la copia de la semilla de la
+ruta de sellado van envueltos en `zeroize::Zeroizing` — el Drop
+cubre todas las rutas de salida, incluidos los errores propagados
+con `?`.
 
 ## Permisos de archivo
 

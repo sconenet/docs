@@ -355,12 +355,12 @@ minoría-pegajosa, relay + almacén):
    rollback des-aprende claves, así que solo upserts mantendría
    los fantasmas de la rama perdedora). El índice de nombres
    (`names_v3`/`name_reverse_v3`) y los pisos vivos de TLD
-   (`tld_floors_v1`) NO son reescritos por este paso. **Limitación
-   conocida (seguimiento de código pendiente)**: tras un reorg,
-   entradas fantasma del índice de nombres y filas de pisos
-   obsoletas de la rama perdedora pueden persistir hasta que los
-   propios deltas del sufijo re-añadido las sobreescriban o se
-   ejecute una reconstrucción (`rebuild_name_index`, replay);
+   (`tld_floors_v1`) se reescriben en la MISMA transacción: las
+   entradas fantasma de la rama perdedora y las filas de pisos
+   obsoletas se eliminan (delta contra el estado post-reorg), así
+   que ningún binding fantasma ni piso obsoleto sobrevive al
+   reorg; el `rebuild_name_index`/replay del arranque sigue siendo
+   la red de seguridad de reparación tras fallos;
 3. re-append monótono del sufijo adoptado (deltas ordinarios).
 
 Un fallo de persistencia en esta ruta se registra y se degrada (el
