@@ -8,10 +8,11 @@ The committee of epoch N+1 is drawn from the seed
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 over the **eligibility pool frozen at the block finalized by
 checkpoint N**. `signing_hash` is the hash of the checkpoint's
-**content** (epoch, height, block, prev, state root — signature set
-excluded): the seed is a pure function of WHAT was finalized, never
-of WHICH quorum subset signed it — two views holding distinct (both
-valid) subsets of the same checkpoint elect the same committee.
+**content** (epoch, height, recovery, block, prev, state root —
+signature set excluded): the seed is a pure function of WHAT was
+finalized, never of WHICH quorum subset signed it — two views
+holding distinct (both valid) subsets of the same checkpoint elect
+the same committee.
 
 ## Threat: grinding the committee seed
 

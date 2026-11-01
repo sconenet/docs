@@ -9,16 +9,20 @@ Items marked **(provisional)** are not final.
 
 ## Protocol version
 
-- constant: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`);
+- constant: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`);
 - carried by `Hello.version` (handshake) and `BlockHeader.version`;
 - compatibility rules:
   - received version **higher** than the local version → reject
     (`ProtocolError::UnsupportedVersion`); the node does not guess the
     format of a version it does not know;
   - version `0` → invalid;
-  - there is only one set of formats: the transaction version bytes
-    (`0x01`) and the block version must match the local values
-    **exactly**;
+  - blocks must be **exactly** version `2`: version `1` (the
+    pre-signature block format, milestone M1) is an incompatible
+    format, explicitly rejected rather than mis-parsed;
+  - `Hello` tolerates versions `1..=2` (handshake only — it carries
+    no block);
+  - the transaction format version byte (`0x01`) must match the local
+    value **exactly**;
 - no major/minor split at this stage: a single integer, incremented on
   any wire format break.
 
@@ -37,8 +41,10 @@ Items marked **(provisional)** are not final.
   first): native endianness does not apply;
 - IPv4/IPv6 addresses and 32-byte identifiers: raw byte arrays, no
   length prefix;
-- there is no fixed-size wide integer in the format: a single integer
-  encoding rule.
+- sole exception: the 116-byte checkpoint body (`CheckpointData`) is
+  fixed-width **little-endian** integers, not varints (see
+  [Checkpoint (M5)](#checkpoint-m5)); every other integer follows the
+  single varint rule.
 
 ### Varint (minimal LEB128)
 
@@ -80,10 +86,15 @@ Rejections: `80 00` (non-minimal), `ff×9 02` (u64 overflow), `ff×10`
 | `RecordHash` | 32 raw bytes |
 | `BlockHash` | 32 raw bytes |
 | `MerkleRoot` | 32 raw bytes |
-| `DomainName` | `str` (≤ 253 bytes, revalidated by `scone-core`) |
+| `DomainName` | `str` ≤ 253 bytes (canonical ASCII A-label), revalidated by `scone-core` |
 
 Derivations (`BLAKE3-256` + `SCONE-DOMAIN-V1` prefixes, etc.) remain
 defined by `scone-core` (see `/docs/en/general/naming.md`).
+
+Wire names — `DomainName` and a `REGISTER_TLD`'s TLD — are **canonical
+ASCII A-labels only**: non-ASCII bytes are rejected at decoding
+(`NonCanonical`). IDNA canonicalization exists only at construction
+time (user input); it never runs on the wire.
 
 ## Transactions
 
@@ -101,7 +112,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-Each discriminant is an arbitrary opaque constant (no logical
+The table above is a **subset** (7 of the 19 transaction types). Each
+discriminant is an arbitrary opaque constant (no logical
 sequence; `0x00` never valid) — full normative table in
 `/docs/en/technical/transactions.md`.
 
@@ -140,7 +152,7 @@ rejection `ProofEpochMismatch` on mismatch — M8b, see
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 Claim of a TLD (registry separate from the domain registry, M7): the
@@ -150,7 +162,11 @@ derivation of that name, disjoint from every `DomainId` by
 construction. State rules (M8b): TLD free + not ICANN-reserved
 (`IcannTldReserved` — ICANN root TLDs are claimable by no one) + PoW
 at the **length-based** difficulty of the label (`pow_length` curve —
-see `blockchain.md`); claimed is closed (assign-only).
+see `blockchain.md`); claimed is closed (assign-only). `open` is a
+canonical boolean (`0x00`|`0x01`; any other byte is a hard decode
+error, `NonCanonical`): the owner-option for a **born-open** TLD
+(`0x01` = open for self-service registration at birth). It is written
+after the variable-length `proof`, just before the public key.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -158,10 +174,14 @@ see `blockchain.md`); claimed is closed (assign-only).
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-Invariant re-checked at decoding: `sequence > 0` and `owner` ==
-derivation of `public_key`. No `timestamp`: ordering goes through
-`sequence`. The transaction carries only compact references — the
-full DNS content stays in the DHT (see below).
+Invariant re-checked at decoding: `sequence > 0` only — plus the
+signature over the payload, verified against the embedded
+`public_key`. The authority rule (the signer must be the domain owner
+or one of its record delegates, at most 3) is a **state** rule
+enforced by `scone-blockchain` at application, not a wire check. No
+`timestamp`: ordering goes through `sequence`. The transaction carries
+only compact references — the full DNS content stays in the DHT (see
+below).
 
 ## DNS records (DHT side)
 
@@ -192,7 +212,13 @@ varint) follows the type code and covers the whole record: bounds
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (see below) |
+| 32769 | NS4 | 4 bytes (IPv4 address) |
+| 32770 | NS6 | 16 bytes (IPv6 address) |
 | other | Unknown | code.v + `bytes` ≤ 4096 |
+
+Types 32769 (`NS4`) and 32770 (`NS6`) are private Scone types
+(non-IANA range, same family as `GEOROUTE`): delegation to a
+nameserver designated by IPv4/IPv6 address rather than by name.
 
 Example: `A 192.0.2.1` (TTL 86,400) → `01 80 a3 05 c0 00 02 01`
 (type, TTL varint, address).
@@ -319,23 +345,24 @@ not exceed `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0a` | `Checkpoint` | both | `Checkpoint` | signers ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | both | — | — | checkpoint window |
 | `0x0c` | `GetStatus` | both | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finality, fresh operators) | — | — |
+| `0x0d` | `NodeStatus` | both | node state (network, tip, height, NAT, domains, mempool, peers, finalized epoch, checkpoint window size, fresh operators) | — | — |
 | `0x0e` | `LookupName` | both | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | both | on-chain state of the name + TLD, incl. the CAS generation (mutations counters, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | both | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | both | owner's live domains + TLDs | — | — |
-| `0x12` | `Error` | reply | application-level error message (`str`) | — | — |
+| `0x12` | `Error` | reply | application-level error message (`str`, ≤ 4096 bytes, checked at encoding and decoding) | — | — |
 
 ### Checkpoint (M5)
 
 An aggregated checkpoint goes on the wire as: tag `SCONE-CKPT-V1` ||
 body `CheckpointData` (116 B, LE — identical to the end of the signing
-preimage: `epoch(8) height(8) block_hash(32) prev_checkpoint_hash(32)
-state_root(32) recovery(4)`) || `count.v` || `pk[32] ‖ sig[64]` per
-signer, **sorted by ascending pk, no duplicates**, `count ≤ 64`
-(`MAX_CHECKPOINT_SIGNERS`). Strict decoding: truncation, wrong tag,
-non-canonical pk, duplicates or unsorted = rejection (`None`), never a
-panic (corruption fuzz tested).
+preimage: `epoch(8) height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) || `count.v` ||
+`pk[32] ‖ sig[64]` per signer, **sorted by ascending pk, no
+duplicates**, `count ≤ 64` (`MAX_CHECKPOINT_SIGNERS`). Strict
+decoding: truncation, wrong tag, non-canonical pk, duplicates or
+unsorted = rejection (`None`), never a panic (corruption fuzz
+tested).
 
 `GetCheckpoints` requests the finality window; the reply is the
 `checkpoint_window()` window (at most `CHECKPOINT_KEEP` checkpoints,
@@ -413,12 +440,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | non-minimal, overflowing or too-long varint |
 | `IntegerOutOfRange` | integer does not fit its target type |
 | `UnsupportedVersion` | zero or higher-than-local version |
+| `PowNotSignable` | pow-to-owner form routed through a signature path (they are never signed — the mined proof is the authorization) |
 | `UnknownDiscriminant` | unknown transaction/message discriminant |
 | `LimitExceeded` | length or count beyond a limit |
 | `InvalidUtf8` | non-UTF-8 string |
+| `InvalidTransactionKey` | embedded Ed25519 public key is not a valid curve point |
 | `TrailingBytes` | bytes remaining after a complete value |
 | `Validation` | violation of a `scone-core` invariant |
 | `NonCanonical` | per-field-valid but non-canonical encoding |
+| `InvalidDelegateSet` | record-delegate set out of bounds or non-canonical (≤ 3 keys, strictly ascending, no duplicates) |
 
 Decoding never panics on network data.
 
@@ -429,7 +459,12 @@ Decoding never panics on network data.
   signatures and weak keys rejected);
 - **chain transactions**: every `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` embeds `public_key` (32 B) + `signature` (64 B) over
-  the payload `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`;
+  the payload `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` — the
+  `network_id` is injected
+  as the first field of the encoded transaction (right after the
+  discriminant and format version), binding each signature to one
+  network (the wire itself carries no `network` field, see above);
   complete normative specification: `/docs/en/technical/transactions.md`;
 - **DHT records** (`SignedDnsRecord`): the signed payload is the
   canonical encoding of the `DnsRecord`; verification crosses

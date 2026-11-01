@@ -17,7 +17,9 @@
   the relay's — the relay already logged to stderr before the
   migration.
 - The CLI's user-facing error messages (`scone: <error>`) stay on
-  stderr: this is UX, not logs.
+  stderr: this is UX, not logs. A failing command also prints a
+  second stderr line, `[Failed: <error>]`, mirroring the status
+  lines of successful commands.
 
 ## Levels and `--verbose` / `-v`
 
@@ -34,7 +36,7 @@ accepted before or after the subcommand (`scone -vv identity list`
 and `scone identity list -vv` are equivalent).
 
 **Why `scone relay` stays at INFO by default**: the relay is a
-daemon — it must log its activity (RPC/p2p listening, accepted and
+daemon — it must log its activity (p2p listening, accepted and
 produced blocks, connected peers, rejections) to be operable,
 without requiring a flag. One-shot commands, on the other hand,
 stay silent (WARN) so as not to pollute a terminal or a script.
@@ -69,8 +71,12 @@ explicit CLI flag  >  .env variable  >  built-in default
   real process environment — same variable, same effect);
 - otherwise clap's built-in default.
 
-Repeatable variables (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
-accumulate: one line per value in `.env` (dotenvy appends).
+`.env` holds ONE value per variable: dotenvy applies the FIRST
+occurrence of a variable (duplicates are silently skipped) and
+never accumulates; the real process environment also wins over
+the file. Multiple bootstrap seeds or DNS upstreams therefore
+require repeated `--bootstrap` / `--dns-upstream` flags on the
+command line.
 
 The complete table of `SCONE_*` variables (network, P2P listen,
 bootstrap, genesis, UPnP, DNS surface, metrics, topology
@@ -81,13 +87,15 @@ to `.env`, never commit it — `.env` is gitignored).
 
 ## Level semantics (code convention)
 
-- `error!`: failures (no call sites today — network failures are
-  swallowed as `warn!` and only fatal local failures surface as a
-  typed error from `run()`);
+- `error!`: fatal local failures (signer disabled on an
+  unreadable/corrupted signer state, unusable store, deep-fork
+  recovery failure, anchor passphrase not persisted) — network
+  failures are swallowed as `warn!` and only fatal local failures
+  surface as a typed error from `run()`;
 - `warn!`: hostile or malicious network entries turned away,
   stale txs evicted from the mempool, conflicting txs dropped
   during production, outbound/inbound failures, DHT key mismatch;
-- `info!`: block accepted/produced, RPC/p2p listening, peer
+- `info!`: block accepted/produced, p2p listening, peer
   connected, relay startup (state checkpoints);
 - `debug!`: internal details (tx accepted, peer disconnected, RPC
   round trip, keystore listing, kad events under
@@ -106,8 +114,9 @@ logs from boot).
   default; `SCONE_PEER` env or `--peer` overrides.
 - **No `--identity` needed** when the keystore holds a single
   identity (it is used silently; several → the error lists them).
-- Removed (stubs suggest the replacement): `show`, `submit`,
-  `lookup`, `owned`.
+- Removed: `show`, `submit`, `lookup`, `owned` — no stubs; clap
+  rejects these names with its generic "unrecognized subcommand"
+  error plus a closest-name suggestion.
 - New: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (single record, no file).
 
@@ -179,8 +188,8 @@ delegate").
 The defaults above cover everyday use. For scripts and web/API
 interop the full surface stays available — every action has exactly ONE
 canonical path; the former root aliases (`show`, `lookup`,
-`owned`, `renew`) were removed (remove-cli-aliases), along with
-the `domain info` mention, which never matched a real command.
+`owned`, `renew`) were removed (remove-cli-aliases); `domain
+info` remains as a compatibility alias of `domain get`.
 
 The offline hex surface (`tx build|sign|verify`, `submit tx`
 subcommands) was REMOVED (remove-tx-surface-v2): the M8b
@@ -189,7 +198,11 @@ operations it served are first-class commands now —
 PoW mined for you), `scone tld transfer <tld> <owner>`,
 `scone tld revoke <tld>`, `scone domain assign <name> <owner>`
 (TLD owner, private TLD) and `scone domain transfer <name>
-<owner>`. Every one: state read, signature, submission, txid. DNS record
+<owner>`. Every one: signature, submission, txid. The transfer
+paths (`tld transfer`, `domain transfer`) pre-read the on-chain
+state client-side — the cession proof is bound to the current
+generation — while `tld open`, `tld revoke` and `domain assign`
+do no client-side state read (the node enforces). DNS record
 resolution moved to `scone domain resolve <name>` (ex-`record
 get`); the hex publication channel (`record put`) is gone —
 editing goes through `domain set` / `domain update`.
@@ -213,8 +226,9 @@ editing goes through `domain set` / `domain update`.
   and `scone tld register <tld> --to <pubkey>` / `scone tld
   renew <tld> --to <pubkey>` submit a proof whose challenge
   binds the BENEFICIARY key; the on-chain `owner` is recomputed
-  as `hash(pubkey_dest)` (a renew NEVER changes hands). Without
-  `--proof`, the command mines the proof itself; with `--proof
+  as `hash(pubkey_dest)` (a renew NEVER changes hands). The
+  `--to` commands always mine their proof in place — `--proof`
+  exists ONLY on `domain register --to`: with `--proof
   -`/FILE it consumes a `scone-domain-pow-to-v1` payload and
   refuses a proof mined for ANOTHER beneficiary. Pipe style:
   `scone domain mine n.tld --mine-for <pubkey> | scone domain
@@ -244,8 +258,9 @@ per operation — transfer/assign (flat rate), private-TLD opening,
 and the TLD/domain registration floors (the length curve). The
 selected network determines the Argon2id parameters (mainnet:
 64 MiB, t=2 — the real cost; testnet/devnet: the light profile,
-millisecond proofs). Each worker allocates its own 64 MiB Argon2id
-lane — size `--cores` to the available RAM.
+millisecond proofs). Each worker allocates its own Argon2id lane
+— 64 MiB on the mainnet profile, 8 KiB on the light
+testnet/devnet profile — size `--cores` to the available RAM.
 
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
 
@@ -258,8 +273,7 @@ binary is built with:
 cargo build --release --features mainnet
 ```
 
-`scone --version` shows `+mainnet` on such builds, and the
-relay startup log says `build: mainnet-enabled`.
+`scone --version` shows `+mainnet` on such builds.
 
 The default `--network` follows the build too: `mainnet` on
 mainnet-enabled builds (the official binary lands users on the

@@ -37,7 +37,8 @@ A TLD is a DNS label like any other: the generic label limit
   canonical A-label form
 - coded limit: `TldName::MAX_LEN = 63` bytes
 - valid: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, a TLD of
-  exactly 63 bytes, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  exactly 63 bytes, `éxemple` (→ `xn--exemple-2ua`, illustrative
+  mapping — not pinned by a test), `例子`
   (→ `xn--fsqu00a`)
 - invalid: a TLD whose A-label exceeds 63 bytes, `ABC`, `-ab`,
   `ab-`, empty string
@@ -162,8 +163,9 @@ what belongs to someone. Normative summary:
 ### Private TLD
 
 - **Birth — PoW**: claimed by proof of work, difficulty by length
-  (mainnet: 1 char ≈ 34 d of computation; floor ≈ 4.3 d at 10+
-  chars). The claimant becomes the owner and holds a **PoS seat**
+  (mainnet, on the 8-core reference machine: 1 char ≈ 34 d of
+  computation; floor ≈ 4.3 d at 10+ chars). The claimant becomes
+  the owner and holds a **PoS seat**
   (validator eligibility pool — heartbeats required to stay fresh,
   operator delegation available).
 - **Life — PoS**: the owner's signature authorizes everything in
@@ -203,8 +205,8 @@ what belongs to someone. Normative summary:
 
 ### Domain under an open TLD
 
-- **Birth — PoW** (reduced curve vs TLD: mainnet 1 char ≈ 8.5 d,
-  floor ≈ half a day).
+- **Birth — PoW** (reduced curve vs TLD, on the 8-core reference
+  machine: mainnet 1 char ≈ 8.5 d, floor ≈ half a day).
 - **Renewal — PoW identical to the birth** (same difficulty
   curve; the challenge is bound to the current expiry, hence
   distinct from the registration and every earlier renewal):

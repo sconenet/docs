@@ -70,16 +70,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### Decision: `scone-core` depends on `scone-crypto`
@@ -92,6 +94,9 @@ must not contaminate the core. Resolution:
   over bytes (plus the OS RNG for key generation), zero core types,
   no network/filesystem/async dependencies → no circularity possible;
 - `scone-core` uses it only for hashing;
+- `scone-core` also directly depends on `argon2` (registration
+  PoW) and `idna` (internationalized names) — pure dependencies,
+  layering respected;
 - Ed25519 signatures and keys live in `scone-crypto` and operate on
   bytes (canonical payloads produced by `scone-protocol`).
 
@@ -105,9 +110,9 @@ tokio/async, network, files, OS, DNS server, blockchain logic.
 
 **scone-crypto** — cryptographic primitives. Today: `hash256`
 (BLAKE3), Ed25519 signatures and keys (`SigningKey`,
-`PublicKey`, `Signature`, strict batch verification), AEAD envelope
-of record groups (XChaCha20-Poly1305). Planned: Merkle tree.
-Rule: no homegrown algorithms, audited dependencies only.
+`PublicKey`, `Signature`, strict batch verification). Planned:
+Merkle tree. Rule: no homegrown algorithms, audited dependencies
+only.
 
 **scone-protocol** — binary format of the protocol: canonical
 encoding/decoding (minimal LEB128 varint, bare 32-byte identifiers)
@@ -144,7 +149,7 @@ mempool, bounded block sync (128 blocks/request), Kademlia DHT for
 embedded GeoIP table, recursive fallback), the anchors'
 checkpoint/heartbeat loop (the CLI speaks direct p2p QUIC to the
 relay, no local RPC anymore). Reachability and discovery: AutoNAT
-v2 (reachable/NATed verdict), circuit-relay v2 + DCUtR for NATed
+v1 (reachable/NATed verdict), circuit-relay v2 + DCUtR for NATed
 nodes and UPnP (QUIC port mapping by the router, opt-in). Configuration via a `.env` file (see `.env.example`).
 Reference: `/docs/en/technical/relay.md`.
 
@@ -202,13 +207,15 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-Two node profiles:
+Node profiles (PLANNED — no such operator flag exists today:
+every current node retains all blocks, and the opt-in snapshot
+import above is the only retention control):
 
-- **archive node** (operator flag): keeps all historical blocks,
-  serves them to the network, starts via the existing paths;
-- **full-state node**: holds the full state at H and the suffix,
-  but not the history below H — it validates future blocks and
-  serves state, it does not serve history.
+- **archive node** (planned): keeps all historical blocks, serves
+  them to the network, starts via the existing paths;
+- **full-state node** (planned): holds the full state at H and
+  the suffix, but not the history below H — it validates future
+  blocks and serves state, it does not serve history.
 
 This path is OPT-IN: importing a verified snapshot is an explicit
 operator action (`import_verified_snapshot`), never automatic —

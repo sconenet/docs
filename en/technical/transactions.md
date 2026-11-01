@@ -7,9 +7,10 @@ implementation without reading the Rust. The reference implementation
 is [`scone-protocol`](../../../crates/scone-protocol) (encoding) and
 [`scone-blockchain`](../../../crates/scone-blockchain) (validation).
 
-`PROTOCOL_VERSION` = **1**. There is only one set of formats: any
-version byte other than `0x01` (in a transaction) or different from
-the local version (in a block) is rejected with `UnsupportedVersion`.
+`PROTOCOL_VERSION` = **2**. There is only one set of formats: a
+transaction `version` byte other than `0x01` is rejected with
+`UnsupportedVersion`; a block `version` different from
+`PROTOCOL_VERSION` (`2`) is rejected, not reinterpreted.
 
 ## Overview
 
@@ -75,12 +76,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` checks the structure: same epoch, distinct
+- `validate()` checks the structure: same epoch AND same
+  `prev_checkpoint_hash` (the conflicting context), distinct
   `signing_hash`es, two distinct signatures, reporter signatures over
   the canonical payload;
-- state rules (journaled, revertible on reorg): the accused's BOTH
-  signatures must verify against the TWO distinct signing hashes at
-  the same epoch; the accused must be in the eligible pool
+- state rules (journaled, revertible on reorg): the two evidence
+  checkpoints carry two distinct signing hashes, EACH verifying —
+  `verify_strict` — under the ONE offender key at the same epoch;
+  the accused must be in the eligible pool
   (`SlashOffenderNotInPool` otherwise); then **banning** — the key is
   removed from the PoS pool persistently (blacklist in state);
 - minimal sanction: the accused's domains/TLDs are NOT seized
@@ -129,7 +132,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 raw bytes | derivation of `public_key` |
 | `timestamp` | varint | ordering information (Unix, seconds) |
 | `proof` | `bytes` ≤ 256 | registration PoW payload (see [below](#registration-proof-of-work-pow)) |
-| `open` | `0x00\|0x01` | **open** birth: the TLD lands directly in `TldState::Open` (no one, self-service + PoW, a single PoW at the `open_tld_pow_difficulty` rate — cheaper than private: common resource, no PoS seat nor exclusivity); **private** birth: historical behavior (owner, PoS seat, `tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | **open** birth: the TLD lands directly in `TldState::Open` (no one, self-service + PoW, a single PoW at the born-open length-curve rate `pow_length::open_tld_difficulty` — cheaper than private: common resource, no PoS seat nor exclusivity); **private** birth: historical behavior (owner, PoS seat, the private length curve `pow_length::tld_difficulty`) |
 | `public_key` | 32 raw bytes | signer's Ed25519 public key |
 | `signature` | **exactly 64 bytes** | Ed25519 signature of the signed payload |
 
@@ -185,14 +188,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | Field | Type | Constraints |
 |---|---|---|
-| `open` | 1 byte | **strictly `0x00` or `0x01`** (canonical form; any other value → decoding error, never coercion) |
-| `open_proof` | `proof` (length-varint + bytes) | **signed** field; mandatory and verified when `open = 0x01` (opening PoW, network's `open_tld_pow_difficulty`, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`); empty when `open = 0x00` (closing is free) |
+| `open` | 1 byte | **strictly `0x01`**: closing does not exist — `open = 0x00` is rejected with the typed error `TldCloseUnsupported` (one-way owner option; rejected at decoding, which runs `validate()`), any other byte is a decoding error, never coercion |
+| `open_proof` | `proof` (length-varint + bytes) | **signed** field; mandatory and verified (opening PoW, network's flat `open_tld_pow_difficulty`, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`); never consulted otherwise, since no `open = 0x00` transaction is ever accepted |
 
 A **closed** TLD = assign-only (domains created exclusively by the
 TLD's owner via `AssignDomain`); an **open** TLD = anyone can do the
 registration PoW and claim a free domain (`RegisterDomain`).
 **Opening** costs an extra proof of work (lighter than the TLD claim:
-~3 days on mainnet versus ~1 week), paid once by the owner in
+26 bits ≈ 8.5 days on the 8-core reference machine, versus ≈ 34 days
+for a 1-character private claim), paid once by the owner in
 `SetTldOpen` — the proof travels in the signed `open_proof` field and
 cannot be substituted after signing.
 
@@ -233,10 +237,13 @@ The cost of a renewal depends on the nature of the underlying TLD
 (evaluated at apply time, on the block state):
 
 - **Open TLD**: the renewal costs the **same PoW as the creation** —
-  same challenge (`SCONE-DOMAIN-V1 ‖ canonical name`), same
-  per-label-length and per-network difficulty, same epoch validity
-  window. A domain is never "collected" for free: every term of
-  life is paid in work.
+  same per-label-length and per-network difficulty, same epoch
+  validity window, but a challenge bound to the CURRENT expiry:
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`.
+  The expiry suffix makes the renewal preimage distinct from the
+  registration's and from every earlier renewal's: one mined proof
+  pays exactly one term. A domain is never "collected" for free:
+  every term of life is paid in work.
 - **Private TLD**: the namespace is the TLD owner's stake (PoS).
   The transaction must be **signed by the TLD owner** (or its
   delegated operator) — the signature IS the authorization, the
@@ -266,8 +273,11 @@ Signed by the TLD's current **private** owner. Apply rules:
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (the anti-reuse
   suffix binds each PoW to ONE term), same per-length difficulty
   as the initial claim;
-- renewal is NOT frozen during the grace — it is the only
-  management operation still available to an expired owner.
+- renewal is NOT frozen during the grace — and neither are the other
+  owner operations: the expiry freeze hits ONLY `AssignDomain`
+  (`TldExpiredFrozen`). `TransferTld`, `RevokeTld`, `SetTldOpen`
+  and `SetTldOperator` remain applicable to an expired (in-grace)
+  private TLD.
 
 ## The delegated-authority family — counter-bound (0xE2, 0xA9, 0x5E, 0x66)
 
@@ -375,8 +385,8 @@ rule — signer ∈ {owner} ∪ delegates, `sequence == current + 1` — is
 the single binding. The signature still covers the `owner` field
 through the signing payload, so a delegate signs "for" a specific
 namespace. Caveat: the owner→key map is learned on a first-appearance
-basis (registration/assignment), so a delegate update never overwrites
-it.
+basis (registration, assignment, and any owner-keyed update whose
+owner id is still vacant), so a delegate update never overwrites it.
 
 ### Strict bounds
 
@@ -427,7 +437,10 @@ signer key, NO trailing signature:
   proof ‖ pubkey_dest — OPEN TLD only (private → TldClosed: the
   private namespace keeps the owner-signature path);
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
-  valid_until.v ‖ proof ‖ pubkey_dest.
+  valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW` is
+  OPEN-TLD only (like `RegisterDomainPow`: `TldClosed` under a
+  private TLD), while `RENEW_TLD_POW` stays PRIVATE-TLD only
+  (`TldIsOpen` otherwise).
 
 ### Application guards (D3)
 
@@ -537,7 +550,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+The five additions follow the same rule — header `disc ‖ version ‖
+network`, then the exact wire body minus the trailing signature
+(for `SlashTx`, the reporter's). `Heartbeat` ends with the signer
+key: a second copy of the `operator` field that must be identical
+(typed rejection otherwise).
 
 Properties:
 
@@ -625,63 +660,77 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 The difficulty and the epoch travel with the proof, but they are
 **producer-declared and therefore never trusted**: the verifier
-compares the difficulty against the **protocol constant** for the
-registration kind (a payload whose declared difficulty differs from
-the constant — lower *or* higher — is rejected, `InvalidProof`), and
-the epoch against that of the applying block (`ProofEpochMismatch` on
-mismatch). The nonce is then re-verified at the constant difficulty,
-digest recomputed from scratch.
+compares the difficulty against the value the protocol prescribes
+for the proof's kind — the length curve for registrations (see
+[Difficulties](#difficulties-length-based-curves-m8b--argon2id-calibration)
+below), the flat parameter for cessions and assignments (a payload
+whose declared difficulty differs from it — lower *or* higher — is
+rejected, `InvalidProof`), and the epoch against that of the applying
+block (`ProofEpochMismatch` on mismatch). The nonce is then
+re-verified at that prescribed difficulty, digest recomputed from
+scratch.
 
-### Difficulties (**length-based** curve, M8b + measured calibration)
+### Difficulties (**length-based** curves, M8b + Argon2id calibration)
 
 The difficulty is NOT a flat parameter: it is a deterministic function
 of the **created label's length** (`scone-core::pow_length` — the TLD
 for `RegisterTld`, the leftmost label for `RegisterDomain`), per
-network:
+network. TWO curves, one per object kind: the TLD slope is shallow
+(each extra character divides the cost by ~1.22), the domain slope is
+steeper (each extra character divides the cost by ~1.40):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| Network | Private TLD (apex/floor) | Born-open TLD / domain (apex/floor) |
-|---|---|---|
-| testnet | 8 bits / 2 bits | 6 bits / 2 bits |
-| mainnet | 42 bits / 30 bits | 40 bits / 30 bits |
-| devnet | 2 bits / 1 bit | 1 bit / 1 bit |
+Each kind starts from its own apex and ends at its own floor
+(`tld_difficulty`, `open_tld_difficulty`, `domain_difficulty` — a
+born-open TLD pays the TLD curve one bit below the private apex, a
+domain starts two bits below on the steeper slope):
 
-A **born-open** TLD (`RegisterTld` with `open = 0x01`) pays the
-"opening" curve (apex − 2, like `domain_difficulty`); **opening an
-existing private TLD** (`SetTldOpen`) stays at flat difficulty
-(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet /
-2 bits devnet — the tx
-carries only the `tld_id`, the name paid for its length at creation).
-Mainnet benchmarks (private TLD, ~6 M hashes/s): 1 character = 42
-bits (≥ 7 days), 5 chars = 40 bits (~2 days), 19 chars = 35 bits
-(~1.6 h), 29+ chars = 30-bit floor (~3 min). The curves live in
-`scone-core::pow_length` (constants `MAINNET_APEX = 42`,
-`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
-`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); the
-flat parameters (`tld_pow_difficulty`, etc.) remain in
-`scone-core::network::NetworkParams`. Changing a value = a consensus
-change **for that network**. Invariant: the devnet is a complete
-third `NetworkParams` and testnet stays strictly identical to its
+| Network | Private TLD (apex → floor) | Born-open TLD (apex → floor) | Domain (apex → floor) |
+|---|---|---|---|
+| testnet | 8 → 2 bits | 7 → 2 bits | 6 → 1 bit |
+| mainnet | 28 → 25 bits | 27 → 25 bits | 26 → 22 bits |
+| devnet | 2 → 1 bit | 1 → 1 bit | 1 → 1 bit |
+
+Mainnet ladder (Argon2id 64 MiB, t = 2, p = 1 at ~11.4 H/s per core —
+expectations on the 8-core reference machine):
+
+| length | private TLD | born-open TLD | domain |
+|---|---|---|---|
+| 1 | 28 bits ≈ 30 days | 27 bits | 26 bits |
+| 3 | 27 bits | 26 bits | 25 bits |
+| 7 | 26 bits | 25 bits | 23 bits |
+| 10+ | 25 bits (floor) | 25 bits (floor) | 22 bits (floor) |
+
+The 25-bit floor ≈ 4.3 days on that machine; more cores finish
+faster, fewer take longer — the paid PoW service absorbs the gap.
+
+A **born-open** TLD (`RegisterTld` with `open = 0x01`) pays the TLD
+curve at apex − 1 (mainnet 27 → 25 bits — NOT the domain apex);
+**opening an existing private TLD** (`SetTldOpen`) is a different,
+FLAT proof (`open_tld_pow_difficulty`: 6 bits testnet / 26 bits
+mainnet / 2 bits devnet — the tx carries only the `tld_id`, the name
+paid for its length at creation). The curves live in
+`scone-core::pow_length` (constants `MAINNET_APEX = 28`,
+`MAINNET_FLOOR = 25`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
+`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); the flat parameters of
+`scone-core::network::NetworkParams` serve only the proofs that
+remain flat — opening an existing TLD (`open_tld_pow_difficulty`,
+26 bits mainnet), cessions (`transfer_pow_difficulty`, 16) and
+assignments (`assign_pow_difficulty`, 16) — plus CLI display. The
+former flat registration summits (`RegisterTld` 24 bits /
+`RegisterDomain` 20 bits, BLAKE3-era ~7.7 M H/s calibration) are
+historical, pre-curve values. Changing a value = a consensus change
+**for that network**. Invariant: the devnet is a complete third
+`NetworkParams` and testnet stays strictly identical to its
 pre-devnet constants (Argon2id parameters, curves, windows) — the
 devnet shares NO constant with the other networks beyond the code
 itself.
-
-Measured calibration of the flat summits (2026-10, `cargo run
---release -p scone-core --example pow_bench` — single-thread
-throughput ~7.7 M H/s on a reference x86-64):
-
-| Kind (mainnet) | difficulty | average real time |
-|---|---|---|
-| `RegisterTld` | 24 bits | ~7 s |
-| `RegisterDomain` | 20 bits | ~54 ms |
-
-At ~65 s/block: a TLD claim costs ~0.1 block of single-core CPU, a
-domain ~1 ms of block — symbolic for a user, costly to industrialize
-at scale (anti-squat). To recalibrate if hardware targets drop
-(mobile ARM: ~4–8× slower).
 
 State branches (M8b, shipped): `RegisterTld` ALWAYS requires its PoW;
 `RegisterDomain` requires it on an **open** TLD (the closed path is
@@ -759,11 +808,11 @@ chained onto the parent hash (`prev_hash`), `version` =
 and the timestamp are provided by the caller; the existing `Consensus` trait
 is used symmetrically with validation.
 
-## Hex examples (real, reproducible vectors — M8b)
+## Hex examples (illustrative vectors — M8b)
 
 ### RegisterDomain `example.uip`, timestamp 42, testnet
 
-Signed payload (pinned vector; historically generated by the
+Signed payload (illustrative vector; historically generated by the
 removed offline tooling — the values remain valid vectors). The `network`
 appears here because this is the SIGNING PAYLOAD (its only place);
 the signed wire transaction itself contains none:
@@ -778,14 +827,15 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`, timestamp 42
 
-Signed payload (pinned vector) — the `TldId` is the derivation vector
-pinned in `/docs/en/general/naming.md`:
+Signed payload (illustrative vector) — the `TldId` is the derivation
+vector pinned in `/docs/en/general/naming.md`:
 
 ```text
 53434f4e452d54582d5349472d5631       SCONE-TX-SIG-V1 prefix
@@ -802,7 +852,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 (The full values were reproducible via the removed offline
-tooling; the vectors below remain pinned and valid. The PoW is
+tooling; the vectors below remain illustrative and valid. The PoW is
 mined automatically at network difficulty — nonces vary from run
 to run; only network/name/id/owner/pk are stable. Since the
 2026-09 wire change, the hex of the signed transaction NO LONGER

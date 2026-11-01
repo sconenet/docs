@@ -49,8 +49,8 @@ Heartbeat {
 Signed body (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (the signer's key appears at the tail
-of the body, as for every tx) `‖ signature[64]`, i.e. ~230 bytes
-encoded — **no PoW**: the cost is continuous presence (one
+of the body, as for every tx) `‖ signature[64]`, i.e. ~200–215
+bytes encoded — **no PoW**: the cost is continuous presence (one
 heartbeat per epoch, for months).
 
 The signer IS the operator: `owner` is always re-derived from
@@ -302,5 +302,5 @@ replayability (window/purge) or the election (committee).
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validation | done |
 | 2 | blockchain | sliding window (journaled), filtered pool, election, ~15 tests | done |
 | 3 | network | automatic emission, tx relay | done |
-| 4 | CLI | `tx build heartbeat`, `fresh operators` display in `scone status` | done |
+| 4 | CLI | automatic relay emission (§7); `fresh operators` display in `scone status`; offline builder removed (cli-simplify-v1) | done |
 | 5 | docs | this RFC consolidated into normative form, fr/en mirror | done |

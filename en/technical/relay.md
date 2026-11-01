@@ -17,7 +17,7 @@ resolves `SignedDnsRecord`s in a Kademlia DHT, and exposes the
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -63,8 +63,6 @@ Three complementary mechanisms, in this priority order:
 
 1. **Explicit seeds** (`--bootstrap`, full multiaddrs) — always take
    priority; providing a non-empty list REPLACES everything else.
-   `--no-builtin-seeds` empties the embedded seeds for 100% private
-   deployments.
 2. **Embedded seeds** (`builtin_seeds(network)` in
    `scone-network/src/config.rs`) — frozen at each official binary
    release, per network. An unconfigured relay joins the network
@@ -97,8 +95,8 @@ UPnP stays **disabled by default** (`enable_upnp` = `false` in
 consent. **mDNS discovery was removed**
 (remove-mdns-discovery, 2026-10-22): peering comes exclusively
 from explicit bootstrap, the builtin seeds and Kademlia — the
-legacy `--mdns`/`SCONE_MDNS` flag is still accepted without
-effect (script compatibility, same treatment as `--rpc`).
+legacy `--mdns`/`SCONE_MDNS` flags are REMOVED: passing them is a
+clap error today (no such argument exists).
 
 ### Local topology optimization (always on)
 
@@ -176,12 +174,13 @@ tested) is refreshed every 5 min and exposed in `NodeStatus` (field
 (`scone status`). Private addresses count
 (`only_global_ips = false`): a LAN mesh tests its LAN reachability.
 
-A reachable relay enables circuit-relay v2 **hop** (it can relay
-traffic for NATed peers) and **DCUtR** (hole-punching: two nodes
-connected via circuit attempt a direct connection and release the
-relay). A relay deemed NATed automatically requests a reservation
-from the first known reachable peer and listens through it (address
-`/p2p/<relay>/p2p-circuit`).
+Every relay runs circuit-relay v2 **hop** (it can relay traffic
+for NATed peers) and **DCUtR** (hole-punching: two nodes connected
+via circuit attempt a direct connection and release the relay)
+UNCONDITIONALLY; only the NATed side's reservation request is
+verdict-gated: a relay deemed NATed automatically requests a
+reservation from the first CONNECTED reachable peer and listens
+through it (address `/p2p/<relay>/p2p-circuit`).
 
 Production rule: a relayed NATed node should not become a block
 producer (degraded latency/availability) — the PoS rule (seat =
@@ -241,8 +240,9 @@ bounded: never more than one block in flight per peer.
    [Peer discovery](#peer-discovery)): explicit `--bootstrap`
    (must end with `/p2p/<peer-id>`) ELSE the network's embedded
    seeds ELSE the learned directory (`peers.json`);
-5. dial each multiaddr and register it in the Kademlia table
-   (a dead dial is ignored — the others make up the network).
+5. register each seed multiaddr in the swarm AND the Kademlia
+   table (the dials themselves are done by Kademlia's automatic
+   bootstrap; a dead peer is simply never answered).
 
 ### Receiving a transaction (P2P or CLI `submit tx` submission)
 
@@ -266,6 +266,13 @@ bounded: never more than one block in flight per peer.
    signer; `AssignDomain` → TLD owner + free name;
    `RenewTld` → known private TLD + owner, fixed term re-derived, grace-window precheck; `RenewDomain` → known domain + owner, renewal PoW precheck
    (bound to the current expiry) at the next height;
+   `TransferDomain` → known domain + owner; `SetRecordDelegates`,
+   `SetTldOperator`, `SetDomainOperator` → owner + CAS
+   `state_binding` = current generation; the pow-to-owner family
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) → name/proof shape prechecks (no signer, no
+   signature); `Slash`/`Heartbeat` → pass-through (validated in
+   full at push time);
 4. mempool insertion (fixed capacity, dedup by `TxId` —
    re-submitting a tx already in the pool is a no-op);
 5. broadcast to peers (except the sender).
@@ -360,6 +367,10 @@ reached through the binary, clap always overrides it):
 - **finality catch-up**: a relay whose base is empty (a fresh node's
   boot) requests `GetCheckpoints` from a peer every tick until the
   base is restored;
+- **proof-of-service heartbeat**: at each epoch boundary the relay
+  auto-emits its `Heartbeat` transaction (anchor-key-signed, at
+  most one per epoch, only while the identity holds a live seat)
+  via the normal mempool path;
 - a relay without an anchor key stays **passive**: it accumulates,
   finalizes, and relays, but never signs;
 - `GetCheckpoints` → the `checkpoint_window()` window is served;
@@ -371,10 +382,11 @@ reached through the binary, clap always overrides it):
 A sister block at the same height, or a block whose parent is not
 the current tip (`ParentNotTip`/`UnknownParent`), is NEVER lost:
 it is **parked** (bounded map, `PARKED_CAP = 2048` blocks, ~KiB
-each — bounded worst-case RAM; a full parking silently ignores
-newcomers). Hashes already offered to `accept_block` are
-deduplicated (`seen_blocks`): a re-gossiped losing block is not
-re-evaluated.
+each — bounded worst-case RAM; a full parking EVICTS the
+lowest-`(height, hash)` entry and inserts the fresh block — never
+the newcomer). Hashes already offered to `accept_block` are
+deduplicated (`seen_blocks` — bounded FIFO of 32,000 entries): a
+re-gossiped losing block is not re-evaluated.
 
 At EVERY `Produce` tick, `reconsider_parked`:
 
@@ -388,6 +400,15 @@ This un-sticks a node that adopted the losing side of an
 equal-height fork: the winning block, offered once then refused,
 is periodically re-evaluated instead of being forgotten forever
 (finding chaos-30: two sister blocks 15 ms apart).
+
+**Deep-fork stall detector**: 40 consecutive produce ticks with no
+canonical progress while the node is blocked (parking non-empty or
+branch adoption hitting the `BlockPruned` pruned-window error)
+trigger `recover_deep_fork`: the RAM chain and the parking are
+reset, the chain re-boots from the store, and the relay re-syncs
+from peers — the honest last resort of a partition longer than the
+RAM window (logged, self-recovering; without it a stalled node
+stays split-brained until a manual restart).
 
 **Reorg persistence**: adopting another branch cannot go through
 the monotonic append (`NonMonotonicHeight`). The relay applies
@@ -404,8 +425,23 @@ On each connection to a peer, the relay requests
 exactly completes the expected height triggers the request for the
 next height, until exhaustion (`Pong` = nothing more) or
 `MAX_SYNC_ROUNDS` (10,000) batches — an absolute bound even against
-a lying peer. Received blocks go through full validation: a
-malicious peer cannot get anything invalid accepted.
+a lying peer. **Orphan-triggered backward pull**: a received block
+parked on `UnknownParent` (its parent is unknown locally — e.g. a
+fork that grew while we were disconnected) triggers an immediate
+`GetBlocks(start_height = block.height − 1)` to the SAME peer; the
+missing fork segment materializes and the parked block connects on
+a later `reconsider_parked` drain. Bounded: one pull per orphan,
+deduplicated by `seen_blocks` on re-offer. Received blocks go
+through full validation: a malicious peer cannot get anything
+invalid accepted.
+
+Every production tick also runs a periodic re-check
+(`recheck_sync`): each connected peer that is already caught up
+gets one bounded `GetBlocks(local height + 1)` (one request per
+peer per tick; the reply is an immediate `Pong` when there is
+nothing new). This is what heals partitioned islands: a peer that
+finished catching up still learns about the blocks produced
+afterwards.
 
 ### Record DHT
 
@@ -426,6 +462,17 @@ malicious peer cannot get anything invalid accepted.
   (`domain_info`) then serve it without a new DHT query.
 - Kademlia runs in server mode, with no record TTL (the chain
   governs validity, not time).
+- Record gossip plumbing (bounded, anti-storm):
+  (a) every production tick gossips a PAGE of the local persistent
+  cache to connected peers (256 records, cursor walk across ticks —
+  bounded RAM per tick, full coverage over several ticks whatever
+  the cache size);
+  (b) a received `Record` message is re-gossiped to the other peers
+  only when it is NEW or DIFFERENT from the local cache (otherwise
+  every receiver would re-forward forever);
+  (c) publication rejects a record with more than **12 distinct NS
+  nameservers** (`MAX_NS_PER_DOMAIN`, all forms — hostname, v4,
+  v6).
 
 ### Record verification ("the chain is the authority" rule)
 
@@ -467,15 +514,18 @@ The effective bind is announced on stdout (machine-readable
 contract, like `p2p:`): a `metrics: <addr>` line as soon as it
 listens.
 
-**19 counters** (`counter`, monotonic — hot paths:
+**27 counter series** (`counter`, monotonic — hot paths:
 `fetch_add(Relaxed)` on a shared `Arc<Metrics>`, never a
-consensus input):
+consensus input), plus two labeled geo series (rendered before the
+plain counters, one line per label — same name, distinct label
+sets; emitted only once non-empty):
 
 | Group | Series |
 |---|---|
 | Chain | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (labeled) | `scone_dns_geo_by_continent_total{continent}` (UN M49 code), `scone_dns_geo_by_country_total{country}` (ISO 3166-1 code) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Peer network | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -515,8 +565,9 @@ Control messages served by the relay:
 - application rejection → `Message::Error(msg)` (reaches the
   client as a readable message, not an EOF).
 
-The client brings up a minimal libp2p swarm (request-response +
-identify), 30 s call timeout (20 s round trip). Default `--peer`:
+The client brings up a minimal libp2p swarm (request-response
+ONLY — no identify), 30 s call timeout (20 s round trip).
+Default `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (local dev node;
 the full multiaddr with the real peer id is announced by the
 relay on stdout via the `p2p:` line).
@@ -551,10 +602,13 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 Every control command speaks QUIC directly to the relay's
 multiaddr (`--peer`, default local node — RPC→p2p unification, no
-more JSON TCP channel). Relay absent → clear message "p2p node
-unreachable — is a relay running?", non-zero exit. The `--rpc`
-flag is kept but **obsolete and ignored** (the RPC server was
-removed; script compatibility only).
+more JSON TCP channel). Relay absent → non-zero exit with a
+readable message: when `--peer`/`SCONE_PEER` is given, "p2p node
+unreachable — is a relay running? (...)"; on the local-relay
+default, "no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)". The legacy `--rpc` flag is REMOVED:
+passing it is a clap error today (no such argument exists).
 
 ### Environment configuration (`.env`)
 
@@ -577,16 +631,12 @@ never commit a real `.env`). Variables:
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (default), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | data directory (default `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | P2P listen multiaddr (default: all interfaces, ephemeral port) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds, **repeatable** (one line per value — dotenvy accumulates); replaces the builtin seeds |
+| `SCONE_LISTEN` | `--listen` | P2P listen multiaddr (default: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds — **repeat the CLI flag** for several (`--bootstrap A --bootstrap B`); in `.env`, ONE value per variable (dotenvy keeps the FIRST occurrence, it does not accumulate); replaces the builtin seeds |
 | `SCONE_GENESIS` | `--genesis` | genesis file (founder nodes) |
-| `SCONE_MDNS` | `--mdns` | (obsolete — mDNS discovery removed; accepted, ignored) |
 | `SCONE_UPNP` | `--upnp` | UPnP port mapping (`true` = enabled) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS server bind address |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | recursive fallbacks, **repeatable** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS cache entry cap |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS cache memory cap (e.g. `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | concurrent DNS query cap |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | recursive fallbacks — **repeat the CLI flag** for several (`--dns-upstream A --dns-upstream B`); one value per variable in `.env` |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`) |
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | metrics endpoint bearer token |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | topology profile (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; default `default`) |
@@ -730,7 +780,7 @@ The `scone-genesis` binary (crate `scone-genesis`) prepares the
 |---|---|
 | P2P frame | `MAX_MESSAGE_LEN` (1 MiB) before parsing |
 | Mempool | 4096 tx (typed rejection beyond); `MAX_PENDING_PER_DOMAIN = 4` pending txs per domain |
-| Mempool grace | `MAX_GRACE_ATTEMPTS = 10` reinsertions of a tx flushed for a non-definitive reason (≈ 7 min at 40 s/cycle), then eviction |
+| Mempool grace | `MAX_GRACE_ATTEMPTS = 10` reinsertions of a tx flushed for a non-definitive reason (≈ 20 s at the default 2 s production tick), then eviction |
 | Fork parking | `PARKED_CAP = 2048` competing blocks |
 | Accumulated checkpoints | `MAX_PENDING_CHECKPOINTS = 256` (eviction: smallest data hash) |
 | Simultaneous DHT waiters | `MAX_DHT_WAITERS` (256); DHT lookup bounded to 30 s (`DHT_LOOKUP_TIMEOUT`) |
@@ -738,6 +788,11 @@ The `scone-genesis` binary (crate `scone-genesis`) prepares the
 | DHT record | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | Persistent DHT cache (disk) | double LRU bound: `DHT_CACHE_MAX_ENTRIES` (100,000 entries) AND `DHT_CACHE_MAX_BYTES` (2 GiB) — whichever hits first evicts by key order; GC eviction in the SAME transaction as the block (a domain killed by the chain GC never leaves an orphan entry behind) |
 | DHT negative cache | `DHT_NEGATIVE_TTL_SECS` (30 s), FIFO cap `DHT_NEGATIVE_CAP` (4,096) |
+| req-res request timeout | 10 s per request, 64 concurrent streams (relay side) |
+| Kademlia query timeout | 10 s |
+| Idle connection timeout | 300 s |
+| Metrics endpoint | 64 concurrent scrapes; 5 s deadline on the header read |
+| Address book (RAM) | insert guard at 2× the persisted cap (persisted cap: 2,000 entries) |
 | Chain in RAM | genesis + tip window (history served from the store) |
 
 Anti-loop rule (H2): a transaction is only re-broadcast if it was

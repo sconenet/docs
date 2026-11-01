@@ -15,7 +15,7 @@ in memory after use.
 ## Overview
 
 - **KDF**: Argon2id (v0x13), default parameters `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (defaults of the `argon2` crate).
+  `t_cost` = 3, `p_cost` = 1 (scone-keystore defaults).
 - **Encryption**: XChaCha20-Poly1305 (AEAD), 32-byte key derived
   from the KDF, 24-byte random nonce per file.
 - **Encrypted content**: exactly the Ed25519 seed (32 bytes); the
@@ -95,23 +95,31 @@ Then:
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-No associated data (AAD) in v1. The 24-byte nonce, random per
-file, makes nonce reuse risk negligible (keyfiles are written only
-once).
+No associated data (AAD) in either version. The 24-byte nonce,
+random per file, makes nonce reuse risk negligible (keyfiles are
+written only once).
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — core functions
 
 | Function | Role |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | Generates a key, writes the encrypted keyfile (creates parent directories); **refuses to overwrite** an existing file (`Error::KeyfileExists`); returns the key in memory |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | Same, but explicitly replaces an existing keyfile |
 | `open(path, passphrase) -> SigningKey` | Decrypts and returns the signing key |
-| `list(dir) -> Vec<KeyEntry>` | Lists the `*.sconekey` files in a directory (sorted by name); missing directory = empty list |
+| `list(dir) -> Vec<KeyEntry>` | Lists the `*.sconekey` files in a directory (extension match case-insensitive, sorted by name); missing directory = empty list |
+
+The phrase/label variants (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) wrap the
+same sealing with a public label or a caller-supplied BIP39
+phrase; they sit outside the core table above.
 
 `GeneratedKey.signing_key` is zeroized on drop by `ed25519-dalek`
-(default `zeroize` feature). The derived AEAD key, the seed, and
-the decrypted plaintext are wrapped in `zeroize::Zeroizing`:
-Drop covers all exit paths, including errors propagated by `?`.
+(default `zeroize` feature). The derived AEAD key and the
+decrypted plaintext are wrapped in `zeroize::Zeroizing` — Drop
+covers all exit paths, including errors propagated by `?`. On the
+seal path the seed copy is transient: a plain stack array that
+goes out of scope at the end of the sealing call.
 
 ## File permissions
 
@@ -125,6 +133,7 @@ generations cannot silently overwrite each other.
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -145,9 +154,10 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   argument** (visible via `ps` and shell history): masked
   prompt, `--phrase-file <file>` or `--phrase-env <VAR>`. It
   **refuses to overwrite** an existing keyfile by default
-  (`--force` replaces it explicitly); the auto-generated anchor
-  passphrase is written `0600` and a write failure is reported,
-  never swallowed.
+  (`--force` replaces it explicitly).
+- Relay anchor auto-identity (not `identity restore`): the
+  auto-generated anchor passphrase is written `0600` and a write
+  failure is reported, never swallowed.
 - `identity generate` **refuses to overwrite** an existing
   keyfile; `--force` explicitly replaces it (new salt/nonce, new
   key, new phrase).

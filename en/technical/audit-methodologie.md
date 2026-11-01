@@ -11,7 +11,7 @@ Adversary model: an arbitrarily hostile p2p node (can send any
 bytes over QUIC/UDP), a hostile tx submitter, a curious relay
 operator, a stolen data-dir. EXCLUDED by design: the end client
 (DNS is public by nature), global availability (chaos already
-tested).
+tested — `tests/adversarial*.rs` battery).
 
 Asset table, by criticality order:
 1. **Ownership** (state chain: Register/Update/Transfer/Assign) —
@@ -25,10 +25,19 @@ Asset table, by criticality order:
 
 ## 1. Automated static audit (day 1 — mechanical)
 
-- `cargo audit` (dependency CVEs: libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + review of `unsafe` (expected ≈ 0).
+- `cargo audit` (dependency CVEs: libp2p/quinn/rustls/redb/ed25519);
+  acceptances tracked in `audit.toml` (RUSTSEC-2024-0436 accepted:
+  unmaintained `paste`, no known flaw).
+- `cargo geiger` + review of `unsafe` (expected ≈ 0 — verified:
+  the only `unsafe` lives in tests; `#![forbid(unsafe_code)]` in
+  scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (already green, keep as a CI barrier).
+  (already green; keep as a pre-merge local barrier — no CI
+  exists yet).
+- No fuzz harness exists yet: the first deliverable is the
+  `fuzz/` crate targeting the five decoders (`decode_complete`,
+  `parse_query`, `extract_answers`, record file parser, keyfile
+  parser).
 - Fuzzing the decoding boundaries (days 2-3):
   `cargo-fuzz` on `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — this is THE
@@ -44,7 +53,8 @@ Asset table, by criticality order:
 Ordered by asset criticality, 1 component = 1 checklist:
 
 ### 2.1 scone-crypto + identity derivation (day 4)
-- OwnerId = BLAKE3(pubkey): check byte canonicalization (no
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)): check byte canonicalization (no
   ambiguous representation → 2 keys, 1 owner).
 - Ed25519: strict DESERIALIZATION (non-canonical key rejected?),
   verification with context separation (each use has its domain
@@ -54,7 +64,7 @@ Ordered by asset criticality, 1 component = 1 checklist:
   file permissions, padding oracle on the ciphertext.
 
 ### 2.2 Transaction application (day 5) — the core
-For EACH Transaction variant (13 today):
+For EACH Transaction variant (19 today):
 - Is the tx idempotent under replay (unique txid, nonce/sequence)?
 - Does the ownership check precede any effect? (signer == owner
   learned on-chain, never trusted from the tx itself.)
@@ -104,8 +114,10 @@ For each finding of the manual review, a test that proves it:
   disagreeing messages) — extend SimNet with a "passive
   byzantine" role;
 - real 30-node mesh with 3 hostile nodes (random bytes, bursts of
-  invalid txs, forged DHT records) — the chaos battery exists,
-  add the attacker role;
+  invalid txs, forged DHT records) — aspirational today: the
+  existing battery is `tests/adversarial*.rs` (adversarial,
+  adversarial_consensus, adversarial_dos) plus the sim scenarios;
+  extend it with the attacker role;
 - cross-checks: two implementations of the decoding (the
   protocol.md doc is NORMATIVE — an auditor implements the wire
   from the doc ALONE and compares bytes; any divergence = doc OR
@@ -129,7 +141,8 @@ requirements specification — this is a real cost advantage.
       divergence or cache corruption
 - [ ] Doc/code divergence: zero (verified by the dual wire
       implementation)
-- [ ] Blocking CVEs: zero (cargo audit)
+- [ ] Blocking CVEs: zero (cargo audit; accepted RUSTSECs
+      tracked in `audit.toml`)
 - [ ] External audit of the crypto/wire/tx scope done (if
       budgeted)
 
