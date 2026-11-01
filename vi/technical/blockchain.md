@@ -151,14 +151,14 @@ Hai độ dốc khác nhau: `log₂(1.22) ≈ 0.287` bit/ký tự cho TLD
 `log₂(1.40) ≈ 0.480` bit/ký tự cho tên miền — tên miền suy giảm
 nhanh hơn: giá trị của chúng nằm ở TLD mang chúng. Một TLD
 sinh-mở nằm ở apex riêng tư − 1; một tên miền ở apex riêng tư − 2
-(mainnet: TLD riêng tư 25, TLD mở 24, tên miền 23). Benchmark
+(mainnet: TLD riêng tư 28, TLD mở 27, tên miền 26). Benchmark
 mainnet (Argon2id nặng-bộ-nhớ, ~11,4 H/s đơn luồng): TLD riêng tư
-1 ký tự = 28 bit ≈ 30 ngày, 9+ ký tự = sàn 25 bit ≈ 3,8 ngày;
+1 ký tự = 28 bit ≈ 30 ngày, 10+ ký tự = sàn 25 bit ≈ 3,8 ngày;
 TLD mở 1 ký tự = 27 bit ≈ 15 ngày; tên miền 1 ký tự = 26 bit ≈
 3,8 ngày, 9+ ký tự = sàn 22 bit ≈ 11,5 h. **Máy tham chiếu
 8 nhân** (tái hiệu chuẩn 2026-10 — CLI đào đa nhân), ~11,4 H/s/nhân.
 **Mở** một TLD riêng tư sẵn có (`SetTldOpen`) giữ độ khó phẳng
-(`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet): tx
+(`open_tld_pow_difficulty`: 6 bit testnet / 26 bit mainnet): tx
 chỉ mang `tld_id`, tên đã trả theo chiều dài của nó lúc tạo.
 **Hai bằng chứng phẳng nữa** hoàn thiện gia đình (chống thư rác
 ở mức đồng thuận, cùng muối epoch và cửa sổ với đăng ký):
@@ -182,7 +182,7 @@ không mạng):
 
 | Trường | Giá trị |
 |---|---|
-| `version` | `PROTOCOL_VERSION` (`1`) |
+| `version` | `PROTOCOL_VERSION` (`2`) |
 | `height` | `0` |
 | `prev_hash` | 32 byte 0 (không có khối trước) |
 | `tx_root` | Gốc Merkle của danh sách rỗng |
@@ -245,12 +245,15 @@ nhanh:
 ## Trạng thái chuẩn
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- enum (owner-option): the open/private invariant is
-               -- structural; the death deadline lives outside the entry
-               -- (tld_floors table + journaled death schedule)
+               -- structural; the term lives IN the entry, only the
+               -- derived death schedule (term + grace) lives outside
+               -- it (tld_deaths/tld_floors + journaled death schedule)
 ChainState   = NetworkParams                  (bound network, M8b)
                + DomainId -> DomainState      (direct access, in memory)
                + TldId -> TldState            (TLD registry, M7b)
@@ -269,6 +272,18 @@ phản hồi name-state. Client fetch-then-bind: một giao dịch dựng
 trên một thế hệ cũ là từ chối có kiểu (`StaleStateBinding`) không
 biến đổi gì. Dẫn xuất đầy đủ và lý do: `transactions.md`,
 "Bộ đếm biến đổi"; phân tích bảo mật: `security-model.md`.
+
+`record_delegates` (KSK/ZSK-lite): một tập khóa công khai do chủ
+quản lý, tối đa `MAX_RECORD_DELEGATES` = 3, được phép ký
+`UpdateDomain` cho TÊN MIỀN này, bên cạnh chủ (thao tác của chính
+chủ luôn hợp lệ). Được duy trì bởi `SetRecordDelegates` (0x66,
+độc-quyền-chủ — các ủy nhiệm không bao giờ chỉnh được tập, kể cả
+thêm hay gỡ chính chúng; gắn CAS với bộ đếm biến đổi như mọi
+thao tác được bảo vệ, mà nó tăng); tập bị xóa khi
+`TransferDomain` (vùng của chủ mới bắt đầu không có khóa vận
+hành viên ngoại lai) và chết cùng tên miền — không có hết hạn,
+vòng đời của tên giới hạn mọi ủy quyền. Được cam kết trong lá
+tên miền (`SCONE-LEAF-DOM-V4`, hậu tố ủy nhiệm sau bộ đếm).
 
 * `registered_at` / `valid_until` (M8b): hết hạn đăng ký, đánh
   giá đối với **timestamp của khối cha** (tất định, được cam kết
@@ -312,15 +327,23 @@ mainnet, và ngược lại).
   `SCONE-TLD-V1 || tld` (dẫn xuất từ tên mang bởi tx), ở độ khó
   **theo chiều dài** của nhãn (`pow_length`): sinh riêng tư →
   `tld_difficulty` (apex mạng), sinh mở (`open = 0x01`) →
-  `open_tld_difficulty` (apex − 2) — digest được tính lại từ đầu
+  `open_tld_difficulty` (apex − 1) — digest được tính lại từ đầu
   (muối `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`,
   lõi Argon2id), độ khó tự-khai-báo phải bằng độ khó kỳ vọng, và
-  **epoch khai báo** bởi bằng chứng phải bằng
-  `height/POW_WINDOW` của khối áp dụng (muối epoch chống tiền-
-  đào — từ chối có kiểu `ProofEpochMismatch`, xem
+  **epoch khai báo** bởi bằng chứng phải rơi vào cửa sổ hiệu lực
+  về-qua-khứ của khối áp dụng: một bằng chứng còn hợp lệ chừng
+  nào `declared_epoch ≤ block_epoch < declared_epoch + W`, với
+  `W = 1 << max(0, difficulty − 16)` epoch (`POW_WINDOW_REF_BITS`
+  = 16 — so-sánh-bằng với đúng một epoch nghiêm ngặt ở độ khó
+  ≤ 16, cửa
+  sổ nhân đôi mỗi bit thừa phía trên, hiệu chuẩn để phủ thời
+  gian đào trung bình; chỉ về-qua-khứ: một bằng chứng không bao
+  giờ có thể được đào cho tương lai — muối epoch chống tiền-đào,
+  từ chối có kiểu `ProofEpochMismatch`, xem
   `transactions.md`);
-- khi áp dụng: `open = 0x01` → `{ Open }` (không ai — tự phục vụ,
-  ghế PoS được giải phóng, sàn chết đặt tại `now + grace`);
+- khi áp dụng: `open = 0x01` → `{ Open { until } }` (không ai —
+  tự phục vụ; khóa không cấp ghế PoS nào và không có gì được
+  học; sàn chết đặt tại `now + OPEN_TLD_FLOOR_SECS` — 1 năm);
   `open = 0x00` → `{ Private { owner } }` — **đóng mặc định**
   (chỉ-assign); việc mở là tường minh qua `SetTldOpen`.
 
@@ -348,7 +371,11 @@ cả khối (undo-log).
 **UPDATE (UpdateDomain)**:
 
 - tên miền phải tồn tại (chưa hết hạn);
-- `tx.owner` phải là chủ hiện tại;
+- `tx.owner` phải là chủ hiện tại của tên miền — và NGƯỜI KÝ có
+  thể là chủ HOẶC một trong các record delegate của nó
+  (`tx.owner` vẫn là chủ tên miền ngay cả khi một ủy nhiệm ký;
+  `RecordSignerUnauthorized` nếu ngược lại — mọi dạng khác giữ
+  phép dẫn xuất chủ↔khóa nghiêm ngặt);
 - `tx.sequence` phải là **đúng bằng** `current_sequence + 1`
   (không khoảng trống, không phát lại);
 - khi áp dụng: `sequence` tăng, `record_hash` được thay.
@@ -358,7 +385,13 @@ cả khối (undo-log).
 - TLD phải tồn tại và **riêng tư** (nếu không `UnknownTld` /
   `TldIsOpen` — một TLD mở không thuộc về ai);
 - người ký phải là chủ hiện tại (nếu không `NotTldOwner`);
-- khi áp dụng: `owner = new_owner` (danh tính người nhận là mờ;
+- **PoW nhượng quyền bắt buộc** (chống-churn, phẳng): challenge
+  gắn-trạng-thái với ràng buộc bộ đếm HIỆN TẠI của namespace
+  (`tld_binding(tld_id, valid_until, mutations)`) và bằng chứng
+  đào ở độ khó phẳng `transfer_pow_difficulty` (cùng muối epoch
+  với các đăng ký);
+- khi áp dụng: `owner = new_owner` và bộ đếm biến đổi được tăng
+  (+1) (danh tính người nhận là mờ;
   việc ràng buộc vào các khóa có thể chi tiêu nó do các tx sau
   đó làm). Không sequence: lần chuyển được áp dụng đầu tiên thắng
   (thứ tự chuỗi).
@@ -381,12 +414,13 @@ cả khối (undo-log).
 - người ký = chủ hiện tại (`NotTldOwner`);
 - **mở = PoW bắt buộc**: `pow::verify` trên challenge
   `SCONE-TLD-OPEN-V1 || tld_id` ở độ khó phẳng
-  `open_tld_pow_difficulty` của mạng (6 bit testnet / 22 bit
+  `open_tld_pow_difficulty` của mạng (6 bit testnet / 26 bit
   mainnet), kèm muối epoch (bằng chứng đi trong trường
   `open_proof` được ký của tx);
 - khi áp dụng: `TldState::Open` — **chủ bị xóa** (không thể đảo
-  ngược, ghế PoS được giải phóng), một sàn chết được đặt tại
-  `now + grace`.
+  ngược; trường-hợp-giải-phóng-ghế: ghế PoS của chủ cũ được giải
+  phóng), một sàn chết được đặt tại
+  `now + OPEN_TLD_FLOOR_SECS` (1 năm).
 
 **ASSIGN_DOMAIN (0xD4)**:
 
@@ -394,15 +428,28 @@ cả khối (undo-log).
   `TldIsOpen`: một TLD mở chỉ tự phục vụ), người ký = chủ của
   TLD (`NotTldOwner`);
 - tên miền phải tự do (cùng quy tắc hoãn như REGISTER);
+- **PoW bắt buộc** (chống thư rác, phẳng): bằng chứng đào
+  challenge
+  `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` ở độ khó phẳng
+  `assign_pow_difficulty` của mạng (16 bit mainnet / 4 bit
+  testnet / 1 bit devnet) — cùng muối epoch và cửa sổ với các
+  đăng ký (phẳng một cách có chủ đích: tính độc quyền của
+  namespace đã được trả lúc tạo TLD, không thuế kép theo chiều
+  dài);
 - khi áp dụng: `{ owner: assignee, sequence: 0, record_hash:
   None, registered_at: now, valid_until: now + 1 năm }`.
-  **Không PoW**: chính chủ không gian tên bảo lãnh.
 
 **TRANSFER_DOMAIN (0xE2, M8c)**:
 
 - tên miền phải tồn tại (nếu không `UnknownDomain`), người ký =
   chủ hiện tại (`NotOwner`);
-- khi áp dụng: `owner = new_owner` (ghế PoS đi theo tên miền
+- **PoW nhượng quyền bắt buộc** (chống-churn, phẳng): challenge
+  gắn-trạng-thái với ràng buộc bộ đếm HIỆN TẠI của namespace
+  (`domain_binding(domain_id, registered_at, mutations)`) và
+  bằng chứng đào ở độ khó phẳng `transfer_pow_difficulty` (cùng
+  muối epoch với các đăng ký);
+- khi áp dụng: `owner = new_owner` và bộ đếm biến đổi được tăng
+  (+1) (ghế PoS đi theo tên miền
   trong tập chủ, đối xứng với `TransferTld`). Không sequence:
   lần chuyển được áp dụng đầu tiên thắng (thứ tự chuỗi).
 
@@ -415,7 +462,8 @@ cả khối (undo-log).
     người ký
     (`effective_operator(tld_owner) == renew.public_key` —
     ủy quyền luôn được đọc TỪ chủ TLD, không bao giờ ngược
-    lại). Trường `proof` phải rỗng (proof không rỗng = từ
+    lại). Trường `proof` phải rỗng hay đúng 20 byte 0 (proof
+    không rỗng khác = từ
     chối).
   - **TLD mở**: ủy quyền **PoW** — người ký là chủ hiện tại của
     tên miền (nếu không `NotOwner`) và bằng chứng đào challenge
@@ -432,6 +480,44 @@ cả khối (undo-log).
   trì hoãn sàn chết của TLD mở bên dưới (tx mang tên chuẩn cho
   mục đích đó).
 
+**Gia đình pow-to-owner (D2)**: `RegisterTldPow` (0x2A),
+`RenewTldPow` (0x57), `RegisterDomainPow` (0x84), `RenewDomainPow`
+(0xC3) không mang người ký hay chữ ký nào — bằng chứng đã đào
+CHÍNH LÀ toàn bộ sự ủy quyền (chỉ xác thực cấu trúc ở tầng giao
+dịch; xác minh chữ ký được bỏ qua). Mọi challenge là
+`tag ‖ name ‖ khóa công khai người thụ hưởng ‖ chiều dài ‖
+network id` (`pow_challenge_to`): một bằng chứng chỉ được tiêu
+thụ bởi khóa định-đến của nó trên mạng của nó (không phát lại
+bằng chứng bị đánh cắp, không phát lại chéo mạng), và người thụ
+hưởng (`pubkey_dest`) là một tham số, không bao giờ một người
+ký. Quy tắc khi áp dụng:
+
+- `RegisterTldPow`: phản chiếu REGISTER_TLD (tự do, tên không
+  thuộc ICANN; độ khó theo chiều dài theo loại sinh; cờ `open`
+  và sàn sống sinh-mở) nhưng ghi cho `pubkey_dest`; khóa người
+  thụ hưởng được học ở lần xuất hiện đầu (sinh riêng tư — bên
+  đặt cược PoS);
+- `RenewTldPow` / `RenewDomainPow`: challenge gia hạn nối thêm
+  hạn HIỆN TẠI (big-endian 8 B) — một bằng chứng đã đào trả cho
+  một kỳ hạn (chống tái sử dụng) — và bị KHOÁ vào chủ on-chain
+  hiện tại: người thụ hưởng phải bằng chủ đó (`NotTldOwner` /
+  `NotOwner`), một gia hạn không bao giờ đổi chủ; kỳ hạn cố
+  định, như các đường có chữ ký;
+- `RegisterDomainPow` / `RenewDomainPow`: **chỉ TLD mở**
+  (`TldClosed` dưới một TLD riêng tư — trong một namespace riêng
+  tư, tạo ra là phép gán và gia hạn ở lại đường chữ ký của
+  chủ).
+
+**Các kiểu giao dịch khác**: `Slash` (0x15 — bằng chứng
+equivocation: khóa của kẻ phạm tội rời tập đủ điều kiện trọn
+đời; kẻ phạm tội phải ở trong tập sống lúc áp dụng, idempotent,
+tên miền/TLD không bị tịch thu), `Heartbeat` (0x71 — chống phát
+lại theo-vận-hành-viên: timestamp tăng nghiêm ngặt, một heartbeat
+mỗi vận hành viên mỗi epoch), `SetTldOperator` (0xA9) /
+`SetDomainOperator` (0x5E — ủy quyền vận hành viên). Toàn bộ quy
+tắc áp dụng của chúng được đặc tả trong
+`/docs/en/technical/transactions.md`.
+
 **GC tất định (M8b)**: trước khi áp dụng các giao dịch của một
 khối, chuỗi đánh giá các hết hạn tại **timestamp của khối cha**:
 mọi tên miền có `valid_until ≤ now` bị gỡ khỏi trạng thái sống
@@ -446,8 +532,15 @@ chúng, độc lập với tên miền.
 
 - **TLD riêng tư**: lời tuyên bố mở một **hạn 3 năm**
   (`TLD_TERM_SECS`). Gia hạn (`RenewTld`, 0x8F) trả một **PoW
-  bằng lúc tạo** và đặt lại đúng 3 năm (hạn cố định dẫn xuất
-  lại lúc áp dụng). Khi hết hạn một **thời gian hoãn 60 ngày**
+  bằng lúc tạo** (challenge = `tld_challenge(name) ‖ hạn
+  hiện tại`, big-endian 8 B — gắn vào hạn chót hiện tại,
+  chống tái sử dụng: một bằng chứng đã đào trả cho một kỳ hạn)
+  và đặt lại
+  đúng 3 năm (hạn cố định dẫn xuất
+  lại lúc áp dụng); bộ đếm biến đổi được giữ nguyên. Gia hạn chỉ
+  được phép trong khi
+  `now ≤ valid_until + 60 ngày` (`TldExpiredFrozen` vượt quá).
+  Khi hết hạn một **thời gian hoãn 60 ngày**
   (`TLD_GRACE_SECS`) mở ra: gia hạn vẫn khả năng, nhưng **mọi
   thao tác quản lý khác bị đóng băng** — đáng chú ý
   `AssignDomain` (từ chối có kiểu `TldExpiredFrozen`): một chủ
@@ -527,6 +620,14 @@ giờ được lấy theo mặt chữ:
 3. `version` == `PROTOCOL_VERSION` **chính xác** (mọi phiên bản
    khác — thấp hơn hay cao hơn — đều bị từ chối, không diễn giải
    lại);
+3bis. **cửa sổ thời gian chuỗi**: timestamp của khối cha là nguồn
+   thời gian DUY NHẤT của chuỗi (GC hết hạn, các hạn chót
+   `valid_until`) — khối phải thỏa `parent_time ≤ timestamp ≤
+   parent_time + MAX_TIMESTAMP_DRIFT_SECS` (10 năm; lỗi có kiểu
+   `InvalidTimestamp`). Chiều cao 1, gốc thời gian chuỗi, cam kết
+   timestamp của nó nguyên trạng nhưng phải để lại cùng khoảng
+   trống phía dưới `u64::MAX`, nên không khối đơn nào có thể mở
+   một cửa sổ GC phủ toàn bộ không gian thời gian;
 4. số giao dịch ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` tính lại trên các giao dịch theo thứ tự khối;
 6. các móc đồng thuận (`validate_header`, `validate_tx`);
@@ -546,11 +647,17 @@ giờ được lấy theo mặt chữ:
    (`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`, bị chặn); chữ ký phủ
    *băm chữ ký người produce* = `BlockHash` của header **với
    trường `consensus` rỗng** (payload sống trong trường đó; ký
-   băm đầy đủ sẽ vòng tròn); người produce phải thuộc tập được
-   ủy quyền tại `timestamp` của khối (ủy ban được bầu bởi
-   checkpoint, cộng các lần rút khôi phục đã mở khóa;
-   bootstrap: chủ của các tên miền còn sống — một tập rỗng =
-   produce mở, nếu không lần đăng ký đầu tiên sẽ bất khả).
+   băm đầy đủ sẽ vòng tròn); trong chế độ hoàn tất, người produce
+   phải thuộc TOÀN BỘ TẬP ĐÓNG BĂNG (các chủ đủ điều kiện tại
+   checkpoint hoàn tất cuối — ủy ban được bầu cộng các lần rút
+   khôi phục chỉ là tập KÝ checkpoint, không bao giờ một bộ lọc
+   sản xuất); trước lần tính cuối đầu tiên và dưới
+   `BOOTSTRAP_OPEN_MAX_HEIGHT` (1000), kiểm tra thành viên bị
+   BỎ QUA — mọi chữ ký người produce hợp lệ đều sản xuất được
+   (ủy ban bootstrap chưa phải một sự thật đồng thuận: hai góc
+   nhìn cùng đỉnh sẽ tính ra các tập khác nhau và làm chuỗi đơ);
+   quá cửa sổ đó mà chưa có tính cuối, xác thực nghiêm ngặt
+   đối với tập cục bộ.
    Genesis (chiều cao 0, payload rỗng) là cấu trúc và không
    bao giờ liên quan. Lỗi có kiểu `InvalidProducer`;
 7. cho mỗi giao dịch, theo thứ tự: xác thực **mật mã**
@@ -609,10 +716,11 @@ các khối cạnh tranh:
   thắng; hòa hoàn hảo → phá vỡ hòa tất định (băm đỉnh nhỏ nhất
   theo thứ tự từ điển — hai nút giữ cùng các khối luôn chọn
   cùng người thắng, đã kiểm thử);
-- **sàn tính cuối**: một nhánh mà một tổ tiên nào đó mâu thuẫn
-  với một checkpoint hoàn tất (bao gồm trong
-  `prev_checkpoint_hash` của một checkpoint được chấp nhận) bị
-  từ chối (lỗi có kiểu
+- **sàn tính cuối**: một nhánh bị từ chối trừ khi nó chứa, ở
+  chiều cao chính xác, khối của MỌI checkpoint hoàn tất ĐƯỢC GIỮ
+  (cửa sổ được giữ là `CHECKPOINT_KEEP` = 64 checkpoint cuối;
+  những cái cũ hơn rơi ra khỏi kiểm tra — các khối của chúng có
+  thể đã rời cửa sổ RAM) (lỗi có kiểu
   `Consensus("branch contradicts a finalized checkpoint")`);
 - nhận nuôi = phát lại từ genesis các khối của nhánh thắng (tính
   tất định bit-chính-xác được kiểm thử: hai nút nhận cùng các
@@ -669,21 +777,25 @@ cả vào RAM. Bốn mảnh:
 ### Backend KV (`state_backend.rs`)
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
 - `Pkey` = 32 byte thô của `DomainId`/`TldId` — MỘT không gian
   khóa có thứ tự (tiền tố dẫn xuất tách rời), giá trị = các mã
-  hóa `SCONE-ENTRY-DOM-V1` (88 byte cố định) /
-  `SCONE-ENTRY-TLD-V1` (biến thiên: 33 byte riêng tư / 1 byte
-  mở, enum tùy chọn chủ — cờ + chủ có điều kiện, không còn
-  trường `until`);
+  hóa `SCONE-ENTRY-DOM-V1` (nền 96 byte: owner 32 ‖ sequence 8 ‖
+  record_hash 32 ‖ registered_at 8 ‖ valid_until 8 ‖ mutations 8,
+  cộng một hậu tố record-delegate tùy chọn — count 1 B + n×32 B
+  khóa, tăng nghiêm ngặt, n ≤ 3) / `SCONE-ENTRY-TLD-V1` (49 B
+  riêng tư: cờ ‖ owner ‖ valid_until BE ‖ mutations BE / 9 B
+  mở: cờ ‖ until BE — enum tùy chọn chủ);
 - `MemoryBackend` (BTreeMap) = triển khai tham chiếu (dev,
   kiểm thử); KHÔNG phụ thuộc cụ thể nào trong `scone-blockchain`
   (redb bị cấm trong crate) — protocol/consensus chỉ phụ thuộc
@@ -806,7 +918,9 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 - `pool` = `eligible_validators(timestamp của khối được hoàn
   tất)` — tính cuối KHÔNG BAO GIỜ đọc lại trạng thái sống sau
   đó: mọi đăng ký (tuyên bố, chuyển, cấm) sau checkpoint chỉ
-  tính cho các epoch sau;
+  tính cho các epoch sau; một checkpoint được chấp nhận PHÍA
+  SAU đỉnh đóng băng tập của nó qua một phát lại sandbox tới
+  chiều cao riêng của checkpoint (`pool_at_height`);
 - `seed` = `next_seed(signing_hash(checkpoint))` — seed của
   epoch KẾ Tiếp dẫn xuất từ băm **nội dung** của checkpoint
   (có khóa, loại trừ bộ chữ ký — hai góc nhìn giữ các tập con
@@ -907,7 +1021,10 @@ thuần của `(seed, số lần gửi)`, nên một kịch bản với seed c�
   (cùng phân vùng) một khối/giao dịch/checkpoint chỉ khi thấy
   lần đầu — quy tắc relay H2 (cắt vòng). Một khối đỗ (orphan)
   KHÔNG BAO GIỜ được phát lại; các khoảng trống nhận được được
-  lấp bởi đường đồng bộ (`GetBlocks`), như relay.
+  lấp bởi đường đồng bộ (`GetBlocks`) — giống relay, cái hiện
+  nay THÊM NỮA kích hoạt một kéo ngược ngay lập tức khi một khối
+  đỗ trên `UnknownParent`; sim không có kéo kích-hoạt-bởi-mồ-côi
+  nào như vậy.
 - **Tạo khối**: một bước tạo toàn cục mỗi khoảng; mỗi nhóm
   phân vùng tạo tối đa MỘT khối mỗi vòng, bởi nút được ủy quyền
   giữ chiều cao tốt nhất. Trong bootstrap (trước lần tính cuối
@@ -939,7 +1056,7 @@ thuần của `(seed, số lần gửi)`, nên một kịch bản với seed c�
 
 | Kiểm thử | Chứng minh điều gì |
 |---|---|
-| `convergence_simple` | 8 nút, mất 5 ‰, độ trễ 1–5 tick, 500 khối: cùng đỉnh, cùng `state_root_smt` mọi nơi; tính cuối hoạt động; không bao giờ hai checkpoint không tương thích mỗi epoch. |
+| `convergence_simple` | 8 nút, mất 5 %, độ trễ 1–5 tick, 500 khối: cùng đỉnh, cùng `state_root_smt` mọi nơi; tính cuối hoạt động; không bao giờ hai checkpoint không tương thích mỗi epoch. |
 | `partition_then_heal` | phân vùng 4a/4b ~300 khối: cả hai bên produce, chữa lành → hội tụ với reorg của nhánh thua; các cửa sổ checkpoint giao nhau không bao giờ mâu thuẫn một epoch chung (trước và sau chữa lành). |
 | `crash_restart` | Crash ở h≈200, khởi động lại ở h≈400: tái đồng bộ bằng cách phát lại các khối của mạng — cùng chiều cao, đỉnh, trạng thái; giao dịch sau-crash hiển thị với nút hồi sinh. |
 | `duplicate_and_delay` | nhân đôi 10 ‰: chiều cao cuối, gốc trạng thái, và số checkpoint hoàn tất giống hệt chạy không nhân đôi (lũy tính: TxReplay/các tập-đã-thấy hấp thụ bản trùng). |
@@ -952,7 +1069,8 @@ chiều cao, `sync_interval` 29–60 tick (41 mặc định, hạ trong
 một số kiểm thử), `horizon` 200k–500k tick ảo. Mọi kiểm thử nhúng
 một canh đồng hồ-tường < 60 s ở chế độ debug
 (`assert_under_60s`). Chi phí trội là hạt nhân xác thực (~9 ms
-mỗi `push_block_with_gc` rỗng ở debug, Ed25519 chưa tối ưu):
+mỗi `push_block_with_gc` rỗng ở debug, Ed25519 chưa tối ưu, trên
+máy tham chiếu 8 lõi):
 các kịch bản giữ dưới ~8 nút × 500 khối.
 
 ### Các giới hạn

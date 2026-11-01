@@ -52,7 +52,7 @@ Heartbeat {
 height_seen.v ‖ timestamp.v ‖ operator[32]`
 （簽署者的金鑰出現在本體尾部、與每筆
 交易相同）`‖ signature[64]`，即編碼後約
-230 位元組 — **無 PoW**：成本是持續在場
+200–215 位元組 — **無 PoW**：成本是持續在場
 （每 epoch 一次心跳、持續數月）。
 
 簽署者就是營運者：`owner` 恆由 `operator`
@@ -334,5 +334,5 @@ CLI 建構器發射（手動或氣隙營運）。心跳
 | 1 | core + protocol | `Heartbeat`、`SetTldOperator`、`SetDomainOperator`、線上格式、驗證 | 完成 |
 | 2 | blockchain | 滑動窗口（有日誌）、過濾的池、選舉、約 15 個測試 | 完成 |
 | 3 | network | 自動發射、tx 轉發 | 完成 |
-| 4 | CLI | `tx build heartbeat`、`scone status` 中的 `fresh operators` 顯示 | 完成 |
+| 4 | CLI | 自動中繼站發射（§7）；`scone status` 中的 `fresh operators` 顯示；離線建構器已移除（cli-simplify-v1） | 完成 |
 | 5 | docs | 本 RFC 整併為規範形式、fr/en 鏡像 | 完成 |

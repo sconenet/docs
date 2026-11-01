@@ -17,7 +17,7 @@ tiếp (thống nhất RPC→p2p: kênh TCP JSON đã biến mất).
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -63,8 +63,7 @@ Ba cơ chế bổ trợ, theo thứ tự ưu tiên này:
 
 1. **Seed tường minh** (`--bootstrap`, multiaddr đầy đủ) — luôn
    ưu tiên; cung cấp một danh sách không rỗng THAY THẾ mọi thứ
-   còn lại. `--no-builtin-seeds` rỗng hóa các seed nhúng cho
-   triển khai 100% riêng tư.
+   còn lại.
 2. **Seed nhúng** (`builtin_seeds(network)` trong
    `scone-network/src/config.rs`) — đóng băng tại mỗi bản phát
    hành nhị phân chính thức, theo từng mạng. Một relay không cấu
@@ -96,9 +95,9 @@ UPnP giữ **tắt mặc định** (`enable_upnp` = `false` trong
 `config.rs`): một triển khai công cộng không nói chuyện với
 router nào khi chưa có sự đồng ý. **Khám phá mDNS đã bị gỡ bỏ**
 (remove-mdns-discovery, 2026-10-22): peering đến độc quyền từ
-bootstrap tường minh, các seed dựng sẵn và Kademlia — cờ cũ
-`--mdns`/`SCONE_MDNS` vẫn được chấp nhận mà không có hiệu lực
-(tương thích script, đối xử giống như `--rpc`).
+bootstrap tường minh, các seed dựng sẵn và Kademlia — các cờ cũ
+`--mdns`/`SCONE_MDNS` đã bị GỠ: truyền chúng là một lỗi clap
+hôm nay (không có đối số nào như vậy tồn tại).
 
 ### Tối ưu cấu trúc liên kết cục bộ (luôn bật)
 
@@ -179,11 +178,12 @@ reachable từ bên ngoài, không = sau NAT, không rõ = chưa thử)
 (`only_global_ips = false`): một mạng lưới LAN thử tính
 reachable LAN của mình.
 
-Một relay reachable bật circuit-relay v2 **hop** (nó có thể
-chuyển tiếp lưu lượng cho các peer NATed) và **DCUtR** (đục lỗ:
-hai nút nối qua circuit thử một kết nối trực tiếp và giải
-phóng relay). Một relay bị coi là NATed tự động xin một đặt
-chỗ từ peer reachable đầu tiên biết đến và lắng nghe qua nó
+Mọi relay chạy circuit-relay v2 **hop** (nó có thể chuyển tiếp
+lưu lượng cho các peer NATed) và **DCUtR** (đục lỗ: hai nút nối
+qua circuit thử một kết nối trực tiếp và giải phóng relay) VÔ
+ĐIỀU KIỆN; chỉ yêu cầu đặt chỗ của phía NATed bị cổng bởi phán
+quyết: một relay bị coi là NATed tự động xin một đặt chỗ từ peer
+reachable đầu tiên ĐÃ KẾT NỐI và lắng nghe qua nó
 (địa chỉ `/p2p/<relay>/p2p-circuit`).
 
 Quy tắc sản xuất: một nút NATed qua relay không nên trở thành
@@ -244,9 +244,9 @@ cố ý: không bao giờ hơn một khối đang bay mỗi peer.
    [Khám phá peer](#khám-pháy-peer)): `--bootstrap` tường minh
    (phải kết thúc bằng `/p2p/<peer-id>`) HOẶC seed nhúng của
    mạng HOẶC thư mục học được (`peers.json`);
-5. quay số mỗi multiaddr và đăng ký nó vào bảng Kademlia
-   (một lần quay số chết bị bỏ qua — những cái khác dựng nên
-   mạng).
+5. đăng ký mỗi multiaddr seed vào swarm VÀ bảng Kademlia
+   (các lần quay số do bootstrap tự động của Kademlia thực
+   hiện; một peer chết đơn giản không bao giờ được trả lời).
 
 ### Nhận một giao dịch (P2P hay nộp qua CLI `submit tx`)
 
@@ -270,7 +270,14 @@ cố ý: không bao giờ hơn một khối đang bay mỗi peer.
    `RenewTld` → TLD riêng tư biết + chủ, hạn cố định dẫn xuất
    lại, tiền kiểm tra cửa sổ hoãn; `RenewDomain` → tên miền
    biết + chủ, tiền kiểm tra PoW gia hạn (trói vào hạn hiện
-   tại) tại chiều cao kế;
+   tại) tại chiều cao kế; `TransferDomain` → tên miền biết +
+   chủ; `SetRecordDelegates`, `SetTldOperator`,
+   `SetDomainOperator` → chủ + CAS `state_binding` = thế hệ
+   hiện tại; họ pow-to-owner (`RegisterTldPow`/`RenewTldPow`/
+   `RegisterDomainPow`/`RenewDomainPow`) → các tiền kiểm tra
+   hình dạng name/proof (không người ký, không chữ ký);
+   `Slash`/`Heartbeat` → cho qua (được xác thực đầy đủ lúc
+   push);
 4. chèn mempool (dung lượng cố định, khử trùng theo `TxId` —
    nộp lại một tx đã trong pool là no-op);
 5. phát tới các peer (trừ người gửi).
@@ -366,6 +373,10 @@ không bao giờ đạt tới qua tệp nhị phân, clap luôn ghi đè nó):
 - **đuổi kịp tính cuối**: một relay có nền rỗng (khởi động của
   một nút mới) yêu cầu `GetCheckpoints` từ một peer mỗi nhịp cho
   đến khi nền được phục hồi;
+- **heartbeat proof-of-service**: tại mỗi biên epoch, relay tự
+  phát giao dịch `Heartbeat` của mình (ký bằng khóa anchor, tối
+  đa một mỗi epoch, chỉ khi danh tính nắm một ghế còn sống) qua
+  đường mempool bình thường;
 - một relay không khóa anchor giữ **bị động**: nó tích lũy, hoàn
   tất, và chuyển tiếp, nhưng không bao giờ ký;
 - `GetCheckpoints` → cửa sổ `checkpoint_window()` được phục vụ;
@@ -378,9 +389,11 @@ không bao giờ đạt tới qua tệp nhị phân, clap luôn ghi đè nó):
 Một khối chị em cùng chiều cao, hay một khối mà cha không phải
 đỉnh hiện tại (`ParentNotTip`/`UnknownParent`), KHÔNG BAO GIỜ
 bị mất: nó được **đỗ** (bản đồ chặn, `PARKED_CAP = 2048` khối,
-~KiB mỗi cái — RAM trường-hợp-xấu bị chặn; một bãi đỗ đầy âm
-thầm bỏ qua người mới đến). Các băm đã được đưa cho
-`accept_block` được khử trùng (`seen_blocks`): một khối thua
+~KiB mỗi cái — RAM trường-hợp-xấu bị chặn; một bãi đỗ đầy TRỤC
+XUẤT mục `(height, hash)` thấp nhất và chèn khối mới — không
+bao giờ người mới đến). Các băm đã được đưa cho
+`accept_block` được khử trùng (`seen_blocks` — FIFO bị chặn
+32.000 mục): một khối thua
 gossip lại không được đánh giá lại.
 
 Tại MỌI nhịp `Produce`, `reconsider_parked`:
@@ -396,6 +409,16 @@ chiều cao: khối thắng, được đưa một lần rồi từ chối, đư�
 giá lại định kỳ thay vì bị quên mãi mãi (phát hiện chaos-30:
 hai khối chị em cách nhau 15 ms).
 
+**Bộ phát hiện kẹt fork sâu**: 40 nhịp produce liên tiếp không
+có tiến triển chuẩn trong khi nút bị chặn (bãi đỗ không rỗng
+hay việc nhận nuôi nhánh chạm lỗi cửa-sổ-đã-cắt `BlockPruned`)
+kích hoạt `recover_deep_fork`: chuỗi RAM và bãi đỗ được đặt
+lại, chuỗi khởi động lại từ kho, và relay đồng bộ lại từ các
+peer — phương sách trung thực cuối cùng của một phân vùng dài
+hơn cửa sổ RAM (được ghi nhật ký, tự phục hồi; nếu không, một
+nút kẹt giữ trạng thái não-đôi cho đến khi khởi động lại thủ
+công).
+
 **Lưu bền vững reorg**: nhận nuôi nhánh khác không thể đi qua
 phép nối đơn điệu (`NonMonotonicHeight`). Relay áp dụng
 `rewind_to_height(điểm rẽ)` rồi `persist_state_snapshot` (ghi
@@ -410,9 +433,23 @@ Trên mỗi kết nối tới một peer, relay yêu cầu
 `GetBlocks(start = chiều cao cục bộ + 1)`. Mỗi `Block` nhận được
 hoàn tất đúng chiều cao kỳ vọng kích hoạt yêu cầu chiều cao kế,
 cho đến cạn (`Pong` = hết) hay `MAX_SYNC_ROUNDS` (10.000) lô —
-một biên tuyệt đối ngay cả chống một peer nói dối. Các khối nhận
+một biên tuyệt đối ngay cả chống một peer nói dối. **Kéo ngược
+kích hoạt bởi mồ côi**: một khối nhận được bị đỗ trên
+`UnknownParent` (cha của nó không biết cục bộ — ví dụ một fork
+phát triển trong lúc ta bị ngắt kết nối) kích hoạt ngay lập tức
+một `GetBlocks(start_height = block.height − 1)` tới CÙNG peer
+đó; đoạn fork còn thiếu hiện hình và khối đỗ kết nối trong một
+lần xả `reconsider_parked` sau đó. Bị chặn: một lần kéo mỗi mồ
+côi, khử trùng lặp bởi `seen_blocks` khi đưa lại. Các khối nhận
 đi qua xác thực đầy đủ: một peer độc hại không thể khiến cái gì
 vô hiệu được chấp nhận.
+
+Mỗi nhịp sản xuất cũng chạy một kiểm tra lại định kỳ
+(`recheck_sync`): mỗi peer đã kết nối đã bắt kịp xong nhận một
+`GetBlocks(local height + 1)` bị chặn (một yêu cầu mỗi peer mỗi
+nhịp; trả lời là một `Pong` ngay lập tức khi không có gì mới).
+Đây là cái chữa lành các đảo bị phân vùng: một peer đã bắt kịp
+xong vẫn hay tin về các khối được sản xuất sau đó.
 
 ### DHT bản ghi
 
@@ -433,6 +470,17 @@ vô hiệu được chấp nhận.
   không cần truy vấn DHT mới.
 - Kademlia chạy chế độ máy chủ, không TTL bản ghi (chuỗi chi
   phối tính hợp lệ, không phải thời gian).
+- Đường ống gossip bản ghi (bị chặn, chống bão):
+  (a) mỗi nhịp sản xuất gossip một TRANG của cache bền vững cục
+  bộ tới các peer đã kết nối (256 bản ghi, bước con trỏ qua các
+  nhịp — RAM mỗi nhịp bị chặn, phủ đầy đủ qua vài nhịp bất kể
+  kích thước cache);
+  (b) một thông điệp `Record` nhận được chỉ được gossip lại tới
+  các peer khác khi nó MỚI hay KHÁC với cache cục bộ (nếu
+  không, mọi bên nhận sẽ chuyển tiếp lại mãi mãi);
+  (c) xuất bản từ chối một bản ghi có nhiều hơn **12 nameserver
+  NS phân biệt** (`MAX_NS_PER_DOMAIN`, mọi dạng — hostname,
+  v4, v6).
 
 ### Xác minh bản ghi (quy tắc "chuỗi là thẩm quyền")
 
@@ -473,15 +521,18 @@ Buộc hiệu lực được loan báo trên stdout (hợp đồng đọc-đư�
 máy, như `p2p:`): một dòng `metrics: <addr>` ngay khi lắng
 nghe.
 
-**19 bộ đếm** (`counter`, đơn điệu — đường nóng:
+**27 chuỗi bộ đếm** (`counter`, đơn điệu — đường nóng:
 `fetch_add(Relaxed)` trên một `Arc<Metrics>` chung, không bao
-giờ một đầu vào đồng thuận):
+giờ một đầu vào đồng thuận), cộng hai chuỗi geo có nhãn (được
+vẽ trước các bộ đếm trơn, một dòng mỗi nhãn — cùng tên, các bộ
+nhãn khác nhau; chỉ được phát một khi không rỗng):
 
 | Nhóm | Chuỗi |
 |---|---|
 | Chuỗi | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (có nhãn) | `scone_dns_geo_by_continent_total{continent}` (mã UN M49), `scone_dns_geo_by_country_total{country}` (mã ISO 3166-1) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Mạng peer | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -521,8 +572,9 @@ Các thông điệp điều khiển do relay phục vụ:
 - từ chối ứng dụng → `Message::Error(msg)` (đạt client như một
   thông điệp dễ đọc, không phải EOF).
 
-Client dựng một swarm libp2p tối thiểu (request-response +
-identify), hết hạn gọi 30 s (vòng 20 s). Mặc định `--peer`:
+Client dựng một swarm libp2p tối thiểu (request-response
+DUY NHẤT — không identify), hết hạn gọi 30 s (vòng 20 s). Mặc
+định `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (nút dev cục
 bộ; multiaddr đầy đủ với peer id thật được relay loan báo trên
 stdout qua dòng `p2p:`).
@@ -557,10 +609,13 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 Mọi lệnh điều khiển nói QUIC trực tiếp tới multiaddr của relay
 (`--peer`, mặc định nút cục bộ — thống nhất RPC→p2p, hết kênh
-TCP JSON). Relay vắng → thông điệp rõ "p2p node unreachable — is
-a relay running?", thoát khác không. Cờ `--rpc` được giữ nhưng
-**lỗi thời và bị bỏ qua** (máy chủ RPC đã gỡ; chỉ tương thích
-script).
+TCP JSON). Relay vắng → thoát khác không với một thông điệp dễ
+đọc: khi `--peer`/`SCONE_PEER` được cung cấp, "p2p node
+unreachable — is a relay running? (...)"; trên mặc định
+relay-cục-bộ, "no local relay found — start one (`scone relay`)
+or point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)". Cờ lỗi thời `--rpc` đã bị GỠ: truyền nó
+là một lỗi clap hôm nay (không có đối số nào như vậy tồn tại).
 
 ### Cấu hình môi trường (`.env`)
 
@@ -583,16 +638,12 @@ giờ commit một `.env` thật). Các biến:
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (mặc định), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | thư mục dữ liệu (mặc định `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | multiaddr lắng nghe P2P (mặc định: mọi giao diện, cổng phù du) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap, **lặp được** (một dòng mỗi giá trị — dotenvy tích lũy); thay các seed dựng sẵn |
+| `SCONE_LISTEN` | `--listen` | multiaddr lắng nghe P2P (mặc định: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap — **lặp lại cờ CLI** cho nhiều seed (`--bootstrap A --bootstrap B`); trong `.env`, MỘT giá trị mỗi biến (dotenvy giữ LẦN XUẤT HIỆN ĐẦU TIÊN, nó không tích lũy); thay các seed dựng sẵn |
 | `SCONE_GENESIS` | `--genesis` | tệp genesis (nút sáng lập) |
-| `SCONE_MDNS` | `--mdns` | (lỗi thời — khám phá mDNS đã bị gỡ bỏ; vẫn chấp nhận, bỏ qua) |
 | `SCONE_UPNP` | `--upnp` | ánh xạ cổng UPnP (`true` = bật) |
 | `SCONE_DNS_ADDR` | `--dns` | địa chỉ buộc máy chủ DNS UDP |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback đệ quy, **lặp được** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | nắp mục cache DNS |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | nắp bộ nhớ cache DNS (ví dụ `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | nắp truy vấn DNS đồng thời |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback đệ quy — **lặp lại cờ CLI** cho nhiều (`--dns-upstream A --dns-upstream B`); một giá trị mỗi biến trong `.env` |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | token bearer điểm cuối chỉ số |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | hồ sơ cấu trúc liên kết (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; mặc định `default`) |
@@ -733,7 +784,7 @@ manifest `genesis-manifest.json` (định dạng `ALLOC-V1`) rồi tạo
 |---|---|
 | Khung P2P | `MAX_MESSAGE_LEN` (1 MiB) trước khi phân tích |
 | Mempool | 4096 tx (từ chối có kiểu khi vượt); `MAX_PENDING_PER_DOMAIN = 4` tx treo mỗi tên miền |
-| Hoãn mempool | `MAX_GRACE_ATTEMPTS = 10` lần chèn lại một tx bị xả vì lý do không-tất-định (≈ 7 phút ở 40 s/vòng), rồi trục xuất |
+| Hoãn mempool | `MAX_GRACE_ATTEMPTS = 10` lần chèn lại một tx bị xả vì lý do không-tất-định (≈ 20 s ở nhịp sản xuất mặc định 2 s), rồi trục xuất |
 | Đỗ fork | `PARKED_CAP = 2048` khối cạnh tranh |
 | Checkpoint tích lũy | `MAX_PENDING_CHECKPOINTS = 256` (trục xuất: băm dữ liệu nhỏ nhất) |
 | Trình chờ DHT đồng thời | `MAX_DHT_WAITERS` (256); tra cứu DHT chặn 30 s (`DHT_LOOKUP_TIMEOUT`) |
@@ -741,6 +792,11 @@ manifest `genesis-manifest.json` (định dạng `ALLOC-V1`) rồi tạo
 | Bản ghi DHT | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | Cache DHT bền vững (đĩa) | biên LRU kép: `DHT_CACHE_MAX_ENTRIES` (100.000 mục) VÀ `DHT_CACHE_MAX_BYTES` (2 GiB) — cái nào tới trước trục xuất theo thứ tự khóa; trục xuất GC trong CÙNG giao dịch với khối (một tên miền bị GC của chuỗi giết không bao giờ để lại mục mồ côi) |
 | Cache âm tính DHT | `DHT_NEGATIVE_TTL_SECS` (30 s), nắp FIFO `DHT_NEGATIVE_CAP` (4.096) |
+| Hết hạn yêu cầu req-res | 10 s mỗi yêu cầu, 64 luồng đồng thời (phía relay) |
+| Hết hạn truy vấn Kademlia | 10 s |
+| Hết hạn kết nối nhàn rỗi | 300 s |
+| Điểm cuối metrics | 64 lần scrape đồng thời; hạn 5 s trên lần đọc header |
+| Sổ địa chỉ (RAM) | rào chèn ở 2× nắp được lưu bền (nắp lưu bền: 2.000 mục) |
 | Chuỗi trong RAM | genesis + cửa sổ đỉnh (lịch sử phục vụ từ kho) |
 
 Quy tắc chống vòng (H2): một giao dịch chỉ được phát lại nếu nó

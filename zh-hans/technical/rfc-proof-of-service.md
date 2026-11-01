@@ -50,7 +50,7 @@ Heartbeat {
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖
 height_seen.v ‖ timestamp.v ‖ operator[32]`（签名
 者的密钥出现在主体尾部、如同每笔交易）
-`‖ signature[64]`、即编码后约 230 字节 —— 
+`‖ signature[64]`、即编码后约 200–215 字节 —— 
 **无 PoW**：成本是持续的在线（每纪元一次
 心跳、持续数月）。
 
@@ -308,5 +308,5 @@ air-gapped 运营）。心跳不一定由发出者自己产
 | 1 | core + protocol | `Heartbeat`、`SetTldOperator`、`SetDomainOperator`、线上格式、验证 | 完成 |
 | 2 | blockchain | 滑动窗口（记日志）、过滤资格池、选举、约 15 个测试 | 完成 |
 | 3 | network | 自动发出、交易中继 | 完成 |
-| 4 | CLI | `tx build heartbeat`、`scone status` 中的 `fresh operators` 显示 | 完成 |
+| 4 | CLI | 中继自动发射（§7）；`scone status` 中的 `fresh operators` 显示；离线构建器已移除（cli-simplify-v1）| 完成 |
 | 5 | docs | 本 RFC 合并为规范形态、fr/en 镜像 | 完成 |

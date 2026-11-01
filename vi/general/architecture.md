@@ -72,16 +72,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### Quyết định: `scone-core` phụ thuộc vào `scone-crypto`
@@ -95,6 +97,9 @@ scone           ← binary / application
   core nào, không phụ thuộc mạng/hệ thống tệp/async → không thể có
   tính vòng tròn;
 - `scone-core` chỉ dùng nó để băm;
+- `scone-core` cũng phụ thuộc trực tiếp vào `argon2` (PoW đăng ký)
+  và `idna` (tên quốc tế hóa) — các phụ thuộc thuần túy, tính phân
+  tầng vẫn được tôn trọng;
 - Chữ ký và khóa Ed25519 sống trong `scone-crypto` và thao tác trên
   byte (payload chuẩn do `scone-protocol` tạo ra).
 
@@ -109,9 +114,8 @@ blockchain.
 
 **scone-crypto** — nguyên thủy mật mã. Hiện nay: `hash256`
 (BLAKE3), chữ ký và khóa Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, xác thực batch nghiêm ngặt), phong bì
-AEAD của các nhóm bản ghi (XChaCha20-Poly1305). Dự kiến: cây
-Merkle. Quy tắc: không thuật toán tự chế, chỉ dùng các phụ thuộc đã
+`PublicKey`, `Signature`, xác thực batch nghiêm ngặt). Dự kiến:
+cây Merkle. Quy tắc: không thuật toán tự chế, chỉ dùng các phụ thuộc đã
 được kiểm toán.
 
 **scone-protocol** — định dạng nhị phân của giao thức: mã hóa/giải
@@ -148,7 +152,7 @@ giới hạn, đồng bộ khối có giới hạn (128 khối/yêu cầu), DHT 
 cho `SignedDnsRecord`, máy chủ DNS UDP+TCP (GeoDNS luôn bật — bảng
 GeoIP nhúng, chuyển tiếp đệ quy), vòng lặp checkpoint/heartbeat
 của các anchor (CLI nói p2p QUIC trực tiếp với relay, không còn
-RPC cục bộ nữa). Khả năng kết nối và khám phá: AutoNAT v2 (phán
+RPC cục bộ nữa). Khả năng kết nối và khám phá: AutoNAT v1 (phán
 quyết kết nối được/đứng sau NAT), circuit-relay v2 + DCUtR cho các
 nút NATed và UPnP (ánh xạ cổng QUIC bởi router, tự nguyện). Cấu hình
 qua tệp `.env` (xem `.env.example`).
@@ -210,14 +214,16 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-Hai hồ sơ nút:
+Các hồ sơ nút (DỰ KIẾN — hiện chưa tồn tại cờ vận hành viên nào
+như vậy: mọi nút hiện tại giữ lại tất cả các khối, và việc nhập
+snapshot tự nguyện ở trên là cơ chế kiểm soát lưu giữ duy nhất):
 
-- **nút lưu trữ (archive)** (cờ vận hành viên): giữ mọi khối lịch
-  sử, phục vụ chúng cho mạng, khởi động qua các đường dẫn hiện có;
-- **nút trạng thái-đầy-đủ (full-state)**: giữ toàn bộ trạng thái
-  tại H và phần đuôi, nhưng không giữ lịch sử dưới H — nó xác thực
-  các khối tương lai và phục vụ trạng thái, nó không phục vụ lịch
-  sử.
+- **nút lưu trữ (archive)** (dự kiến): giữ mọi khối lịch sử,
+  phục vụ chúng cho mạng, khởi động qua các đường dẫn hiện có;
+- **nút trạng thái-đầy-đủ (full-state)** (dự kiến): giữ toàn bộ
+  trạng thái tại H và phần đuôi, nhưng không giữ lịch sử dưới H —
+  nó xác thực các khối tương lai và phục vụ trạng thái, nó không
+  phục vụ lịch sử.
 
 Đường dẫn này là TỰ NGUYỆN: nhập vào một snapshot đã xác minh là
 một thao tác tường minh của vận hành viên

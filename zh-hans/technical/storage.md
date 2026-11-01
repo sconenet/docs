@@ -37,12 +37,22 @@
   `COUNT(*)`；
 - `iterate_domains(after, max) -> DomainPage` ——
   基于游标的分页（默认每批 100）、`DomainId`
-  的字节升序；
+  的字节升序；`None` 游标意味着遍历完成
+  （表的天然耗尽）；
 - `put_tld_state` / `tld_state` / `tld_count` /
   `iterate_tlds` —— TLD 注册表的相同契约
   （`tld_count` 被维护、游标有界）（M7d）；
+- `put_states(...)` —— 活跃状态表的原子重写：
+  域名/TLD 的 upsert **与**删除 + 被维护的计数器，
+  在**一个**事务中（唯一调用方：重组持久化）；
+- `put_owner_keys` / `clear_owner_keys` /
+  `iterate_owner_keys` —— 习得的所有者→密钥映射
+  （PoS 池解析）、持久化于 `owner_keys` 表；
 - `put_dht_cache` / `dht_cache` —— 不透明的
   `SignedDnsRecord` 字节；
+- `dht_cache_page(after, max)` —— DHT 缓存按
+  `DomainId` 升序的分页遍历（`None` 游标 = 遍历
+  完成）；
 - `resolve_name(canonical)` / `resolve_tld(tld)`
   —— 持久的 Name→Id 索引（P0.2）、O(1) 点查、
   不迭代域名（默认 `None` = 无索引的后端、调用
@@ -83,6 +93,7 @@
 | `domains` | `DomainId`（32 B、字节序） | `DomainStateBytes`（见下文） |
 | `tlds` | `TldId`（32 B、字节序） | `TldStateBytes`（见下文、M7d） |
 | `dht_cache` | `DomainId`（32 B） | `SignedDnsRecord` 字节（不透明） |
+| `owner_keys`（PoS 池） | 所有者 id（32 B、字节序） | Ed25519 公钥（32 B）—— 习得的所有者→密钥映射、每个区块之后镜像 |
 | `names_v3`（P0.2） | 索引键（32 B、字节序） | 目标 id（32 B） |
 | `name_reverse_v3`（P0.2） | 目标 id（32 B、字节序） | `tag(1) ‖ canonical name` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -107,6 +118,7 @@
 | `tip_height` | `u64 BE`（使 `tip()` 为 O(1)） |
 | `domain_count` | `u64 BE`（被维护的计数器） |
 | `tld_count` | `u64 BE`（被维护的计数器、M7d） |
+| `finality_v1`（PoS） | blob：`varint(window.len) ‖ window checkpoints ‖ base checkpoint ‖ varint(pool.len) ‖ pool keys(各 32 B、排序、去重) ‖ seed(32) ‖ block_ts(8 BE)` —— 持久化的终局性（检查点窗口 + 冻结基座）、由中继的锚循环写入、在每次 `load_chain` 中恢复（加载时窗口↔基座配对 + 曲线检查）；2026-10-21 之前的存储中不存在（终局性从零重建）；不在 `meta_set` 保留列表中（只由节点自己的持久化路径写入） |
 
 `blocks_by_height` 的 `hash ‖ height` 头使每个索引
 自含（无需读区块即可验证）；两个索引在同一
@@ -122,16 +134,27 @@ genesis_hash)`；第一个被追加的区块高度为 1。
 
 ## `DomainStateBytes` 编码格式（M8b）
 
-依据前导版本标签为 65 或 97 字节、定宽
+97 或 65 字节的基础、外加可选的记录委托后缀
+（整体 65 至 194 字节）、定宽
 大端整数（规范、可逐字节比较）：
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash present → exactly 97 bytes
-tag = 0x02 : record_hash absent  → exactly 65 bytes
+tag = 0x01 : record_hash present → base 97 bytes
+tag = 0x02 : record_hash absent  → base 65 bytes
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); the keys are
+                 strictly ascending (the canonical `BTreeSet`
+                 order). An empty set omits the suffix entirely —
+                 the base is then byte-identical to the
+                 pre-delegation format.
 ```
+
+长度包络为 65..=194 字节（97 字节基础 + count 字节 +
+3 × 32 字节密钥 = 至多 194）。
 
 `mutations` 是命名空间的单调变异计数器（CAS
 防重放世代 —— 见 `transactions.md`，变异计数器）。
@@ -152,11 +175,15 @@ M7 编码（41/73 字节、无过期）自 M8b 起
   序列号（`RegisterDomain` 之后立即为 0）；
 - `record_hash`：DNS 记录集当前的链上承诺
   （只要没有 `UpdateDomain` 被应用则为
-  `None`）。
+  `None`）；
+- `record_delegates`：被允许签署 `UpdateDomain` 的
+  所有者管理的委托密钥（至多 3 把；应用规则见
+  `transactions.md`）。
 
 **严格**解码（`DomainStateBytes::decode`）：未知
-标签、错误长度或多余字节 → 
-`StorageError::Corrupted`，绝不 panic。
+标签、错误长度、多余字节、大于 3 的委托计数、
+非严格升序的委托密钥，或不是 Ed25519 曲线点的
+委托密钥 → `StorageError::Corrupted`，绝不 panic。
 
 ## `TldStateBytes` 编码格式（所有者选项）
 
@@ -198,8 +225,9 @@ M7d（33 字节、标签 `0x01`）、M8b（34 字节、
 标签只为格式演进而存在：未来的布局递增
 标签、旧读取者以 `Corrupted` 失败而不是去
 猜测。**严格**解码（`TldStateBytes::decode`）：
-未知标签、错误长度、多余字节或非规范
-标志 → `StorageError::Corrupted`，绝不 panic。
+未知标签、错误长度、多余字节、非规范
+标志，或 `until` 为零的开放条目（旧编码器的
+损坏签名）→ `StorageError::Corrupted`，绝不 panic。
 
 ## 原子性保证
 
@@ -224,10 +252,14 @@ M7d（33 字节、标签 `0x01`）、M8b（34 字节、
    （`removed_tlds`）在同一事务中离开存储、
    计数器递减 —— 重启绝不能复活一个已过期
    的注册；
-8. P0.2 的**名称索引**增量（upsert 与移除、
+8. 每个 TLD 寿命保底的 upsert **以及**被移除
+   TLD 的保底（`tld_floors_v1`、由
+   `StateDelta.tld_floors` 携带）—— GC 的死亡
+   时刻表在重启后幸存；
+9. P0.2 的**名称索引**增量（upsert 与移除、
    见下文）—— 相同保证：崩溃绝不留下指向
    不存在域名的索引条目；
-9. `tip` 与 `tip_height`。
+10. `tip` 与 `tip_height`。
 
 redb 以 WAL 方式提交：写中途崩溃留下**之前
 的**一致状态。因此**没有状态的区块写入在
@@ -264,7 +296,7 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
   编码区块、从 RAM 状态（已被 `push_block`
   更新）读取被触及域名与被声明 TLD 的最终
   状态、原子追加。
-- `load_chain(store)`：**不重放** —— 读取 tip +
+- `load_chain(store, network)`（`NetworkParams`）：**不重放** —— 读取 tip +
   tip 区块（O(1) 区块读取）、以每页 100
   （`DOMAIN_PAGE`）分页恢复域名状态**并以
   每页 100 恢复 TLD 注册表**（`TLD_PAGE`、
@@ -273,7 +305,10 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
   `UnknownTld` 拒绝该 TLD 下的每个
   `RegisterDomain`、尽管其磁盘持有完整
   状态）。RAM 链只保留创世 + tip；历史区块
-  留在存储中并从中提供。自 M8 起
+  留在存储中并从中提供。**空**存储启动所请求
+  网络的创世；持有**另一个**网络链的存储失败
+  —— 全状态路径上为 `Corrupted`、快照路径上为
+  `Unusable`（→ 重放）。自 M8 起
   `load_chain` 随后重建 **TXID 防重放索引**
   （见下文）。
 - `load_chain_replay(store)`：逐个重放所有已
@@ -294,7 +329,7 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
   域名 id、去重、区块顺序。
 - `touched_tlds(block)`：被区块改变状态的 TLD
   id（`RegisterTld`、`TransferTld`、`RevokeTld`、
-  `SetTldOpen`）、去重、区块顺序（M8b）。
+  `SetTldOpen`、`RegisterTldPow`）、去重、区块顺序（M8b）。
 - `store_block_with_removals(...)`：
   `store_block` 的变体、额外接收被区块 GC
   移除的域名（M8b）以进行上述原子写。中继
@@ -320,12 +355,21 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
 
 1. `rewind_to_height(fork_height)` —— 一个
    redb 事务移除分叉点之上的区块并把
-   `tip`/`tip_height` 带回（名称索引与活跃
-   状态在下一步修正）；
+   `tip`/`tip_height` 带回（活跃状态表在下一步
+   修正）；
 2. `persist_state_snapshot(store, chain)` ——
-   从重组后 RAM 状态导出重写活跃表
-   （`domains`、`tlds`、名称索引、TLD 保底）：
-   活跃表在启动时绝描述**输掉**的分支；
+   从重组后 RAM 状态导出重写活跃的
+   `domains`/`tlds` 表（+ 其被维护的计数器、经
+   `NodeStore::put_states`、一个原子事务），然后
+   重写习得的所有者密钥（先清空后写入 —— 一次
+   回滚会反学习密钥、因此仅 upsert 会保留输掉
+   分支的幻影）。名称索引
+   （`names_v3`/`name_reverse_v3`）与活跃的 TLD 保底
+   （`tld_floors_v1`）不被此步骤重写。
+   **已知限制（代码跟进待办）**：重组后，输掉
+   分支的幽灵名称索引条目与陈旧的保底行可能
+   滞留、直到重新追加的后缀自身的增量覆盖它们
+   或一次重建（`rebuild_name_index`、重放）运行；
 3. 被采纳后缀的单调重新追加（普通增量）。
 
 此路径上的持久化失败被记录并降级（存储
@@ -355,7 +399,8 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
   的崩溃绝不能留下"高于"已持久化链的
   快照。
 - **原子**：冻结（清空 + 把 `domains`/`tlds`
-  表拷贝到 `snapshot_v1_*`、写
+  表拷贝到 `snapshot_v1_*`、把活跃的
+  `tld_floors_v1` 拷贝到 `snapshot_v1_floors`、写
   `snapshot_v1_meta`）发生在与触发区块追加
   **同一个** redb 事务中 —— 崩溃留下的要么
   是完好的旧快照、要么是随其区块完整的新
@@ -378,14 +423,22 @@ redb 以 WAL 方式提交：写中途崩溃留下**之前
    的**重算**哈希等于快照的 `tip_hash`
    （**锚** —— 与已持久化链不相干的、被篡改
    的、或来自另一文件的快照在此被发现），
-   冻结状态以每页 100 恢复、然后只重放区块
+   冻结状态以每页 100 恢复 —— 连同持久化的
+   所有者密钥（无效密钥 → `Unusable`）与冻结的
+   保底（`snapshot_v1_floors`；每次
+   `restore_tld_floor` 重新把开放 TLD 的死亡加入
+   时刻表）—— 然后只重放区块
    `H+1..=tip`（完整验证、与活跃区块
    相同）。
 3. 重放到达的 tip 必须等于存储的 tip。
-4. **此路径上的任何失败（快照缺失、高度不可
-   用、锚无效、字节不可解码、重放失败）静默
-   降级到 M6b 之前的全量加载**（读活跃表、
-   无重放）—— 坏快照绝不使启动失败。向后
+4. **存在但不可用的快照（锚无效、冻结条目
+   不可解码、后缀重放失败、高度高于 tip）绝不
+   使启动失败：原因以警告记录、加载回退到
+   全量零信任重放
+   （`load_chain_replay`）** —— 区块日志是权威。
+   只有**不可读**的 `snapshot_v1_meta` 行（后端
+   错误）才降级到普通的全状态加载。回退绝不
+   是静默的。向后
    兼容是"无快照"这一特例：M6b 之前写入的
    存储（没有 `snapshot_v1_*` 表）加载方式
    相同、`snapshot_meta()` 为 `None`。
@@ -425,7 +478,7 @@ M8 关闭了这一窗口：恢复之后（全量路径或
   与之前完全一样。
 - **快照不冻结索引**：快照的后缀重放重建
   H 之上的条目、M8 重扫补上 H 之下的窗口
-  部分（与 owner_keys/grace 相同的契约：
+  部分（与 grace 窗口相同的契约：
   重建、绝不持久化）。
 - **成本**：启动时 ≤ 256 次区块点读、
   O(window) —— 与链龄无关。
@@ -528,10 +581,13 @@ upsert（`RegisterDomain`、`AssignDomain`、
 ### 快照不承诺什么
 
 RAM 状态 `ChainState` 携带未被共识承诺的
-内部结构（所有者密钥、宽限窗口）。它们
-**不**被冻结：后缀重放通过应用交易重建
+内部结构。宽限窗口**不**被冻结、从不
+持久化：后缀重放通过应用交易重建
 它们（确定性、相关窗口内与全量重放内容
-相同）。TXID 防重放索引遵循相同契约
+相同）。所有者密钥**被**持久化 —— 每个区块之后
+镜像进活跃的 `owner_keys` 表（`put_owner_keys`）、
+并由两条启动路径恢复 —— 但快照也不内嵌
+它们：恢复读取的是持久化的表。TXID 防重放索引遵循相同契约
 （M8、见上一节）：启动时重建、绝不冻结。
 与 `load_chain_replay` 的逐位相等已由测试
 在规范状态上验证（state_root + SMT）。
@@ -565,10 +621,18 @@ RAM 状态 `ChainState` 携带未被共识承诺的
    `checkpoint.data.state_root`** —— 那项
    密码学检查：整个状态（域名 + TLD）被
    重新折叠进一个全新的 SMT
-   （`snapshot_verify::recompute_state_root`、
-   叶 `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1`
-   与活跃路径完全一致）且根必须等于委员会
-   签署的根。伪造、截断或不完整的快照
+   （`snapshot_verify::recompute_state_root`）且根必须等于委员会
+   签署的根。叶子与活跃路径的完全一致
+   （`finality.rs`）：`SCONE-LEAF-DOM-V4` = tag ‖ id ‖
+   owner ‖ sequence(8 BE) ‖ registered_at(8 BE) ‖
+   valid_until(8 BE) ‖ mutations(8 BE) ‖
+   record_hash-or-zero(32) ‖ delegate count(1) ‖
+   排序的委托密钥，以及 `SCONE-LEAF-TLD-V4` = tag
+   ‖ id ‖ owner（开放 TLD 为全零）‖ until(8 BE) ‖
+   变体字节（0x01 私有 —— 后跟 mutations(8 BE)
+   —— 或 0x00 开放），然后
+   `state_root = blake3("SCONE-STATE-SMT-V1" ‖
+   smt_root)`。伪造、截断或不完整的快照
    在任何写入**之前**被拒绝；
 4. **结构一致性**：清单的
    `height`/`tip_hash`/`state_root` == 检查点的；
@@ -594,12 +658,17 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — the full
+           delegate-aware envelope) or TldStateBytes 10/50 B —
            the existing canonical storage formats, reused; kind
            0x03 (lifetime floor of an open TLD, owner-option) has
            a dedicated format WITHOUT a length prefix:
            id(32) ‖ floor(8 BE), fixed size)
 ```
+
+哈希派生：页哈希 = `blake3("SCONE-SNAP-PAGE-HASH" ‖
+完整页编码)`；清单哈希（由 P0.4 标记携带）=
+`blake3("SCONE-SNAP-MAN-HASH" ‖ 完整清单编码)`。
 
 页顺序：所有域名条目（id 递增）、然后所有
 TLD 条目（id 递增）、然后冻结在快照高度的
@@ -635,7 +704,10 @@ TLD —— 否则导入者永远不会杀死导出者会
 验证一切（见上）、然后在一个 redb 事务中
 写入：活跃表 `domains`/`tlds` + 计数器 +
 `tip = (H, checkpoint hash)`、冻结表
-`snapshot_v1_*` 锚定在同一区块、以及保留
+`snapshot_v1_*` 锚定在同一区块、TLD 寿命保底 ——
+同时写入活跃的 `tld_floors_v1` 表**与**冻结的
+`snapshot_v1_floors`（启动重新调度开放 TLD 的
+死亡）—— 以及保留
 标记 `meta["verified_snapshot_v1"]`
 （`height ‖ tip_hash ‖ manifest_hash`）。目标：
 仅限空存储（否则 `SnapshotUnavailable`）。
@@ -748,7 +820,9 @@ synced — boot replays ONLY the suffix above H
   防护；每条已由 `MAX_DHT_CACHE_ENTRY` 限制
   在 64 KiB）、先到者按键序驱逐。计数器
   （条数 + 字节）在写入时维护 —— 绝不为
-  计数而扫描；精确重建只发生在打开时
+  计数而扫描；对死域名的 DHT 行的 GC 驱逐
+  **不会**递减它们（保守的超额计数：缓存稍早
+  一点驱逐）；精确重建只发生在打开时
   （唯一的全量扫描、在启动时）。访问器
   `dht_cache_entries`/`dht_cache_bytes`、边界
   可经 `set_dht_cache_bounds` 调整（测试：
@@ -784,8 +858,8 @@ synced — boot replays ONLY the suffix above H
 ## 并发
 
 redb 4.x 允许**每个文件每个进程单一
-`Database` 对象**（同时双重 `open` 以
-`DatabaseAlreadyOpen` 失败）。受支持的模型：
+`Database` 对象**（同时双重 `open` 表现为
+`StorageError::Database("…already open…")`）。受支持的模型：
 克隆的 `RedbStore`（`Arc<Database>`）跨线程
 共享 —— 写者由 `&mut self` + redb 内部锁
 串行化、读者并发（快照读事务）。所有句柄
@@ -818,8 +892,9 @@ redb 4.x 允许**每个文件每个进程单一
   从快照启动 == 完整的逐位重放
   （state_root + SMT、完整逻辑状态、tip）；
   被篡改的快照（损坏的 tip_hash、不可解码
-  状态、height > tip、错误长度 meta）→ 静默
-  回退全量加载、相同最终链；重放后缀 <
+  状态、height > tip、错误长度 meta）→ 已记录的
+  回退到零信任重放
+  （`load_chain_replay`）、相同最终链；重放后缀 <
   间隔；跨间隔时快照替换（无累积）；无
   快照表的 M6b 前存储加载方式相同；
 - M8：启动时重建防重放索引 —— 窗口内被

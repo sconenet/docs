@@ -9,7 +9,7 @@ Các mục đánh dấu **(tạm thời)** chưa phải là bản cuối.
 
 ## Phiên bản giao thức
 
-- hằng số: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`);
+- hằng số: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`);
 - được mang bởi `Hello.version` (handshake) và
   `BlockHeader.version`;
 - quy tắc tương thích:
@@ -17,9 +17,14 @@ Các mục đánh dấu **(tạm thời)** chưa phải là bản cuối.
     (`ProtocolError::UnsupportedVersion`); nút không đoán định
     dạng của một phiên bản nó không biết;
   - phiên bản `0` → vô hiệu;
-  - chỉ có một bộ định dạng: các byte phiên bản giao dịch
-    (`0x01`) và phiên bản khối phải khớp với giá trị cục bộ
-    **chính xác**;
+  - các khối phải là phiên bản `2` **chính xác**: phiên bản `1`
+    (định dạng khối tiền-chữ ký, cột mốc M1) là một định dạng
+    không tương thích, bị từ chối tường minh thay vì bị phân tích
+    sai;
+  - `Hello` dung nạp các phiên bản `1..=2` (chỉ handshake — nó
+    không mang khối nào);
+  - byte phiên bản của định dạng giao dịch (`0x01`) phải khớp
+    với giá trị cục bộ **chính xác**;
 - không tách lớn/nhỏ ở giai đoạn này: một số nguyên duy nhất,
   tăng khi có bất kỳ thay đổi gãy nào của định dạng wire.
 
@@ -39,8 +44,10 @@ Các mục đánh dấu **(tạm thời)** chưa phải là bản cuối.
   đứng trước): thứ tự byte của máy không áp dụng;
 - địa chỉ IPv4/IPv6 và định danh 32 byte: mảng byte thô, không
   tiền tố chiều dài;
-- không có số nguyên kích thước cố định rộng trong định dạng:
-  một quy tắc mã hóa số nguyên duy nhất.
+- ngoại lệ duy nhất: thân checkpoint 116 byte (`CheckpointData`)
+  dùng các số nguyên **little-endian** độ rộng cố định, không
+  phải varint (xem [Checkpoint (M5)](#checkpoint-m5)); mọi số
+  nguyên khác tuân theo quy tắc varint duy nhất.
 
 ### Varint (LEB128 tối giản)
 
@@ -82,11 +89,17 @@ từ chối: `80 00` (không tối giản), `ff×9 02` (tràn u64),
 | `RecordHash` | 32 byte thô |
 | `BlockHash` | 32 byte thô |
 | `MerkleRoot` | 32 byte thô |
-| `DomainName` | `str` (≤ 253 byte, được xác thực lại bởi `scone-core`) |
+| `DomainName` | `str` ≤ 253 byte (A-label ASCII chuẩn), được xác thực lại bởi `scone-core` |
 
 Các phép dẫn xuất (`BLAKE3-256` + tiền tố `SCONE-DOMAIN-V1`,
 v.v.) vẫn do `scone-core` định nghĩa (xem
 `/docs/en/general/naming.md`).
+
+Tên trên wire — `DomainName` và TLD của một `REGISTER_TLD` — chỉ
+là các **A-label ASCII chuẩn**: các byte không phải ASCII bị từ
+chối lúc giải mã (`NonCanonical`). Chuẩn hóa IDNA chỉ tồn tại ở
+thời điểm dựng (đầu vào người dùng); nó không bao giờ chạy trên
+wire.
 
 ## Giao dịch
 
@@ -104,6 +117,7 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
+Bảng phía trên là một **tập con** (7 trong 19 kiểu giao dịch).
 Mỗi discriminant là một hằng số mờ tùy ý (không có trình tự logic
 nào; `0x00` không bao giờ hợp lệ) — bảng chuẩn đầy đủ trong
 `/docs/en/technical/transactions.md`.
@@ -143,7 +157,7 @@ lại, không bao giờ tin); `signature` đúng 64 byte.
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 Tuyên bố một TLD (registry tách khỏi registry tên miền, M7): TLD
@@ -154,7 +168,11 @@ cấu trúc. Quy tắc trạng thái (M8b): TLD tự do + không thuộc
 danh mục dự trữ ICANN (`IcannTldReserved` — các TLD gốc ICANN
 không ai tuyên bố được) + PoW ở độ khó **theo chiều dài** của
 nhãn (đường cong `pow_length` — xem `blockchain.md`); sau khi
-tuyên bố là đóng (chỉ-assign).
+tuyên bố là đóng (chỉ-assign). `open` là một boolean chuẩn
+(`0x00`|`0x01`; mọi byte khác là lỗi giải mã nghiêm ngặt,
+`NonCanonical`): tùy chọn chủ cho một TLD **sinh ra đã mở**
+(`0x01` = mở cho đăng ký tự phục vụ ngay khi sinh). Nó được ghi
+sau `proof` có chiều dài thay đổi, ngay trước khóa công khai.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -162,8 +180,12 @@ tuyên bố là đóng (chỉ-assign).
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-Bất biến kiểm tra lại lúc giải mã: `sequence > 0` và `owner` ==
-dẫn xuất của `public_key`. Không có `timestamp`: thứ tự đi qua
+Bất biến kiểm tra lại lúc giải mã: chỉ `sequence > 0` — cộng với
+chữ ký trên payload, được xác minh đối với `public_key` nhúng.
+Quy tắc thẩm quyền (người ký phải là chủ tên miền hoặc một trong
+các record delegate của nó, tối đa 3) là một quy tắc **trạng
+thái** do `scone-blockchain` áp đặt lúc áp dụng, không phải một
+kiểm tra wire. Không có `timestamp`: thứ tự đi qua
 `sequence`. Giao dịch chỉ mang các tham chiếu gọn — toàn bộ nội
 dung DNS ở lại trong DHT (xem dưới).
 
@@ -196,7 +218,13 @@ Các mã kiểu là **các mã DNS thật** (IANA). TTL (giây, varint)
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (xem dưới) |
+| 32769 | NS4 | 4 byte (địa chỉ IPv4) |
+| 32770 | NS6 | 16 byte (địa chỉ IPv6) |
 | khác | Unknown | code.v + `bytes` ≤ 4096 |
+
+Các kiểu 32769 (`NS4`) và 32770 (`NS6`) là các kiểu riêng của
+Scone (ngoài dải IANA, cùng họ với `GEOROUTE`): ủy nhiệm cho một
+nameserver được chỉ định bằng địa chỉ IPv4/IPv6 thay vì bằng tên.
 
 Ví dụ: `A 192.0.2.1` (TTL 86.400) → `01 80 a3 05 c0 00 02 01`
 (kiểu, TTL varint, địa chỉ).
@@ -324,19 +352,19 @@ vận chuyển không nên vượt `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0a` | `Checkpoint` | hai chiều | `Checkpoint` | người ký ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | hai chiều | — | — | cửa sổ checkpoint |
 | `0x0c` | `GetStatus` | hai chiều | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | hai chiều | trạng thái nút (mạng, đỉnh, chiều cao, NAT, tên miền, mempool, peer, tính cuối, vận hành viên còn mới) | — | — |
+| `0x0d` | `NodeStatus` | hai chiều | trạng thái nút (mạng, đỉnh, chiều cao, NAT, tên miền, mempool, peer, epoch đã hoàn tất, kích thước cửa sổ checkpoint, vận hành viên còn mới) | — | — |
 | `0x0e` | `LookupName` | hai chiều | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | hai chiều | trạng thái on-chain của tên + TLD, gồm thế hệ CAS (các bộ đếm biến đổi, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | hai chiều | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | hai chiều | tên miền + TLD còn sống của chủ | — | — |
-| `0x12` | `Error` | trả lời | thông báo lỗi mức ứng dụng (`str`) | — | — |
+| `0x12` | `Error` | trả lời | thông báo lỗi mức ứng dụng (`str`, ≤ 4096 byte, được kiểm tra lúc mã hóa và giải mã) | — | — |
 
 ### Checkpoint (M5)
 
 Một checkpoint tổng hợp lên wire dưới dạng: thẻ `SCONE-CKPT-V1` ||
 thân `CheckpointData` (116 B, LE — giống hệt phần cuối của
-preimage ký: `epoch(8) height(8) block_hash(32)
-prev_checkpoint_hash(32) state_root(32) recovery(4)`) ||
+preimage ký: `epoch(8) height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) ||
 `count.v` || `pk[32] ‖ sig[64]` cho mỗi người ký, **sắp theo pk
 tăng dần, không trùng lặp**, `count ≤ 64`
 (`MAX_CHECKPOINT_SIGNERS`). Giải mã nghiêm ngặt: cắt cụt, sai
@@ -421,12 +449,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | varint không tối giản, tràn hoặc quá dài |
 | `IntegerOutOfRange` | số nguyên không vừa kiểu đích |
 | `UnsupportedVersion` | phiên bản 0 hoặc cao hơn cục bộ |
+| `PowNotSignable` | dạng pow-to-owner bị định tuyến qua một đường có chữ ký (chúng không bao giờ được ký — bằng chứng đã đào CHÍNH LÀ sự ủy quyền) |
 | `UnknownDiscriminant` | discriminant giao dịch/thông điệp không rõ |
 | `LimitExceeded` | chiều dài hoặc số lượng vượt một giới hạn |
 | `InvalidUtf8` | chuỗi không phải UTF-8 |
+| `InvalidTransactionKey` | khóa công khai Ed25519 nhúng không phải một điểm hợp lệ trên đường cong |
 | `TrailingBytes` | byte còn sót sau một giá trị hoàn chỉnh |
 | `Validation` | vi phạm một bất biến của `scone-core` |
 | `NonCanonical` | mã hóa hợp lệ từng trường nhưng không chuẩn |
+| `InvalidDelegateSet` | tập record-delegate ngoài biên hoặc không chuẩn (≤ 3 khóa, tăng nghiêm ngặt, không trùng lặp) |
 
 Giải mã không bao giờ panic trên dữ liệu mạng.
 
@@ -438,7 +469,13 @@ Giải mã không bao giờ panic trên dữ liệu mạng.
 - **giao dịch chuỗi**: mọi `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` nhúng `public_key` (32 B) + `signature` (64 B)
   trên payload
-  `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`;
+  `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` —
+  `network_id` được tiêm
+  như trường đầu tiên của giao dịch đã mã hóa (ngay sau
+  discriminant và phiên bản định dạng), gắn mỗi chữ ký với một
+  mạng (bản thân wire không mang trường `network` nào, xem
+  trên);
   đặc tả chuẩn hoàn chỉnh: `/docs/en/technical/transactions.md`;
 - **bản ghi DHT** (`SignedDnsRecord`): payload ký là mã hóa
   chuẩn của `DnsRecord`; việc xác minh bắt chéo

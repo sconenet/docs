@@ -15,8 +15,8 @@
 ## 總覽
 
 - **KDF**：Argon2id（v0x13）、預設參數 `m_cost`
-  = 64 MiB、`t_cost` = 3、`p_cost` = 1（`argon2`
-  crate 的預設值）。
+  = 64 MiB、`t_cost` = 3、`p_cost` = 1（scone-keystore
+  的預設值）。
 - **加密**：XChaCha20-Poly1305（AEAD）、由
   KDF 衍生的 32 位元組金鑰、每檔 24 位元組
   隨機 nonce。
@@ -104,25 +104,33 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1 中無關聯資料（AAD）。每檔隨機的 24
+兩個版本中都無關聯資料（AAD）。每檔隨機的 24
 位元組 nonce 使 nonce 重用風險可以忽略
 （金鑰檔只寫一次）。
 
-## API（`scone-keystore`）
+## API（`scone-keystore`）— 核心函數
 
 | 函數 | 角色 |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | 產生金鑰、寫入加密金鑰檔（建立父目錄）；**拒絕覆寫**既有檔案（`Error::KeyfileExists`）；在記憶體中回傳金鑰 |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | 相同，但明確替換既有金鑰檔 |
 | `open(path, passphrase) -> SigningKey` | 解密並回傳簽署金鑰 |
-| `list(dir) -> Vec<KeyEntry>` | 列出目錄中的 `*.sconekey` 檔案（依名稱排序）；目錄不存在 = 空清單 |
+| `list(dir) -> Vec<KeyEntry>` | 列出目錄中的 `*.sconekey` 檔案（副檔名比對不分大小寫、依名稱排序）；目錄不存在 = 空清單 |
+
+短語／標籤變體（`create_labeled`、
+`create_overwriting_labeled`、`create_with_phrase`、
+`create_with_phrase_overwriting`、`restore_from_phrase`）
+以公開標籤或呼叫者提供的 BIP39 短語包裝相同的
+密封；它們位於上方的核心表之外。
 
 `GeneratedKey.signing_key` 在 drop 時由
 `ed25519-dalek` 歸零（預設 `zeroize`
-特性）。衍生的 AEAD 金鑰、seed 與
+特性）。衍生的 AEAD 金鑰與
 解密後的明文都包在 `zeroize::Zeroizing`
-中：Drop 涵蓋所有退出路徑，包括 `?`
-傳播的錯誤。
+中 — Drop 涵蓋所有退出路徑，包括 `?`
+傳播的錯誤。在密封路徑上，seed 副本是暫態的：
+一個在密封呼叫結束時離開作用域的
+普通堆疊陣列。
 
 ## 檔案權限
 
@@ -136,6 +144,7 @@ v1 中無關聯資料（AAD）。每檔隨機的 24
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -148,6 +157,9 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 - 不帶 `--passphrase-env` 時，通關密語在
   終端機上**以遮罩輸入**要求（`rpassword`：
   不回顯；`generate` 兩次並確認）。
+- 中繼站錨點自動身分（非 `identity restore`）：
+  自動產生的錨點通關密語以 `0600` 寫入，
+  寫入失敗會被回報、絕不被吞掉。
 - `identity generate` **恰好顯示一次 BIP39
   復原短語（24 個字詞）** — 全新 256 位元
   熵，僅憑字詞即可重現同一把金鑰

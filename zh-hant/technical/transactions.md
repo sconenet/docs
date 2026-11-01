@@ -7,10 +7,11 @@
 [`scone-protocol`](../../../crates/scone-protocol)（編碼）與
 [`scone-blockchain`](../../../crates/scone-blockchain)（驗證）。
 
-`PROTOCOL_VERSION` = **1**。只有一套
-格式：任何非 `0x01` 的版本位元組（交易
-中）或與本機版本不同者（區塊中）都以
-`UnsupportedVersion` 拒絕。
+`PROTOCOL_VERSION` = **2**。只有一套
+格式：非 `0x01` 的交易 `version` 位元組以
+`UnsupportedVersion` 拒絕；與
+`PROTOCOL_VERSION`（`2`）不同的區塊
+`version` 被拒絕、不被重新解釋。
 
 ## 總覽
 
@@ -79,12 +80,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` 檢查結構：同一 epoch、互異的
+- `validate()` 檢查結構：同一 epoch **且**同一
+  `prev_checkpoint_hash`（衝突的情境）、互異的
   `signing_hash`、兩個互異的簽章、舉報者
   對正典酬載的簽章；
-- 狀態規則（有日誌、reorg 時可逆）：被指控
-  者的**兩個**簽章都必須對同一 epoch 的
-  兩個互異簽署雜湊通過；被指控者必須在
+- 狀態規則（有日誌、reorg 時可逆）：兩份證據
+  檢查點攜帶兩個互異的簽署雜湊，**每一個**
+  都在**同一**把違規者金鑰下、於同一 epoch
+  通過 `verify_strict` 驗證；被指控者必須在
   資格池中（否則 `SlashOffenderNotInPool`）；
   然後**禁權** — 金鑰持久地自 PoS 池移除
   （狀態中的黑名單）；
@@ -135,7 +138,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 個原始位元組 | `public_key` 的衍生 |
 | `timestamp` | varint | 排序資訊（Unix、秒） |
 | `proof` | `bytes` ≤ 256 | 註冊 PoW 酬載（見[下](#註冊工作量證明pow)） |
-| `open` | `0x00\|0x01` | **開放**誕生：TLD 直接落在 `TldState::Open`（無主、自助 + PoW、以 `open_tld_pow_difficulty` 費率的一次 PoW — 比私有便宜：公共資源、無 PoS 席位亦無排他性）；**私有**誕生：歷史行為（擁有者、PoS 席位、`tld_pow_difficulty`） |
+| `open` | `0x00\|0x01` | **開放**誕生：TLD 直接落在 `TldState::Open`（無主、自助 + PoW、以天生開放長度曲線費率 `pow_length::open_tld_difficulty` 的一次 PoW — 比私有便宜：公共資源、無 PoS 席位亦無排他性）；**私有**誕生：歷史行為（擁有者、PoS 席位、私有長度曲線 `pow_length::tld_difficulty`） |
 | `public_key` | 32 個原始位元組 | 簽署者的 Ed25519 公鑰 |
 | `signature` | **恰好 64 位元組** | 簽署酬載的 Ed25519 簽章 |
 
@@ -196,15 +199,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | 欄位 | 型別 | 約束 |
 |---|---|---|
-| `open` | 1 位元組 | **嚴格為 `0x00` 或 `0x01`**（正典形式；任何其他值 → 解碼錯誤、絕不強制轉換） |
-| `open_proof` | `proof`（長度 varint + 位元組） | **已簽署**欄位；`open = 0x01` 時必填並驗證（開放 PoW、網路的 `open_tld_pow_difficulty`、挑戰 `SCONE-TLD-OPEN-V1 ‖ tld_id`）；`open = 0x00` 時為空（封閉是免費的） |
+| `open` | 1 位元組 | **嚴格為 `0x01`**：封閉不存在 — `open = 0x00` 以型別化錯誤 `TldCloseUnsupported` 被拒（單向 owner-option；在執行 `validate()` 的解碼階段被拒），任何其他位元組是解碼錯誤、絕不強制轉換 |
+| `open_proof` | `proof`（長度 varint + 位元組） | **已簽署**欄位；必填並驗證（開放 PoW、網路的平 `open_tld_pow_difficulty`、挑戰 `SCONE-TLD-OPEN-V1 ‖ tld_id`）；其他情況絕不被查閱，因為 `open = 0x00` 的交易永遠不被接受 |
 
 **封閉**TLD = 僅限指派（網域只能由 TLD
 擁有者經 `AssignDomain` 建立）；**開放**
 TLD = 任何人都能做註冊 PoW 並聲明空閒
 網域（`RegisterDomain`）。**開放**花費
-額外的工作量證明（比 TLD 聲明輕：主網
-約 3 天 vs 約 1 週）、由擁有者在
+額外的工作量證明（比 TLD 聲明輕：8 核參考機上
+26 bits ≈ 8.5 天，vs 1 字元私有聲明約 34 天）、由擁有者在
 `SetTldOpen` 中一次支付 — 證明存於已簽署的
 `open_proof` 欄位、簽署後無法被替換。
 
@@ -247,10 +250,14 @@ name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_ke
 （套用時、在區塊狀態上評估）：
 
 - **開放 TLD**：續期花費**與建立相同的
-  PoW** — 相同挑戰
- （`SCONE-DOMAIN-V1 ‖ 正典名稱`）、相同的
+  PoW** —
+  相同的
   每標籤長度與每網路難度、相同的 epoch
-  有效窗口。網域絕不被免費「撿走」：
+  有效窗口，但挑戰綁定**當前**到期日：
+  `SCONE-DOMAIN-V1 ‖ 正典名稱 ‖ current_valid_until (BE64)`。
+  到期後綴使續期原像有別於註冊與先前
+  每次續期的原像：一個挖出的證明恰好支付
+  一個任期。網域絕不被免費「撿走」：
   生命的每一任期都以工作支付。
 - **私有 TLD**：命名空間是 TLD 擁有者的
   權益（PoS）。交易必須**由 TLD 擁有者**
@@ -283,8 +290,12 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
   `SCONE-TLD-V1 ‖ 名稱 ‖ 當前到期(BE64)`
  （防重用後綴把每個 PoW 綁到**一個**
   任期）、與初始聲明相同的依長度難度；
-- 寬限期間續期**不**凍結 — 它是過期擁有者
-  僅存的可用管理操作。
+- 寬限期間續期**不**凍結 — 且其他擁有者
+  操作也不凍結：到期凍結只打擊
+  `AssignDomain`（`TldExpiredFrozen`）。
+  `TransferTld`、`RevokeTld`、`SetTldOpen`
+  與 `SetTldOperator` 對過期（寬限中）的
+  私有 TLD 仍然可用。
 
 ## 委派授權家族 — 綁定計數器（0xE2、0xA9、0x5E、0x66）
 
@@ -399,7 +410,8 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 綁定。簽章仍經由簽署酬載涵蓋 `owner` 欄位、
 因此委派者是「為」特定命名空間簽署。注意：
 擁有者→金鑰的映射以首次出現為準學得
-（註冊／指派）、因此委派的更新絕不覆寫它。
+（註冊、指派，以及任何擁有者金鑰的更新、
+其 owner id 仍為空缺時），因此委派的更新絕不覆寫它。
 
 ### 嚴格界限
 
@@ -459,7 +471,10 @@ challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ networ
   命名空間保留擁有者簽署路徑）；
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`：name ‖
   id ‖ owner ‖ valid_until.v ‖ proof ‖
-  pubkey_dest。
+  pubkey_dest — `RENEW_DOMAIN_POW` 僅限
+  OPEN TLD（如 `RegisterDomainPow`：私有 TLD 之下
+  為 `TldClosed`），而 `RENEW_TLD_POW` 僅限
+  PRIVATE TLD（否則 `TldIsOpen`）。
 
 ### 套用防護（D3）
 
@@ -578,7 +593,30 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+這五個新增遵循同一規則 — 標頭
+`disc ‖ version ‖ network`、然後是去掉尾隨
+簽章的精確 wire 本體（對 `SlashTx` 而言是
+舉報者的）。`Heartbeat` 以簽署者金鑰結尾：
+`operator` 欄位的第二個副本、必須相同
+（否則型別化拒絕）。
 
 性質：
 
@@ -675,71 +713,87 @@ nonce_le64 || epoch_le64 || difficulty_le32
 ```
 
 難度與 epoch 隨證明傳輸、但它們是**生產
-者宣告的、因此絕不被信任**：驗證者把
-難度與註冊種類的**協定常數**比較（宣告
-難度與常數不同 — 更低*或*更高 — 的酬載
+者宣告的、因此絕不被信任**：驗證者把難度與
+協定為該證明種類規定的值比較 — 註冊用長度
+曲線（見
+[難度](#難度依長度曲線m8b--argon2id-校準)）、
+讓與與指派用平參數（宣告
+難度與其不同 — 更低*或*更高 — 的酬載
 被拒、`InvalidProof`）、把 epoch 與套用
 區塊的比較（不符時 `ProofEpochMismatch`）。
-然後 nonce 以常數難度重新驗證、摘要從零
+然後 nonce 以該規定難度重新驗證、摘要從零
 重新計算。
 
-### 難度（**依長度**曲線、M8b + 實測校準）
+### 難度（**依長度**曲線、M8b + Argon2id 校準）
 
 難度不是平坦參數：它是**被建立標籤長度**
 的決定性函數（`scone-core::pow_length` —
 `RegisterTld` 為 TLD、`RegisterDomain` 為
-最左標籤）、每網路一份：
+最左標籤）、每網路一份。**兩條**曲線、每種
+物件一條：TLD 斜率平緩（每多一個字元將成本
+除以約 1.22）、網域斜率較陡（每多一個字元
+將成本除以約 1.40）：
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| 網路 | 私有 TLD（頂點/下限） | 天生開放 TLD／網域（頂點/下限） |
-|---|---|---|
-| testnet | 8 bits / 2 bits | 6 bits / 2 bits |
-| mainnet | 42 bits / 30 bits | 40 bits / 30 bits |
-| devnet | 2 bits / 1 bit | 1 bit / 1 bit |
+每種物件從自己的頂點出發、止於自己的下限
+（`tld_difficulty`、`open_tld_difficulty`、
+`domain_difficulty` — 天生開放的 TLD 支付
+低私有頂點一位元的 TLD 曲線、網域在較陡
+斜率上從低兩位元處出發）：
+
+| 網路 | 私有 TLD（頂點 → 下限） | 天生開放 TLD（頂點 → 下限） | 網域（頂點 → 下限） |
+|---|---|---|---|
+| testnet | 8 → 2 bits | 7 → 2 bits | 6 → 1 bit |
+| mainnet | 28 → 25 bits | 27 → 25 bits | 26 → 22 bits |
+| devnet | 2 → 1 bit | 1 → 1 bit | 1 → 1 bit |
+
+主網階梯（Argon2id 64 MiB、t = 2、p = 1、每核
+約 11.4 H/s — 8 核參考機上的期望值）：
+
+| 長度 | 私有 TLD | 天生開放 TLD | 網域 |
+|---|---|---|---|
+| 1 | 28 bits ≈ 30 天 | 27 bits | 26 bits |
+| 3 | 27 bits | 26 bits | 25 bits |
+| 7 | 26 bits | 25 bits | 23 bits |
+| 10+ | 25 bits（下限） | 25 bits（下限） | 22 bits（下限） |
+
+該機器上 25-bit 下限 ≈ 4.3 天；更多核心更快
+完成、更少核心更久 — 付費的 PoW 服務吸收
+這個差距。
 
 **天生開放**的 TLD（`RegisterTld` 攜帶
-`open = 0x01`）支付「開放」曲線（頂點 −
-2、如 `domain_difficulty`）；**開放既有
-私有 TLD**（`SetTldOpen`）維持平難度
+`open = 0x01`）以頂點 − 1 支付 TLD 曲線
+（mainnet 27 → 25 bits — **不是**網域頂點）；
+**開放既有私有 TLD**（`SetTldOpen`）是另一種
+**平式**證明
 （`open_tld_pow_difficulty`：testnet
-6 bits／mainnet 22 bits／devnet 2 bits —
+6 bits／mainnet 26 bits／devnet 2 bits —
 交易只攜帶 `tld_id`、名稱已於建立時為其
-長度付費）。主網基準（私有 TLD、約
-6 M 雜湊/s）：1 字元 = 42 bits（≥ 7 天）、
-5 字元 = 40 bits（約 2 天）、19 字元 =
-35 bits（約 1.6 小時）、29+ 字元 = 30-bit
-下限（約 3 分鐘）。曲線住在
+長度付費）。曲線住在
 `scone-core::pow_length`（常數
-`MAINNET_APEX = 42`、`MAINNET_FLOOR =
-30`、`TESTNET_APEX = 8`、
+`MAINNET_APEX = 28`、`MAINNET_FLOOR =
+25`、`TESTNET_APEX = 8`、
 `TESTNET_FLOOR = 2`、`DEVNET_APEX = 2`、
-`DEVNET_FLOOR = 1`）；平坦參數
-（`tld_pow_difficulty` 等）仍在
-`scone-core::network::NetworkParams`。改變
+`DEVNET_FLOOR = 1`）；
+`scone-core::network::NetworkParams` 的平坦
+參數只服務保持平式的證明 — 開放既有 TLD
+（`open_tld_pow_difficulty`、26 bits mainnet）、
+讓與（`transfer_pow_difficulty`、16）與指派
+（`assign_pow_difficulty`、16）— 外加 CLI 顯示。
+舊的平坦註冊頂點（`RegisterTld` 24 bits／
+`RegisterDomain` 20 bits、BLAKE3 時代約
+7.7 M H/s 校準）是曲線前的歷史值。改變
 一個值 = 該網路的共識變更。不變量：devnet
 是完整的第三個 `NetworkParams`、且
 testnet 與其 devnet 前的常數（Argon2id
 參數、曲線、窗口）嚴格相同 — devnet 與
 其他網路除程式碼本身外不共享任何常數。
-
-平坦頂點的實測校準（2026-10、`cargo run
---release -p scone-core --example pow_bench`
-— 參考 x86-64 上單執行緒吞吐約 7.7 M
-H/s）：
-
-| 種類（mainnet） | 難度 | 平均實際時間 |
-|---|---|---|
-| `RegisterTld` | 24 bits | 約 7 秒 |
-| `RegisterDomain` | 20 bits | 約 54 毫秒 |
-
-以約 65 秒/區塊：TLD 聲明花費約 0.1 個
-單核 CPU 區塊、網域約 1 毫秒個區塊 —
-對使用者是象徵性的、對規模化工業化則
-昂貴（反囤積）。若硬體目標下降（行動
-ARM：慢約 4–8 倍）需重新校準。
 
 狀態分支（M8b、已交付）：`RegisterTld`
 **恆**需要其 PoW；`RegisterDomain` 在
@@ -829,11 +883,11 @@ PoS 債務：見 `security-model.md`（被動取得與
 生產者酬載）與時間戳由呼叫者提供；既有
 的 `Consensus` trait 與驗證對稱使用。
 
-## 十六進位範例（真實、可重現的向量 — M8b）
+## 十六進位範例（示意向量 — M8b）
 
 ### RegisterDomain `example.uip`、時間戳 42、testnet
 
-簽署酬載（釘取向量；歷史上由已移除的
+簽署酬載（示意向量；歷史上由已移除的
 離線工具產生 — 這些值仍是有效向量）。
 `network` 出現在這裡、因為這是**簽署
 酬載**（它唯一的位置）；已簽署的線上
@@ -849,13 +903,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`、時間戳 42
 
-簽署酬載（釘取向量）— `TldId` 是
+簽署酬載（示意向量）— `TldId` 是
 `/docs/en/general/naming.md` 中釘死的衍生
 向量：
 
@@ -874,7 +929,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 （完整的值曾可經已移除的離線工具重現；
-以下的向量保持釘死且有效。PoW 以網路
+以下的向量保持示意性且有效。PoW 以網路
 難度自動開挖 — nonce 因執行而異；只有
 網路/名稱/id/擁有者/pk 是穩定的。自
 2026-09 線上格式變更起、已簽署交易的

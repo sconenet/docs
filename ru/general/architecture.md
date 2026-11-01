@@ -73,16 +73,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### Решение: `scone-core` зависит от `scone-crypto`
@@ -96,6 +98,9 @@ scone           ← binary / application
   никаких зависимостей от сети/файловой системы/async → циклическая
   зависимость невозможна;
 - `scone-core` использует его только для хеширования;
+- `scone-core` также напрямую зависит от `argon2` (PoW регистрации)
+  и `idna` (интернационализированные имена) — чистые зависимости,
+  расслоение соблюдено;
 - подписи и ключи Ed25519 живут в `scone-crypto` и работают
   с байтами (канонические полезные нагрузки формируются
   `scone-protocol`).
@@ -110,10 +115,9 @@ redb, tokio/async, сеть, файлы, ОС, DNS-сервер, логика б
 
 **scone-crypto** — криптографические примитивы. Сегодня: `hash256`
 (BLAKE3), подписи и ключи Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, строгая пакетная проверка), AEAD-конверт
-групп записей (XChaCha20-Poly1305). Запланировано: дерево Меркла.
-Правило: никаких самодельных алгоритмов, только проверенные
-зависимости.
+`PublicKey`, `Signature`, строгая пакетная проверка). Запланировано:
+дерево Меркла. Правило: никаких самодельных алгоритмов, только
+проверенные зависимости.
 
 **scone-protocol** — бинарный формат протокола: каноническое
 кодирование/декодирование (минимальный варинт LEB128, «голые»
@@ -152,7 +156,7 @@ redb, tokio/async, сеть, файлы, ОС, DNS-сервер, логика б
 встроенная таблица GeoIP, рекурсивный фолбэк), цикл
 чекпоинтов/пульсов якорей (CLI говорит напрямую по p2p QUIC
 с реле, локального RPC больше нет). Достижимость и обнаружение:
-AutoNAT v2 (вердикт reachable/NATed), circuit-relay v2 + DCUtR для
+AutoNAT v1 (вердикт reachable/NATed), circuit-relay v2 + DCUtR для
 узлов за NAT и UPnP (проброска QUIC-порта
 маршрутизатором, опционально). Конфигурация через файл `.env`
 (см. `.env.example`). Справка: `/docs/en/technical/relay.md`.
@@ -211,13 +215,16 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-Два профиля узла:
+Профили узла (ЗАПЛАНИРОВАНО — такого операторского флага сегодня
+не существует: каждый текущий узел хранит все блоки, и опциональный
+импорт снапшота выше — единственный способ управления объёмом
+хранения):
 
-- **архивный узел** (флаг оператора): хранит все исторические блоки,
+- **архивный узел** (запланировано): хранит все исторические блоки,
   отдаёт их сети, стартует через существующие пути;
-- **узел с полным состоянием**: держит полное состояние на H и суффикс,
-  но не историю ниже H — он валидирует будущие блоки и отдаёт
-  состояние, но не отдаёт историю.
+- **узел с полным состоянием** (запланировано): держит полное
+  состояние на H и суффикс, но не историю ниже H — он валидирует
+  будущие блоки и отдаёт состояние, но не отдаёт историю.
 
 Этот путь OPT-IN: импорт проверенного снапшота — явное действие
 оператора (`import_verified_snapshot`), никогда автоматическое —

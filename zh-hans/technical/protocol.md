@@ -9,15 +9,19 @@ Scone 协议的参考文档：二进制格式、规范
 
 ## 协议版本
 
-- 常量：`PROTOCOL_VERSION: u32 = 1`（`scone-protocol`）；
+- 常量：`PROTOCOL_VERSION: u32 = 2`（`scone-protocol`）；
 - 由 `Hello.version`（握手）和 `BlockHeader.version` 携带；
 - 兼容性规则：
   - 收到的版本**高于**本地版本 → 拒绝
     （`ProtocolError::UnsupportedVersion`）；节点不猜测
     它不认识的版本的格式；
   - 版本 `0` → 无效；
-  - 只存在一套格式：交易版本字节
-    （`0x01`）与区块版本必须与本地值**完全**
+  - 区块必须是**恰好**版本 `2`：版本 `1`（前签名区块
+    格式，里程碑 M1）是不兼容的格式，被显式拒绝
+    而非错误解析；
+  - `Hello` 容忍版本 `1..=2`（仅握手 —— 它不携带
+    区块）；
+  - 交易格式版本字节（`0x01`）必须与本地值**完全**
     一致；
 - 此阶段没有 major/minor 拆分：单一整数，任何
   线上格式破坏时递增。
@@ -37,8 +41,9 @@ Scone 协议的参考文档：二进制格式、规范
   在前）：不存在本地字节序问题；
 - IPv4/IPv6 地址与 32 字节标识符：裸字节数组，无
   长度前缀；
-- 格式中没有定宽整数：唯一的整数
-  编码规则。
+- 唯一例外：116 字节的检查点主体（`CheckpointData`）使用
+  定宽**小端**整数，而非变长整数（见[检查点（M5）](#checkpoint-m5)）；
+  其余所有整数都遵循唯一的变长整数规则。
 
 ### 变长整数（最小 LEB128）
 
@@ -80,10 +85,15 @@ Scone 协议的参考文档：二进制格式、规范
 | `RecordHash` | 32 裸字节 |
 | `BlockHash` | 32 裸字节 |
 | `MerkleRoot` | 32 裸字节 |
-| `DomainName` | `str`（≤ 253 字节，由 `scone-core` 重新验证） |
+| `DomainName` | `str` ≤ 253 字节（规范 ASCII A 标签），由 `scone-core` 重新验证 |
 
 派生（`BLAKE3-256` + `SCONE-DOMAIN-V1` 前缀等）仍由
 `scone-core` 定义（见 `/docs/en/general/naming.md`）。
+
+线上名称 —— `DomainName` 以及 `REGISTER_TLD` 的 TLD ——
+**只接受规范 ASCII A 标签**：非 ASCII 字节在解码时被拒绝
+（`NonCanonical`）。IDNA 规范化只存在于构造时（用户
+输入）；它从不在线上运行。
 
 ## 交易
 
@@ -101,7 +111,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-每个判别值都是任意的不透明常量（没有逻辑
+上表是一个**子集**（19 种交易类型中的 7 种）。每个
+判别值都是任意的不透明常量（没有逻辑
 顺序；`0x00` 永远无效）—— 完整规范性表格见
 `/docs/en/technical/transactions.md`。
 
@@ -140,7 +151,7 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 TLD 的声明（与域名注册表分离的注册表，M7）：
@@ -151,7 +162,11 @@ TLD 的声明（与域名注册表分离的注册表，M7）：
 保留（`IcannTldReserved` —— ICANN 根 TLD 任何人都不可
 声明）且 PoW 达到标签**按长度**的难度
 （`pow_length` 曲线 —— 见 `blockchain.md`）；声明后
-即封闭（仅限 assign）。
+即封闭（仅限 assign）。`open` 是一个规范布尔值
+（`0x00`|`0x01`；任何其他字节都是硬解码错误，
+`NonCanonical`）：**天生开放** TLD 的所有者选项
+（`0x01` = 诞生时即开放自助注册）。它写在变长的
+`proof` 之后、公钥之前。
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -159,8 +174,11 @@ TLD 的声明（与域名注册表分离的注册表，M7）：
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-解码时重新检查的不变量：`sequence > 0` 且
-`owner` == `public_key` 的派生。无 `timestamp`：顺序
+解码时重新检查的不变量：仅 `sequence > 0` —— 外加
+针对载荷的签名、对照内嵌的 `public_key` 验证。权威规则
+（签名者必须是域名所有者或其记录委托者之一、至多
+3 个）是由 `scone-blockchain` 在应用时执行的**状态**
+规则，而非线上检查。无 `timestamp`：顺序
 经由 `sequence`。该交易只携带紧凑引用 —— 完整
 DNS 内容留在 DHT（见下文）。
 
@@ -193,7 +211,13 @@ RecordData = type.v || ttl.v || payload(type)
 | 33 | SRV | `priority.v`、`weight.v`、`port.v`、`target(name)` |
 | 257 | CAA | `flags u8`、`tag`（1–15 B）、`value`（`str` ≤ 4096） |
 | 32768 | GEOROUTE | GeoRoute（见下文） |
+| 32769 | NS4 | 4 字节（IPv4 地址） |
+| 32770 | NS6 | 16 字节（IPv6 地址） |
 | 其他 | Unknown | code.v + `bytes` ≤ 4096 |
+
+类型 32769（`NS4`）与 32770（`NS6`）是 Scone 私有类型
+（非 IANA 范围，与 `GEOROUTE` 同族）：委托给以
+IPv4/IPv6 地址而非名称指定的域名服务器。
 
 示例：`A 192.0.2.1`（TTL 86,400）→ `01 80 a3 05 c0 00 02 01`
 （类型、TTL 变长整数、地址）。
@@ -320,19 +344,19 @@ Message = disc u8 || payload
 | `0x0a` | `Checkpoint` | 双向 | `Checkpoint` | 签名者 ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | 双向 | — | — | 检查点窗口 |
 | `0x0c` | `GetStatus` | 双向 | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | 双向 | 节点状态（网络、tip、高度、NAT、域名、内存池、对等节点、终局性、新鲜运营者） | — | — |
+| `0x0d` | `NodeStatus` | 双向 | 节点状态（网络、tip、高度、NAT、域名、内存池、对等节点、已终局纪元、检查点窗口大小、新鲜运营者） | — | — |
 | `0x0e` | `LookupName` | 双向 | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | 双向 | 名称 + TLD 的链上状态，含 CAS 世代（变异计数器、registered_at） | — | — |
 | `0x10` | `GetOwnedNames` | 双向 | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | 双向 | 所有者的存活域名 + TLD | — | — |
-| `0x12` | `Error` | 回复 | 应用级错误消息（`str`） | — | — |
+| `0x12` | `Error` | 回复 | 应用级错误消息（`str`，≤ 4096 字节，编码与解码时都检查） | — | — |
 
 ### Checkpoint（M5）
 
 一个聚合检查点以如下形式上线：标签 `SCONE-CKPT-V1` ||
 主体 `CheckpointData`（116 B，LE —— 与签名
-前像的末尾相同：`epoch(8) height(8) block_hash(32)
-prev_checkpoint_hash(32) state_root(32) recovery(4)`）|| `count.v` ||
+前像的末尾相同：`epoch(8) height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`）|| `count.v` ||
 每个签名者的 `pk[32] ‖ sig[64]`，**按 pk 升序排序、无重复**、
 `count ≤ 64`（`MAX_CHECKPOINT_SIGNERS`）。严格解码：截断、错误
 标签、非规范 pk、重复或未排序 = 拒绝（`None`），绝不
@@ -415,12 +439,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | 非最小、溢出或超长的变长整数 |
 | `IntegerOutOfRange` | 整数放不进目标类型 |
 | `UnsupportedVersion` | 零或高于本地的版本 |
+| `PowNotSignable` | 经签名路径路由的 pow-to-owner 形式（它们从不被签名 —— 挖出的工作量证明就是授权） |
 | `UnknownDiscriminant` | 未知的交易/消息判别值 |
 | `LimitExceeded` | 长度或计数超限 |
 | `InvalidUtf8` | 非 UTF-8 字符串 |
+| `InvalidTransactionKey` | 内嵌的 Ed25519 公钥不是有效的曲线点 |
 | `TrailingBytes` | 完整值之后还有剩余字节 |
 | `Validation` | 违反 `scone-core` 不变量 |
 | `NonCanonical` | 逐字段有效但非规范的编码 |
+| `InvalidDelegateSet` | 记录委托者集合越界或非规范（≤ 3 个密钥、严格升序、无重复） |
 
 解码在网络数据上绝不 panic。
 
@@ -432,7 +459,11 @@ canonical object → canonical binary encoding → hash / signature
 - **链上交易**：每个 `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` 内嵌 `public_key`（32 B）+ `signature`
   （64 B），覆盖载荷
-  `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`；
+  `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` ——
+  `network_id` 注入为编码交易的第一个字段（紧跟
+  判别值与格式版本之后），把每个签名绑定到一个
+  网络（线上格式本身不携带 `network` 字段，见上文）；
   完整规范见：`/docs/en/technical/transactions.md`；
 - **DHT 记录**（`SignedDnsRecord`）：被签名的载荷是
   `DnsRecord` 的规范编码；验证将

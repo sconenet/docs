@@ -1,4 +1,4 @@
-# UDP + TCP DNS 服务器（M6 + M7b）—— `scone dns`
+# UDP + TCP DNS 服务器（M6 + M7b）—— `scone relay --dns`
 
 > Scone DNS 面的规范规格。
 > 任何文档/代码分歧 = bug（修复事实来源）。
@@ -13,11 +13,12 @@ TCP** 上（RFC 7766、同一端口）回答针对 Scone 名称、
 决策经**权威 DNS 快照**（每个已应用区块之后发布
 的 RAM 视图 —— 见下文）、记录获取经中继
 （进程）、走内部 `RelayCommand`/`ResolveLocal`
-通道（进程内、一次往返）—— 与 CLI 相同的已验证
+通道（进程内：一次往返，当首个应答为 `pending` 时
+两次 —— 见解析路径）—— 与 CLI 相同的已验证
 路径。
 
 ```text
-              UDP+TCP :5353 (default 127.0.0.1)
+              UDP+TCP :5353 (no value = bind 0.0.0.0:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -32,8 +33,10 @@ TCP** 上（RFC 7766、同一端口）回答针对 Scone 名称、
                     │  │           chain + verified record (hash,
                     │  │           owner, sequence) → answers
                     │  │        apex without a published record → NODATA
-                    │  └─ NO → upstream fallback (if configured)
-                    │           otherwise REFUSED
+                    │  └─ NO → 1 or > 16 labels → REFUSED (even
+                    │           with upstreams); right shape but
+                    │           foreign TLD → upstream fallback
+                    │           (if configured), else REFUSED
                     │
                     │  response budget:
                     │    UDP → 512 bytes (no EDNS); overflow =
@@ -51,6 +54,11 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 1.1.1.1:53 \
             --dns-upstream 8.8.8.8:53       # + recursive fallback
 ```
+
+不带值（`--dns`）时绑定 `0.0.0.0:5353` —— **所有**
+接口（主机所连的每个网络都可达；仅回环的默认值
+是一个已标记的安全后续事项）。传入显式地址以精确
+绑定（`--dns 127.0.0.1:5353` = 仅本地查询）。
 
 中继在 stdout 上宣告生效地址（机器可读契约、
 如同 `p2p:`）：套接字一绑定就输出一条
@@ -87,8 +95,8 @@ scone relay --dns 0.0.0.0:53 \
    `Cache` 分片、按 `hash(qname)` 分键（qtype 共享
    分片：按名称的局部性）。一个热名称只与 1/16
    的流量竞争、而不是在数千 qps 下排在单一
-   mutex 之后。全局边界（默认 100,000 条 / 64 MiB、
-   `--dns-cache-limit` / `--dns-cache-max-mem`）按
+   mutex 之后。全局边界（100,000 条 / 64 MiB ——
+   固定默认值；库嵌入者可覆盖 `Config` 字段）按
    分片分摊（已记录的最坏情况：1 + N/shards 的
    因子）。每条条目的**真实** rdata 大小被记账
    （每条约 128 字节开销）、FIFO 驱逐在两个边界
@@ -118,12 +126,18 @@ scone relay --dns 0.0.0.0:53 \
      （`0xC00C`）—— 问题绝不被每条记录完整重
      编码。
 2. **Scone 形状？** 严格预过滤：标签
-   `[a-z0-9-_]`（1..63）、≥ 2 个标签、TLD 1..63
+   `[a-z0-9-_]`（1..63）、**2..=16 个标签**（解析层
+   形状）、TLD 1..63
    字节 `[a-z0-9-]`（见 `TldName::MAX_LEN`）、总长
    ≤ 253 —— **且 TLD 在 ICANN 根之外**
    （`is_icann_tld`、冻结的 IANA 列表 + RFC 2606：
-   `com`、`fr`、`org`…… 永不属于 Scone）。不可能
-   是 Scone 名称的名称（如 `www.foo_bar`、TLD 中
+   `com`、`fr`、`org`…… 永不属于 Scone）。形状
+   良好但在 2..=16 形状**之外**的名称（只有
+   TLD、多于 16 个标签）**被无条件 REFUSED、在任何
+   回退之前 —— 即使配置了上游**（否则存根解析器
+   会挂起直到超时）。
+   具有正确形状但不可能是 Scone 名称的名称
+   （如 `www.foo_bar`、TLD 中
    的下划线）进入回退；可能是 Scone 名称的名称
    （`absent.uip`）是链的事务：未注册 → 权威
    NXDOMAIN、即使没有上游。ICANN TLD
@@ -134,7 +148,12 @@ scone relay --dns 0.0.0.0:53 \
    apex；记录集服务整个 qname（含子名 —— 隐式
    通配行为、未决事项）。
 4. **`resolve_local`（内部通道）**：单次往返、
-   绝非 DHT 等待者。链上状态（`registered`、
+   绝非 DHT 等待者。例外：首个应答携带
+   `pending: true`（记录已承诺在链上 ——
+   `record_hash` 存在 —— 但本地 DHT 缓存仍为空：
+   刚刚发出了一次对等拉取）会在 300 ms 后触发
+   **一次**自动重试，给拉取一个落地的机会 —— 至多
+   两次往返。链上状态（`registered`、
    所有者、序列号、mutations）+ **重新验证**过的
    本地 DHT 缓存记录（所有者、序列号、
    record_hash == 链上承诺；记录的签名可以来自
@@ -162,7 +181,10 @@ scone relay --dns 0.0.0.0:53 \
   **PTR、SRV、CAA**（+ 按原样重编码的 Unknown；
   共 9 种原生类型、rdata 按 RFC 编码 —— 
   1035/2782/8659；严格 CAA：仅 critical 位 0x80、
-  小写标签）。A/AAAA 查询包含集合中的 CNAME
+  小写标签）。**私有**委托类型
+  **NS4 = 32769 / NS6 = 32770**（以 IPv4/IPv6 指定的
+  域名服务器）回答显式查询并被包含进 ANY ——
+  绝不作为域名的 A/AAAA 服务。A/AAAA 查询包含集合中的 CNAME
   （别名追踪）。ANY 查询（255）：整个集合被
   编解码器过滤。
 - 限制（M7b）：**应答预算取决于传输** —— UDP
@@ -205,17 +227,23 @@ TTL 内对同一名称的重复解析被**抑制**（计数、
 绝不重新拉取）。扫描器 —— 或其所有者从未发布
 的热门名称 —— 不能再把一次 DNS 查询放大成对
 每个网格对等节点的每次查询一条 `GetRecord`。
-负条目在 TTL 到期、记录到达（成功的拉取写入
-真正的缓存）或被挤出 FIFO 上限时消亡。
+负条目在 TTL 到期或被挤出 FIFO 上限时消亡；记录
+到达时它**不会**被移除 —— 成功的拉取写入
+真正的缓存、而缓存会优先应答，所以该条目只是
+不再被查询、直至其过期。
 
 暴露的计数器（`scone_dht_negative_hits_total`、
 `_expired_total`、`_capped_total` —— 见
-`relay.md` 的"指标"）。
+`relay.md` 的"指标"）：如今只有 `_hits_total`
+被接线；`_expired_total` 与 `_capped_total` 已声明
+但未插桩（当前恒为 0）。
 
 ## TCP（M7b、RFC 7766）
 
 与 UDP 相同的端口（在 `--dns` 地址上的第二个 TCP
-绑定）。传输遵循 RFC 1035 §4.2.2：每条消息以
+绑定）。TCP 绑定是**尽力而为**：失败时中继记录
+`dns tcp bind failed (udp only)` 并继续仅以 UDP
+服务。传输遵循 RFC 1035 §4.2.2：每条消息以
 **2 字节**大端长度为前缀。
 
 - **查询**：前缀长度 ≥ 1 且 ≤ 512 字节（DNS 查询
@@ -254,10 +282,10 @@ client                     server
 | TCP 应答最大 | 65,535 字节 |
 | 并发 TCP 连接 | 64（信号量、立即拒绝） |
 | TCP 读取超时 | 5 s |
-| 缓存 | 默认全局边界 100,000 条 / 64 MiB、分摊到 16 个分片（`--dns-cache-limit` / `--dns-cache-max-mem`） |
+| 缓存 | 全局边界 100,000 条 / 64 MiB（固定默认值）、分摊到 16 个分片 |
 | 权威 TTL | **按记录**（`record.ttl`、边界 1..=2,592,000 s；历史常量 60 s 只对服务应答保留） |
 | 回退 TTL（截断） | 600 s |
-| 并行 UDP 查询 | 4,096（`MAX_INFLIGHT_UDP`、信号量；超出：丢弃、客户端重试）—— 可调 `--dns-max-inflight`（最小 1） |
+| 并行 UDP 查询 | 4,096（`MAX_INFLIGHT_UDP`、信号量；固定默认值 —— 库嵌入者可覆盖 `Config` 字段）。超出时：接收循环**施加背压**（每次接收 await 一个许可；内核套接字缓冲、随后客户端超时吸收超额部分） |
 | DHT 负缓存 | 30 s（`DHT_NEGATIVE_TTL_SECS`）、FIFO 上限 4,096 个名称 |
 | 每上游超时 | 2 s |
 
@@ -420,6 +448,16 @@ Asn < IpPrefix`）。遇到判别值 ≥ `0x03` 的 v1
 
 ### 选择（解析）
 
+> **中继限制（当前二进制）**：只有**世界**、**大洲**
+> 与**国家**作用域实际由 `scone relay` 解析器服务。
+> **Region**、**Asn** 与 **IpPrefix** 路由在链上验证
+> 通过（线上解码、签名、唯一性）并计入规范排序，
+> 但服务路径经一种只认识三个 v1 作用域的 JSON
+> 形式重解码记录集：携带这些作用域的路由在选择
+> 之前被丢弃、永不当选。其**唯一**路由携带
+> Region/Asn/IpPrefix 的域名回退到经典 DNS 路径
+> （A/AAAA 上通常为 NODATA）。代码跟进待办。
+
 1. **作用域** —— 递减的特异性、**6 级**：
    **最长匹配 IP 前缀 → 精确 AS → 精确国家 →
    精确区域 → 大洲 → 世界**。
@@ -433,9 +471,11 @@ Asn < IpPrefix`）。遇到判别值 ≥ `0x03` 的 v1
      共享同一编号时才可靠）更不特定、但比
      大洲更特定（它包含于其国家、故更包含于
      其大洲）。
-   - *Asn*：客户端的精确 AS 号。
+   - *Asn*：客户端的精确 AS 号（**不被**当前中继
+     服务 —— 见上述限制）。
    - *Country*：精确国家。
-   - *Region*：精确行政区划（不透明标识符）。
+   - *Region*：精确行政区划（不透明标识符；
+     **不被**当前中继服务 —— 见上述限制）。
    - *Continent*：由定位器提供**或从国家经
      本地表派生**（`continent_of_country`）；
      表不认识的国家回退到显式大洲或世界。
@@ -483,9 +523,15 @@ Asn < IpPrefix`）。遇到判别值 ≥ `0x03` 的 v1
 
 geo 路由决策**绝不**在 `(qname, qtype)` 下
 缓存：它取决于解析器的客户端作用域、这样的键
-会把美国路由提供给台湾客户端。geo 应答在每次
-查询时重算（成本：一次 select_scope + 加权
-抽取、µs 级）并绕过缓存。经典的 (qname, qtype)
+会把美国路由提供给台湾客户端。取而代之的是一个
+专用的**有界 geo 迷你缓存**：键
+`(qname, client-country)`（同一国家 + 同一名称 =
+同一路由决策）、上限 4,096 条、每条条目随自己的
+TTL 过期且 TTL 有界为 60 s（记录更新在该界限内
+生效、即使没有驱逐）。只有当每条路由的获胜作用域
+恰有**一个**端点时才填充 —— 一个确定性决策；
+加权（多端点）作用域在每次查询时重算、使每请求
+的 nonce 继续分配负载。经典的 (qname, qtype)
 缓存对其余一切保持不变 —— 包括 geo 未做决策时
 产生的 NODATA。错误 rcode 保持绝不缓存。
 
@@ -496,11 +542,15 @@ geo 路由决策**绝不**在 `(qname, qtype)` 下
 - **DHT（默认）** —— 无 NS 记录时，Scone 网络
   服务链上 A/AAAA（中继 `--dns`、或经导出的
   NSD 桥接）；
-- **独立 NS** —— 所有者添加 `ns <ip-or-name>`
-  记录（他们自己的 nameserver、直接 IP 或
-  主机名）：该域名被**委派** —— 网络停止服务
-  其内容（A/AAAA → NODATA + NS 权威）、任何
-  解析者跟随所有者的 NS。界限：**每个域名
+- **独立 NS** —— 所有者**发布** `ns <ip-or-name>`
+  记录集（他们自己的 nameserver、直接 IP 或
+  主机名）：该域名被**委派**。网络不剥离任何东西：
+  它按原样服务签名集 —— 仅含 NS 的集合只是没有
+  A/AAAA 可回答（地址查询 → NODATA、NS 记录
+  携带权威）、任何解析者跟随所有者的 NS。
+  按 IP 的 NS 条目只在私有类型 NS4 = 32769 /
+  NS6 = 32770 上回答 —— 绝不作为域名的地址。
+  界限：**每个域名
   12 个去重的 NS**（所有形式、按值去重 ——
   映射现实世界注册局的配额上限）。移除一个
   NS 释放一个槽位；移除全部则恢复 DHT 模式。
@@ -512,8 +562,11 @@ geo 路由决策**绝不**在 `(qname, qtype)` 下
 ### 安全
 
 - GEOROUTE 记录与其他一样是签名记录：在使用
-  前对照链验证（所有者、序列号、record_hash）。
-  **没有验证就没有网络信任** —— 未验证的
+  前对照链验证 —— 所有者、序列号、record_hash，
+  以及第四条规则：**每个作用域至多一条
+  GEOROUTE**（同一作用域的第二条路由被拒绝、
+  `geo_scopes_unique` —— 两个"EU 区"会使解析
+  歧义）。**没有验证就没有网络信任** —— 未验证的
   DHT GEOROUTE 绝不容答。
 - 客户端位置来自**自动发现的线路**：中继经由
   其外部地址（STUN/AutoNAT/UPnP）自定位、由

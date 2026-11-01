@@ -7,9 +7,10 @@
 [`scone-protocol`](../../../crates/scone-protocol)（编码）与
 [`scone-blockchain`](../../../crates/scone-blockchain)（验证）。
 
-`PROTOCOL_VERSION` = **1**。只有一套格式：任何
-非 `0x01` 的版本字节（交易中）或与本地版本
-不同（区块中）都会以 `UnsupportedVersion` 拒绝。
+`PROTOCOL_VERSION` = **2**。只有一套格式：任何
+非 `0x01` 的交易 `version` 字节都会以
+`UnsupportedVersion` 拒绝；与 `PROTOCOL_VERSION`（`2`）
+不同的区块 `version` 会被拒绝，而不会被重新解释。
 
 ## 概览
 
@@ -76,12 +77,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` 检查结构：同一纪元、不同的
+- `validate()` 检查结构：同一纪元**且**同一
+  `prev_checkpoint_hash`（冲突上下文）、不同的
   `signing_hash`、两个不同的签名、报告者对
   规范载荷的签名；
-- 状态规则（记入日志、重组时可逆）：被指控者的
-  两份签名都必须对同一纪元的两个不同签名哈希
-  验证通过；被指控者必须在资格池中
+- 状态规则（记入日志、重组时可逆）：两份证据检查点
+  携带两个不同的签名哈希，每一个都在同一纪元上对
+  同一被指控者密钥 —— `verify_strict` —— 验证通过；
+  被指控者必须在资格池中
   （否则 `SlashOffenderNotInPool`）；然后**封禁** —— 该密钥
   被持久地从 PoS 资格池中移除（状态中的黑名单）；
 - 最小制裁：被指控者的域名/TLD 不被没收
@@ -130,7 +133,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 裸字节 | `public_key` 的派生 |
 | `timestamp` | 变长整数 | 顺序信息（Unix，秒） |
 | `proof` | `bytes` ≤ 256 | 注册 PoW 载荷（见[下文](#注册工作量证明-pow)） |
-| `open` | `0x00\|0x01` | **开放**诞生：TLD 直接落入 `TldState::Open`（无主、自助 + PoW、按 `open_tld_pow_difficulty` 费率的一次 PoW —— 比私有便宜：公共资源、无 PoS 席位也无排他性）；**私有**诞生：历史行为（所有者、PoS 席位、`tld_pow_difficulty`） |
+| `open` | `0x00\|0x01` | **开放**诞生：TLD 直接落入 `TldState::Open`（无主、自助 + PoW、按生而开放的长度曲线费率 `pow_length::open_tld_difficulty` 的一次 PoW —— 比私有便宜：公共资源、无 PoS 席位也无排他性）；**私有**诞生：历史行为（所有者、PoS 席位、私有长度曲线 `pow_length::tld_difficulty`） |
 | `public_key` | 32 裸字节 | 签名者的 Ed25519 公钥 |
 | `signature` | **恰好 64 字节** | 签名载荷的 Ed25519 签名 |
 
@@ -188,15 +191,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | 字段 | 类型 | 约束 |
 |---|---|---|
-| `open` | 1 字节 | **严格为 `0x00` 或 `0x01`**（规范形式；任何其他值 → 解码错误，绝不强制转换） |
-| `open_proof` | `proof`（长度变长整数 + 字节） | **被签名的**字段；当 `open = 0x01` 时强制存在并被验证（开放 PoW、网络的 `open_tld_pow_difficulty`、挑战 `SCONE-TLD-OPEN-V1 ‖ tld_id`）；当 `open = 0x00` 时为空（关闭免费） |
+| `open` | 1 字节 | **严格为 `0x01`**：关闭不存在 —— `open = 0x00` 以类型化错误 `TldCloseUnsupported` 拒绝（单向所有者选项；在解码时拒绝，解码运行 `validate()`），任何其他字节是解码错误，绝不强制转换 |
+| `open_proof` | `proof`（长度变长整数 + 字节） | **被签名的**字段；强制存在并被验证（开放 PoW、网络的扁平 `open_tld_pow_difficulty`、挑战 `SCONE-TLD-OPEN-V1 ‖ tld_id`）；除此之外绝不被查询，因为不接受任何 `open = 0x00` 交易 |
 
 **封闭的** TLD = 仅限 assign（域名只能由
 TLD 所有者通过 `AssignDomain` 创建）；**开放的**
 TLD = 任何人都可以做注册 PoW 并声明一个空闲
 域名（`RegisterDomain`）。**开放**需要一份额外的
-工作量证明（比 TLD 声明轻：主网上约 3 天
-对比约 1 周），由所有者在 `SetTldOpen` 中一次性
+工作量证明（比 TLD 声明轻：26 位 ≈ 在 8 核参考机上的
+8.5 天，对比 1 字符私有声明的 ≈ 34 天），由所有者在 `SetTldOpen` 中一次性
 支付 —— 证明在已签名的 `open_proof` 字段中
 传输，签名后无法被替换。
 
@@ -239,9 +242,12 @@ name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_ke
 （在应用时、区块状态上求值）：
 
 - **开放 TLD**：续期花费**与创建相同的 PoW** ——
-  相同的挑战（`SCONE-DOMAIN-V1 ‖ canonical name`）、
   相同的按标签长度与按网络的难度、相同的纪元
-  有效窗口。域名绝不免费"被收割"：生命的
+  有效窗口，但挑战绑定到**当前**到期时间：
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`。
+  到期后缀使续期前像区别于注册的前像以及此前
+  每一次续期的前像：一份挖出的证明恰好支付一个
+  期限。域名绝不免费"被收割"：生命的
   每一段期限都以工作量支付。
 - **私有 TLD**：命名空间是 TLD 所有者的质押
   （PoS）。交易必须**由 TLD 所有者（或其委托的
@@ -272,8 +278,11 @@ tld(str ≤ 63) tld_id[32] owner[32] valid_until.v proof(bounded) public_key[32]
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)`
   （防重用后缀把每个 PoW 绑定到唯一一个
   期限），与初始声明相同的按长度难度；
-- 宽限期内续期不被冻结 —— 它是过期的
-  所有者仅存的可用管理操作。
+- 宽限期内续期不被冻结 —— 其余所有者操作也不被
+  冻结：到期冻结只命中 `AssignDomain`
+  （`TldExpiredFrozen`）。`TransferTld`、`RevokeTld`、
+  `SetTldOpen` 与 `SetTldOperator` 对过期（宽限期内）的
+  私有 TLD 仍然可用。
 
 ## 委托权威家族 —— 绑定计数器（0xE2、0xA9、0x5E、0x66）
 
@@ -380,7 +389,8 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 `sequence == current + 1` —— 是唯一的绑定。签名仍
 经由签名载荷覆盖 `owner` 字段，因此委托是**为**
 一个特定命名空间签署。注意：所有者→密钥映射
-按首次出现学习（注册/指派时），因此委托的
+按首次出现学习（注册、指派，以及其所有者 id 仍然
+空缺的任何按所有者密钥的更新），因此委托的
 更新绝不会覆盖它。
 
 ### 严格边界
@@ -441,7 +451,10 @@ challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ networ
   命名空间保留所有者签名路径）；
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`：name ‖
   id ‖ owner ‖ valid_until.v ‖ proof ‖
-  pubkey_dest。
+  pubkey_dest —— `RENEW_DOMAIN_POW` 仅限
+  OPEN TLD（与 `RegisterDomainPow` 一样：私有 TLD
+  下为 `TldClosed`），而 `RENEW_TLD_POW` 保持仅限
+  PRIVATE TLD（否则为 `TldIsOpen`）。
 
 ### 应用防护（D3）
 
@@ -557,7 +570,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+五个新增条目遵循同一规则 —— 头部 `disc ‖ version ‖
+network`，然后是精确的线上主体减去尾部签名
+（对 `SlashTx` 而言是报告者的）。`Heartbeat` 以签名者
+密钥结束：必须相同的 `operator` 字段的第二份副本
+（否则类型化拒绝）。
 
 属性：
 
@@ -648,68 +683,83 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 难度与纪元随证明一起传输，但它们是
 **生产者声明的、因此绝不被信任**：验证者
-将难度与注册种类的**协议常量**比较（声明
-难度与常量不同 —— 更低*或*更高 —— 的
+将难度与协议为证明种类规定的值比较 —— 注册用
+长度曲线（见下文
+[难度](#难度按长度的曲线-m8b--argon2id-校准)），
+让渡与指派用扁平参数（声明
+难度与该值不同 —— 更低*或*更高 —— 的
 载荷被拒绝，`InvalidProof`），将纪元与应用
 区块的纪元比较（不匹配则
-`ProofEpochMismatch`）。然后按常量难度重新
+`ProofEpochMismatch`）。然后按该规定难度重新
 验证 nonce、从头重算摘要。
 
-### 难度（**按长度**的曲线，M8b + 实测校准）
+### 难度（**按长度**的曲线，M8b + Argon2id 校准）
 
 难度不是一个扁平参数：它是
 **所创建标签长度**的确定性函数
 （`scone-core::pow_length` —— `RegisterTld` 取
 TLD，`RegisterDomain` 取最左标签），按网络
-区分：
+区分。两条曲线、每种对象一条：TLD 斜率平缓
+（每多一个字符成本除以约 1.22），域名斜率更陡
+（每多一个字符成本除以约 1.40）：
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| 网络 | 私有 TLD（apex/floor） | 生而开放的 TLD / 域名（apex/floor） |
-|---|---|---|
-| testnet | 8 位 / 2 位 | 6 位 / 2 位 |
-| mainnet | 42 位 / 30 位 | 40 位 / 30 位 |
-| devnet | 2 位 / 1 位 | 1 位 / 1 位 |
+每种种类从自己的 apex 出发、在自己的 floor 结束
+（`tld_difficulty`、`open_tld_difficulty`、
+`domain_difficulty` —— 生而开放的 TLD 支付比私有
+apex 低一位的 TLD 曲线，域名在更陡的斜率上低两位
+出发）：
+
+| 网络 | 私有 TLD（apex → floor） | 生而开放的 TLD（apex → floor） | 域名（apex → floor） |
+|---|---|---|---|
+| testnet | 8 → 2 位 | 7 → 2 位 | 6 → 1 位 |
+| mainnet | 28 → 25 位 | 27 → 25 位 | 26 → 22 位 |
+| devnet | 2 → 1 位 | 1 → 1 位 | 1 → 1 位 |
+
+主网阶梯（Argon2id 64 MiB、t = 2、p = 1，每核约
+11.4 H/s —— 8 核参考机上的预期）：
+
+| 长度 | 私有 TLD | 生而开放的 TLD | 域名 |
+|---|---|---|---|
+| 1 | 28 位 ≈ 30 天 | 27 位 | 26 位 |
+| 3 | 27 位 | 26 位 | 25 位 |
+| 7 | 26 位 | 25 位 | 23 位 |
+| 10+ | 25 位（保底） | 25 位（保底） | 22 位（保底） |
+
+该机器上 25 位保底 ≈ 4.3 天；更多核心更快完成，
+更少核心则更慢 —— 付费的 PoW 服务吸收这一差距。
 
 **生而开放**的 TLD（`open = 0x01` 的
-`RegisterTld`）支付"开放"曲线（apex − 2、
-如同 `domain_difficulty`）；**开放一个既有的
-私有 TLD**（`SetTldOpen`）保持扁平难度
+`RegisterTld`）支付 apex − 1 处的 TLD 曲线
+（主网 27 → 25 位 —— 不是域名 apex）；**开放一个既有的
+私有 TLD**（`SetTldOpen`）是另一种**扁平**
+证明
 （`open_tld_pow_difficulty`：测试网 6 位 /
-主网 22 位 / 开发网 2 位 —— 该交易
+主网 26 位 / 开发网 2 位 —— 该交易
 只携带 `tld_id`，名称在创建时已按其长度
-付费）。主网基准（私有 TLD，约 6 M 哈希/秒）：
-1 字符 = 42 位（≥ 7 天）、5 字符 = 40 位
-（约 2 天）、19 字符 = 35 位（约 1.6 小时）、
-29+ 字符 = 30 位保底（约 3 分钟）。曲线位于
-`scone-core::pow_length`（常量 `MAINNET_APEX = 42`、
-`MAINNET_FLOOR = 30`、`TESTNET_APEX = 8`、
+付费）。曲线位于
+`scone-core::pow_length`（常量 `MAINNET_APEX = 28`、
+`MAINNET_FLOOR = 25`、`TESTNET_APEX = 8`、
 `TESTNET_FLOOR = 2`、`DEVNET_APEX = 2`、
-`DEVNET_FLOOR = 1`）；扁平参数
-（`tld_pow_difficulty` 等）仍在
-`scone-core::network::NetworkParams`。修改一个值
+`DEVNET_FLOOR = 1`）；`scone-core::network::NetworkParams`
+的扁平参数只服务于仍然是扁平的证明 —— 开放一个
+既有 TLD（`open_tld_pow_difficulty`、主网 26 位）、
+让渡（`transfer_pow_difficulty`、16）与指派
+（`assign_pow_difficulty`、16）—— 外加 CLI 显示。
+昔日的扁平注册上限（`RegisterTld` 24 位 /
+`RegisterDomain` 20 位、BLAKE3 时代约 7.7 M H/s 的
+校准）是历史性的、曲线之前的值。修改一个值
 = **该网络**的一次共识变更。不变量：开发网是
 完整的第三个 `NetworkParams`，且测试网
 与其开发网前的常量（Argon2id 参数、曲线、
 窗口）保持严格一致 —— 除代码本身外
 开发网不与其他网络共享任何常量。
-
-扁平上限的实测校准（2026-10，`cargo run
---release -p scone-core --example pow_bench` —— 参照
-x86-64 上单线程吞吐约 7.7 M H/s）：
-
-| 种类（主网） | 难度 | 平均实际时间 |
-|---|---|---|
-| `RegisterTld` | 24 位 | ~7 s |
-| `RegisterDomain` | 20 位 | ~54 ms |
-
-按 ~65 秒/区块：TLD 声明花费约 0.1 个区块的
-单核 CPU，域名约 1 毫秒区块时间 —— 对用户
-是象征性的，规模化工业化则代价高昂
-（防抢注）。若硬件目标下降（移动 ARM：
-慢约 4–8 倍）需重新校准。
 
 状态分支（M8b，已交付）：`RegisterTld` 总是
 需要其 PoW；`RegisterDomain` 在**开放** TLD 上
@@ -791,11 +841,11 @@ x86-64 上单线程吞吐约 7.7 M H/s）：
 载荷）与时间戳由调用者提供；现有的
 `Consensus` trait 与验证对称使用。
 
-## 十六进制示例（真实、可复现的向量 —— M8b）
+## 十六进制示例（示意性向量 —— M8b）
 
 ### RegisterDomain `example.uip`、时间戳 42、测试网
 
-已签名载荷（固定向量；历史上由已移除的
+已签名载荷（示意性向量；历史上由已移除的
 离线工具生成 —— 这些值仍是有效向量）。
 `network` 出现在这里是因为这是签名载荷
 （它唯一出现的地方）；被签名的线上交易
@@ -811,13 +861,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`、时间戳 42
 
-已签名载荷（固定向量）—— `TldId` 是
+已签名载荷（示意性向量）—— `TldId` 是
 `/docs/en/general/naming.md` 中固定的派生
 向量：
 
@@ -836,7 +887,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 （完整值曾可通过已移除的离线工具复现；
-下列向量仍被固定且有效。PoW 按网络
+下列向量仍具示意性且有效。PoW 按网络
 难度自动挖取 —— nonce 每次运行都不同；
 只有 network/name/id/owner/pk 是稳定的。自
 2026-09 线上变更起，已签名交易的十六进制

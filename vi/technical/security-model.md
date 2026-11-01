@@ -8,7 +8,8 @@
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 trên **tập hợp đủ điều kiện bị đóng băng tại khối được hoàn tất bởi
 checkpoint N**. `signing_hash` là băm của **nội dung** checkpoint
-(epoch, height, block, prev, state root — loại trừ bộ chữ ký): seed
+(epoch, height, recovery, block, prev, state root — loại trừ bộ
+chữ ký): seed
 là một hàm thuần túy của CÁI GÌ đã được hoàn tất, không bao giờ
 của BỘ PHẬN nào của quorum đã ký nó — hai góc nhìn giữ các tập con
 khác nhau (cùng hợp lệ) của cùng một checkpoint bầu ra cùng một ủy

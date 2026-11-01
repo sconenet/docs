@@ -38,7 +38,8 @@ hơn cho TLD.
   trên dạng A-label chuẩn
 - giới hạn trong mã: `TldName::MAX_LEN = 63` byte
 - hợp lệ: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, TLD dài đúng
-  63 byte, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  63 byte, `éxemple` (→ `xn--exemple-2ua`, ánh xạ minh họa —
+  không được neo bởi một bài kiểm thử), `例子`
   (→ `xn--fsqu00a`)
 - không hợp lệ: TLD có A-label vượt quá 63 byte, `ABC`, `-ab`,
   `ab-`, chuỗi rỗng
@@ -166,8 +167,9 @@ thuộc về ai đó. Tóm tắt chuẩn:
 ### TLD tư nhân
 
 - **Sinh — PoW**: được tuyên bố bằng bằng chứng công việc, độ khó
-  theo chiều dài (mainnet: 1 ký tự ≈ 34 ngày tính toán; sàn ≈ 4,3
-  ngày ở 10+ ký tự). Người tuyên bố trở thành chủ sở hữu và nắm một
+  theo chiều dài (mainnet, trên máy tham chiếu 8 lõi: 1 ký tự ≈
+  34 ngày tính toán; sàn ≈ 4,3 ngày ở 10+ ký tự). Người tuyên bố
+  trở thành chủ sở hữu và nắm một
   **ghế PoS** (và đào tạo trình xác thực — yêu cầu heartbeat để
   giữ sự mới, có ủy quyền cho vận hành viên).
 - **Sống — PoS**: chữ ký của chủ sở hữu ủy quyền mọi thứ trong không
@@ -207,8 +209,8 @@ thuộc về ai đó. Tóm tắt chuẩn:
 
 ### Tên miền dưới một TLD mở
 
-- **Sinh — PoW** (đường cong giảm so với TLD: mainnet 1 ký tự ≈ 8,5
-  ngày, sàn ≈ nửa ngày).
+- **Sinh — PoW** (đường cong giảm so với TLD, trên máy tham chiếu
+  8 lõi: mainnet 1 ký tự ≈ 8,5 ngày, sàn ≈ nửa ngày).
 - **Gia hạn — PoW giống hệt lúc sinh** (cùng đường cong độ khó;
   challenge bị ràng buộc vào hạn hiện tại, do đó khác với lúc đăng
   ký và mọi lần gia hạn trước đó): mỗi hạn sống đều được trả bằng

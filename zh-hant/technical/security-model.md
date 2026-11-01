@@ -9,7 +9,7 @@ Epoch N+1 的委員會由種子
 blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`
 在被檢查點 N 最終化的區塊所**凍結的資格
 池**上抽取。`signing_hash` 是檢查點**內容**
-（epoch、高度、區塊、前一個、狀態根 —
+（epoch、高度、recovery、區塊、前一個、狀態根 —
 簽章集合除外）的雜湊：種子是被最終化
 之**什麼**的純函數，而非**哪個**法定子集
 簽署了它 — 對同一檢查點持有不同（兩者

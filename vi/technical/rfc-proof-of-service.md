@@ -50,7 +50,7 @@ Heartbeat {
 Thân ký (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (khóa của người ký xuất hiện ở đuôi
-thân, như mọi tx) `‖ signature[64]`, tức ~230 byte khi mã hóa —
+thân, như mọi tx) `‖ signature[64]`, tức ~200–215 byte khi mã hóa —
 **không PoW**: chi phí là sự hiện diện liên tục (một heartbeat
 mỗi epoch, trong nhiều tháng).
 
@@ -313,5 +313,5 @@ ban).
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, xác thực | xong |
 | 2 | blockchain | cửa sổ trượt (ghi nhật ký), tập hợp lọc, bầu chọn, ~15 kiểm thử | xong |
 | 3 | network | phát tự động, chuyển tiếp tx | xong |
-| 4 | CLI | `tx build heartbeat`, hiển thị `fresh operators` trong `scone status` | xong |
+| 4 | CLI | phát tự động bởi relay (§7); hiển thị `fresh operators` trong `scone status`; builder ngoại tuyến đã bị xóa (cli-simplify-v1) | xong |
 | 5 | docs | RFC này hợp nhất thành dạng chuẩn, bản song song fr/en | xong |

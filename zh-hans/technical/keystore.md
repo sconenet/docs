@@ -15,7 +15,7 @@
 ## 概览
 
 - **KDF**：Argon2id（v0x13），默认参数 `m_cost` = 64 MiB、
-  `t_cost` = 3、`p_cost` = 1（`argon2` crate 的默认值）。
+  `t_cost` = 3、`p_cost` = 1（scone-keystore 的默认值）。
 - **加密**：XChaCha20-Poly1305（AEAD），32 字节密钥由
   KDF 派生，每文件 24 字节随机 nonce。
 - **加密内容**：恰好是 Ed25519 seed（32 字节）；
@@ -97,24 +97,32 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1 中没有关联数据（AAD）。每文件随机的
+两个版本中都没有关联数据（AAD）。每文件随机的
 24 字节 nonce 使 nonce 重用风险可忽略
 （密钥文件只写入一次）。
 
-## API（`scone-keystore`）
+## API（`scone-keystore`）—— 核心函数
 
 | 函数 | 职责 |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | 生成密钥，写入加密的密钥文件（创建父目录）；**拒绝覆盖**已存在的文件（`Error::KeyfileExists`）；在内存中返回密钥 |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | 同上，但显式替换已存在的密钥文件 |
 | `open(path, passphrase) -> SigningKey` | 解密并返回签名密钥 |
-| `list(dir) -> Vec<KeyEntry>` | 列出目录中的 `*.sconekey` 文件（按名称排序）；目录缺失 = 空列表 |
+| `list(dir) -> Vec<KeyEntry>` | 列出目录中的 `*.sconekey` 文件（扩展名匹配不区分大小写，按名称排序）；目录缺失 = 空列表 |
+
+短语/标签变体（`create_labeled`、
+`create_overwriting_labeled`、`create_with_phrase`、
+`create_with_phrase_overwriting`、`restore_from_phrase`）以
+公开标签或调用方提供的 BIP39 短语包装同样的
+封装；它们位于上述核心表之外。
 
 `GeneratedKey.signing_key` 在 drop 时由
 `ed25519-dalek` 清零（默认 `zeroize` 特性）。
-派生的 AEAD 密钥、seed 以及
-解密后的明文都包在 `zeroize::Zeroizing` 中：
-Drop 覆盖所有退出路径，包括由 `?` 传播的错误。
+派生的 AEAD 密钥以及解密后的明文都包在
+`zeroize::Zeroizing` 中 —— Drop 覆盖所有退出路径，
+包括由 `?` 传播的错误。在封装路径上，seed 副本是
+瞬态的：一个普通的栈上数组，在封装调用结束时
+离开作用域。
 
 ## 文件权限
 
@@ -128,6 +136,7 @@ Drop 覆盖所有退出路径，包括由 `?` 传播的错误。
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -144,6 +153,13 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   （24 个词）** —— 全新 256 位熵，仅凭这些词
   即可重新生成同一密钥（`scone identity restore`）；
   它们从不存储在任何地方。
+- `identity restore` **绝不**以进程参数的形式读取短语
+  （通过 `ps` 和 shell 历史可见）：掩码输入提示、
+  `--phrase-file <file>` 或 `--phrase-env <VAR>`。默认
+  **拒绝覆盖**已存在的密钥文件（`--force` 显式替换）。
+- 中继锚点自动身份（不是 `identity restore`）：自动生成的
+  锚点口令以 `0600` 写入，写入失败会被报告，绝不被
+  吞掉。
 - `identity generate` **拒绝覆盖**已存在的
   密钥文件；`--force` 显式替换（新的 salt/nonce、新
   密钥、新短语）。

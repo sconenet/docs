@@ -70,16 +70,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### 決策：`scone-core` 相依於 `scone-crypto`
@@ -92,6 +94,8 @@ scone           ← binary / application
   （加上用於金鑰產生的 OS RNG）、零核心型別、
   沒有網路／檔案系統／async 相依 → 不可能出現循環；
 - `scone-core` 僅將它用於雜湊；
+- `scone-core` 也直接相依於 `argon2`（註冊 PoW）與
+  `idna`（國際化名稱）— 純相依，分層未被破壞；
 - Ed25519 簽章與金鑰位於 `scone-crypto`，並作用於
   位元組（由 `scone-protocol` 產生的正典酬載）。
 
@@ -105,8 +109,8 @@ tokio/async、網路、檔案、OS、DNS 伺服器、區塊鏈邏輯。
 
 **scone-crypto** — 密碼學原語。目前：`hash256`
 （BLAKE3）、Ed25519 簽章與金鑰（`SigningKey`、
-`PublicKey`、`Signature`、嚴格批次驗證）、記錄群組的
-AEAD 信封（XChaCha20-Poly1305）。計畫中：Merkle 樹。
+`PublicKey`、`Signature`、嚴格批次驗證）。
+計畫中：Merkle 樹。
 規則：不自行發明演算法，僅使用經稽核的相依套件。
 
 **scone-protocol** — 協定的二進位格式：交易、DNS 記錄、
@@ -143,7 +147,7 @@ KV 狀態後端、區塊日誌、經驗證的快照（含雜湊的清單
 （GeoDNS 永遠開啟 — 內嵌 GeoIP 表、遞迴備援）、錨點的
 檢查點／心跳迴圈（CLI 對中繼站直接說 p2p QUIC，
 不再有本機 RPC）。可達性與探索：AutoNAT
-v2（可達／NATed 判定）、circuit-relay v2 + DCUtR 給 NATed
+v1（可達／NATed 判定）、circuit-relay v2 + DCUtR 給 NATed
 節點與 UPnP（由路由器映射 QUIC 埠，採 opt-in）。透過 `.env` 檔案組態（見 `.env.example`）。
 參考：`/docs/en/technical/relay.md`。
 
@@ -201,11 +205,13 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-兩種節點設定檔：
+節點設定檔（計畫中 — 目前不存在這種 operator 旗標：
+所有現有節點都保留全部區塊，而上述 opt-in 的快照匯入
+是唯一的保留量控制手段）：
 
-- **封存節點**（operator 旗標）：保存所有歷史區塊、
+- **封存節點**（計畫中）：保存所有歷史區塊、
   將它們提供給網路，透過既有路徑啟動；
-- **全狀態節點**：持有 H 的完整狀態與字尾，
+- **全狀態節點**（計畫中）：持有 H 的完整狀態與字尾，
   但不含 H 以下的歷史 — 它驗證未來的區塊並
   提供狀態，不提供歷史。
 

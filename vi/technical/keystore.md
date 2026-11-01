@@ -15,7 +15,7 @@ zeroize trong bộ nhớ sau khi dùng.
 ## Tổng quan
 
 - **KDF**: Argon2id (v0x13), tham số mặc định `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (mặc định của crate `argon2`).
+  `t_cost` = 3, `p_cost` = 1 (mặc định của scone-keystore).
 - **Mã hóa**: XChaCha20-Poly1305 (AEAD), khóa 32 byte dẫn xuất từ
   KDF, nonce ngẫu nhiên 24 byte cho mỗi tệp.
 - **Nội dung được mã hóa**: đúng seed Ed25519 (32 byte); thẻ
@@ -97,23 +97,32 @@ Sau đó:
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-Không có dữ liệu liên kết (AAD) trong v1. Nonce 24 byte, ngẫu
+Không có dữ liệu liên kết (AAD) trong cả hai phiên bản. Nonce
+24 byte, ngẫu
 nhiên theo từng tệp, khiến rủi ro tái sử dụng nonce không đáng
 kể (tệp khóa chỉ được ghi một lần).
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — các hàm cốt lõi
 
 | Hàm | Vai trò |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | Sinh khóa, ghi tệp khóa mã hóa (tạo thư mục cha); **từ chối ghi đè** tệp đã tồn tại (`Error::KeyfileExists`); trả về khóa trong bộ nhớ |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | Như trên, nhưng thay thế tường minh một tệp khóa đã có |
 | `open(path, passphrase) -> SigningKey` | Giải mã và trả về khóa ký |
-| `list(dir) -> Vec<KeyEntry>` | Liệt kê các tệp `*.sconekey` trong một thư mục (sắp theo tên); thư mục thiếu = danh sách rỗng |
+| `list(dir) -> Vec<KeyEntry>` | Liệt kê các tệp `*.sconekey` trong một thư mục (khớp phần mở rộng không phân biệt chữ hoa/thường, sắp theo tên); thư mục thiếu = danh sách rỗng |
+
+Các biến thể phrase/label (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) bọc cùng
+sự niêm phong đó với một nhãn công khai hoặc một cụm từ BIP39 do
+người gọi cung cấp; chúng nằm ngoài bảng cốt lõi phía trên.
 
 `GeneratedKey.signing_key` bị zeroize khi drop bởi `ed25519-dalek`
-(tính năng `zeroize` mặc định). Khóa AEAD dẫn xuất, seed, và văn
-bản rõ đã giải mã được bọc trong `zeroize::Zeroizing`:
-Drop phủ mọi đường thoát, kể cả lỗi truyền qua `?`.
+(tính năng `zeroize` mặc định). Khóa AEAD dẫn xuất và văn
+bản rõ đã giải mã được bọc trong `zeroize::Zeroizing` — Drop
+phủ mọi đường thoát, kể cả lỗi truyền qua `?`. Trên đường niêm
+phong, bản sao seed mang tính tạm thời: một mảng thường trên
+stack hết phạm vi ở cuối lệnh gọi niêm phong.
 
 ## Quyền tệp
 
@@ -127,6 +136,7 @@ thời không thể âm thầm ghi đè lẫn nhau.
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -143,6 +153,14 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   từ)** đúng một lần — entropy 256 bit mới, riêng các từ đã tái
   tạo lại cùng một khóa (`scone identity restore`); chúng không
   bao giờ được lưu ở bất kỳ đâu.
+- `identity restore` đọc cụm từ **không bao giờ dạng đối số tiến
+  trình** (hiện qua `ps` và lịch sử shell): lời nhắc che mờ,
+  `--phrase-file <file>` hoặc `--phrase-env <VAR>`. Nó **từ chối
+  ghi đè** một tệp khóa đã có theo mặc định (`--force` thay thế
+  nó tường minh).
+- Danh tính anchor tự sinh của relay (không phải `identity
+  restore`): cụm mật khẩu anchor tự sinh được ghi với quyền
+  `0600` và một lỗi ghi được báo cáo, không bao giờ bị nuốt.
 - `identity generate` **từ chối ghi đè** một tệp khóa đã có;
   `--force` thay thế nó tường minh (salt/nonce mới, khóa mới,
   cụm từ mới).

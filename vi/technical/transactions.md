@@ -8,9 +8,10 @@ mà không cần đọc Rust. Triển khai tham chiếu là
 [`scone-blockchain`](../../../crates/scone-blockchain) (xác
 thực).
 
-`PROTOCOL_VERSION` = **1**. Chỉ có một bộ định dạng: mọi byte
-phiên bản khác `0x01` (trong một giao dịch) hay khác phiên bản
-cục bộ (trong một khối) đều bị từ chối với `UnsupportedVersion`.
+`PROTOCOL_VERSION` = **2**. Chỉ có một bộ định dạng: một byte
+`version` giao dịch khác `0x01` bị từ chối với
+`UnsupportedVersion`; một `version` khối khác `PROTOCOL_VERSION`
+(`2`) bị từ chối, không bị diễn giải lại.
 
 ## Tổng quan
 
@@ -77,12 +78,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` kiểm tra cấu trúc: cùng epoch, `signing_hash` khác
+- `validate()` kiểm tra cấu trúc: cùng epoch VÀ cùng
+  `prev_checkpoint_hash` (bối cảnh xung đột), `signing_hash` khác
   nhau, hai chữ ký khác nhau, chữ ký của người báo trên payload
   chuẩn;
-- quy tắc trạng thái (ghi nhật ký, đảo ngược được khi reorg): cả
-  HAI chữ ký của bị cáo phải xác minh được đối với HAI băm ký
-  khác nhau ở cùng epoch; bị cáo phải nằm trong tập hợp đủ điều
+- quy tắc trạng thái (ghi nhật ký, đảo ngược được khi reorg): hai
+  checkpoint bằng chứng mang hai băm ký khác nhau, MỖI cái xác
+  minh được — `verify_strict` — dưới KHÓA offender DUY NHẤT ở
+  cùng epoch; bị cáo phải nằm trong tập hợp đủ điều
   kiện (nếu không `SlashOffenderNotInPool`); sau đó là **cấm** —
   khóa bị gỡ khỏi tập PoS một cách bền vững (danh sách đen
   trong trạng thái);
@@ -132,7 +135,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 byte thô | dẫn xuất của `public_key` |
 | `timestamp` | varint | thông tin thứ tự (Unix, giây) |
 | `proof` | `bytes` ≤ 256 | payload PoW đăng ký (xem [dưới](#bằng-chứng-công-việc-đăng-ký-pow)) |
-| `open` | `0x00\|0x01` | sinh **mở**: TLD đáp trực tiếp vào `TldState::Open` (không ai cả, tự phục vụ + PoW, một PoW duy nhất ở mức `open_tld_pow_difficulty` — rẻ hơn riêng tư: tài nguyên chung, không ghế PoS mà cũng không độc quyền); sinh **riêng tư**: hành vi lịch sử (chủ sở hữu, ghế PoS, `tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | sinh **mở**: TLD đáp trực tiếp vào `TldState::Open` (không ai cả, tự phục vụ + PoW, một PoW duy nhất ở mức đường-cong-chiều-dài sinh-mở `pow_length::open_tld_difficulty` — rẻ hơn riêng tư: tài nguyên chung, không ghế PoS mà cũng không độc quyền); sinh **riêng tư**: hành vi lịch sử (chủ sở hữu, ghế PoS, đường cong chiều dài riêng tư `pow_length::tld_difficulty`) |
 | `public_key` | 32 byte thô | khóa công khai Ed25519 của người ký |
 | `signature` | **đúng 64 byte** | chữ ký Ed25519 của payload ký |
 
@@ -190,14 +193,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | Trường | Kiểu | Ràng buộc |
 |---|---|---|
-| `open` | 1 byte | **nghiêm ngặt `0x00` hoặc `0x01`** (dạng chuẩn; mọi giá trị khác → lỗi giải mã, không bao giờ ép buộc) |
-| `open_proof` | `proof` (varint chiều dài + byte) | trường **được ký**; bắt buộc và được xác minh khi `open = 0x01` (PoW mở, `open_tld_pow_difficulty` của mạng, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`); rỗng khi `open = 0x00` (đóng là miễn phí) |
+| `open` | 1 byte | **nghiêm ngặt `0x01`**: việc đóng không tồn tại — `open = 0x00` bị từ chối với lỗi có kiểu `TldCloseUnsupported` (tùy chọn chủ một chiều; bị từ chối lúc giải mã, vốn chạy `validate()`), mọi byte khác là lỗi giải mã, không bao giờ ép buộc |
+| `open_proof` | `proof` (varint chiều dài + byte) | trường **được ký**; bắt buộc và được xác minh (PoW mở, `open_tld_pow_difficulty` phẳng của mạng, challenge `SCONE-TLD-OPEN-V1 ‖ tld_id`); không bao giờ được tham vấn trong trường hợp khác, vì không giao dịch `open = 0x00` nào từng được chấp nhận |
 
 Một TLD **đóng** = chỉ-assign (các tên miền chỉ được tạo bởi chủ
 TLD qua `AssignDomain`); một TLD **mở** = bất kỳ ai cũng có thể
 làm PoW đăng ký và tuyên bố một tên miền tự do
 (`RegisterDomain`). **Mở** tốn thêm một bằng chứng công việc
-(nhẹ hơn tuyên bố TLD: ~3 ngày trên mainnet so với ~1 tuần),
+(nhẹ hơn tuyên bố TLD: 26 bit ≈ 8,5 ngày trên máy tham chiếu
+8 lõi, so với ≈ 34 ngày cho một lời tuyên bố riêng tư 1 ký tự),
 trả một lần bởi chủ trong `SetTldOpen` — bằng chứng đi trong
 trường `open_proof` được ký và không thể bị thay thế sau khi
 ký.
@@ -239,10 +243,14 @@ Chi phí của một lần gia hạn phụ thuộc bản chất của TLD bên d
 (đánh giá lúc áp dụng, trên trạng thái khối):
 
 - **TLD mở**: gia hạn tốn **cùng PoW như lúc tạo** — cùng
-  challenge (`SCONE-DOMAIN-V1 ‖ canonical name`), cùng độ khó
-  theo chiều dài nhãn và theo mạng, cùng cửa sổ hiệu lực
-  epoch. Một tên miền không bao giờ bị "thu hoạch" miễn phí:
-  mọi hạn sống đều được trả bằng công việc.
+  độ khó theo chiều dài nhãn và theo mạng, cùng cửa sổ hiệu lực
+  epoch, nhưng với challenge gắn hạn HIỆN TẠI:
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`.
+  Hậu tố hết hạn làm preimage của lần gia hạn khác biệt với
+  preimage của đăng ký và của mọi lần gia hạn trước đó: một bằng
+  chứng đã đào trả đúng một kỳ hạn. Một tên miền không bao giờ
+  bị "thu hoạch" miễn phí: mọi hạn sống đều được trả bằng công
+  việc.
 - **TLD riêng tư**: không gian tên là phần đặt cược PoS của chủ
   TLD. Giao dịch phải được **ký bởi chủ TLD** (hoặc vận hành
   viên được ủy quyền của họ) — chữ ký CHÍNH LÀ ủy quyền,
@@ -272,8 +280,11 @@ Ký bởi chủ **riêng tư** hiện tại của TLD. Quy tắc áp dụng:
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (hậu tố chống tái
   sử dụng trói mỗi PoW vào MỘT hạn), cùng độ khó theo chiều dài
   như lời tuyên bố ban đầu;
-- gia hạn KHÔNG bị đóng băng trong thời gian hoãn — nó là thao
-  tác quản lý duy nhất còn lại cho một chủ đã hết hạn.
+- gia hạn KHÔNG bị đóng băng trong thời gian hoãn — và các thao
+  tác chủ khác cũng vậy: đóng băng hết hạn chỉ đánh vào
+  `AssignDomain` (`TldExpiredFrozen`). `TransferTld`,
+  `RevokeTld`, `SetTldOpen` và `SetTldOperator` vẫn áp dụng được
+  cho một TLD riêng tư đã hết hạn (đang trong thời gian hoãn).
 
 ## Gia đình thẩm quyền ủy nhiệm — gắn bộ đếm (0xE2, 0xA9, 0x5E, 0x66)
 
@@ -380,8 +391,9 @@ dẫn xuất owner↔khóa được cố ý KHÔNG áp dụng cho dạng này
 thái — người ký ∈ {chủ} ∪ ủy nhiệm, `sequence == hiện_tại + 1` —
 là ràng buộc duy nhất. Chữ ký vẫn phủ trường `owner` qua payload
 ký, nên một ủy nhiệm ký "cho" một namespace cụ thể. Lưu ý: bản đồ
-chủ→khóa được học theo nguyên tắc xuất-hiện-đầu-tiên (đăng
-ký/gán), nên một cập nhật của ủy nhiệm không bao giờ ghi đè nó.
+chủ→khóa được học theo nguyên tắc xuất-hiện-đầu-tiên (đăng ký,
+gán, và mọi cập nhật khóa-theo-chủ mà id chủ của nó còn trống),
+nên một cập nhật của ủy nhiệm không bao giờ ghi đè nó.
 
 ### Biên nghiêm ngặt
 
@@ -438,7 +450,10 @@ chữ ký: `‖ current_valid_until` (BE, 8 byte) — một bằng chứng
   timestamp.v ‖ proof ‖ pubkey_dest — chỉ TLD MỞ (riêng tư →
   TldClosed: namespace riêng tư giữ đường chữ ký của chủ);
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
-  valid_until.v ‖ proof ‖ pubkey_dest.
+  valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW` chỉ
+  trên TLD MỞ (như `RegisterDomainPow`: `TldClosed` dưới một TLD
+  riêng tư), trong khi `RENEW_TLD_POW` vẫn chỉ trên TLD RIÊNG TƯ
+  (`TldIsOpen` nếu ngược lại).
 
 ### Các chốt áp dụng (D3)
 
@@ -552,7 +567,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+Năm bổ sung tuân theo cùng quy tắc — header `disc ‖ version ‖
+network`, rồi chính xác thân wire trừ chữ ký đuôi (với
+`SlashTx`, của người báo). `Heartbeat` kết thúc bằng khóa người
+ký: một bản sao thứ hai của trường `operator` phải giống hệt
+(từ chối có kiểu nếu ngược lại).
 
 Tính chất:
 
@@ -642,62 +679,77 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 Độ khó và epoch đi cùng bằng chứng, nhưng chúng là **do người
 produce khai báo và do đó không bao giờ tin**: bên xác minh so
-sánh độ khó với **hằng số giao thức** cho loại đăng ký (một
-payload khai báo độ khó khác hằng số — thấp hơn *hoặc* cao hơn
+sánh độ khó với giá trị mà giao thức quy định cho loại bằng chứng
+— đường cong chiều dài cho các đăng ký (xem
+[Các độ khó](#các-độ-khó-đường-cong-theo-chiều-dài-m8b--hiệu-chuẩn-argon2id)
+dưới), tham số phẳng cho các chuyển nhượng và phép gán (một
+payload khai báo độ khó khác giá trị đó — thấp hơn *hoặc* cao hơn
 — bị từ chối, `InvalidProof`), và epoch với epoch của khối áp
 dụng (`ProofEpochMismatch` khi lệch). Nonce sau đó được xác minh
-lại ở độ khó hằng số, digest tính lại từ đầu.
+lại ở độ khó được quy định đó, digest tính lại từ đầu.
 
-### Các độ khó (đường cong theo **chiều dài**, M8b + hiệu chuẩn đo được)
+### Các độ khó (đường cong theo **chiều dài**, M8b + hiệu chuẩn Argon2id)
 
 Độ khó KHÔNG phải một tham số phẳng: nó là một hàm tất định của
 **chiều dài nhãn được tạo** (`scone-core::pow_length` — TLD cho
 `RegisterTld`, nhãn ngoài cùng bên trái cho `RegisterDomain`),
-theo từng mạng:
+theo từng mạng. HAI đường cong, một cho mỗi loại đối tượng: độ
+dốc TLD thoải (mỗi ký tự thêm chia chi phí cho ~1,22), độ dốc
+tên miền dốc hơn (mỗi ký tự thêm chia chi phí cho ~1,40):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| Mạng | TLD riêng tư (apex/floor) | TLD sinh-mở / tên miền (apex/floor) |
-|---|---|---|
-| testnet | 8 bit / 2 bit | 6 bit / 2 bit |
-| mainnet | 42 bit / 30 bit | 40 bit / 30 bit |
-| devnet | 2 bit / 1 bit | 1 bit / 1 bit |
+Mỗi loại bắt đầu từ apex riêng của nó và kết thúc ở sàn riêng của
+nó (`tld_difficulty`, `open_tld_difficulty`, `domain_difficulty` —
+một TLD sinh-mở trả đường cong TLD thấp hơn apex riêng tư một
+bit, một tên miền bắt đầu thấp hơn hai bit trên độ dốc dốc hơn):
+
+| Mạng | TLD riêng tư (apex → floor) | TLD sinh-mở (apex → floor) | Tên miền (apex → floor) |
+|---|---|---|---|
+| testnet | 8 → 2 bit | 7 → 2 bit | 6 → 1 bit |
+| mainnet | 28 → 25 bit | 27 → 25 bit | 26 → 22 bit |
+| devnet | 2 → 1 bit | 1 → 1 bit | 1 → 1 bit |
+
+Thang mainnet (Argon2id 64 MiB, t = 2, p = 1 ở ~11,4 H/s mỗi
+nhân — kỳ vọng trên máy tham chiếu 8 lõi):
+
+| chiều dài | TLD riêng tư | TLD sinh-mở | tên miền |
+|---|---|---|---|
+| 1 | 28 bit ≈ 30 ngày | 27 bit | 26 bit |
+| 3 | 27 bit | 26 bit | 25 bit |
+| 7 | 26 bit | 25 bit | 23 bit |
+| 10+ | 25 bit (sàn) | 25 bit (sàn) | 22 bit (sàn) |
+
+Sàn 25 bit ≈ 4,3 ngày trên máy đó; nhiều nhân hoàn thành nhanh
+hơn, ít nhân lâu hơn — dịch vụ PoW trả phí hấp thụ khoảng cách
+này.
 
 Một TLD **sinh-mở** (`RegisterTld` với `open = 0x01`) trả đường
-cong "mở" (apex − 2, như `domain_difficulty`); **mở một TLD
-riêng tư sẵn có** (`SetTldOpen`) giữ độ khó phẳng
-(`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet /
-2 bit devnet — tx chỉ mang `tld_id`, tên đã trả theo chiều dài
-của nó lúc tạo). Benchmark mainnet (TLD riêng tư, ~6 M băm/s):
-1 ký tự = 42 bit (≥ 7 ngày), 5 ký tự = 40 bit (~2 ngày),
-19 ký tự = 35 bit (~1,6 h), 29+ ký tự = sàn 30 bit (~3 phút).
-Các đường cong sống trong `scone-core::pow_length` (hằng số
-`MAINNET_APEX = 42`, `MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`,
-`TESTNET_FLOOR = 2`, `DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`);
-các tham số phẳng (`tld_pow_difficulty`, v.v.) vẫn ở
-`scone-core::network::NetworkParams`. Đổi một giá trị = một
+cong TLD tại apex − 1 (mainnet 27 → 25 bit — KHÔNG phải apex tên
+miền); **mở một TLD riêng tư sẵn có** (`SetTldOpen`) là một bằng
+chứng phẳng KHÁC (`open_tld_pow_difficulty`: 6 bit testnet /
+26 bit mainnet / 2 bit devnet — tx chỉ mang `tld_id`, tên đã trả
+theo chiều dài của nó lúc tạo). Các đường cong sống trong
+`scone-core::pow_length` (hằng số `MAINNET_APEX = 28`,
+`MAINNET_FLOOR = 25`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
+`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); các tham số phẳng của
+`scone-core::network::NetworkParams` chỉ phục vụ các bằng chứng
+vẫn phẳng — mở một TLD sẵn có (`open_tld_pow_difficulty`,
+26 bit mainnet), chuyển nhượng (`transfer_pow_difficulty`, 16) và
+phép gán (`assign_pow_difficulty`, 16) — cộng hiển thị CLI. Các
+đỉnh phẳng đăng ký trước đây (`RegisterTld` 24 bit /
+`RegisterDomain` 20 bit, hiệu chuẩn thời BLAKE3 ~7,7 M H/s) là
+các giá trị lịch sử, trước đường cong. Đổi một giá trị = một
 thay đổi đồng thuận **cho mạng đó**. Bất biến: devnet là một
 `NetworkParams` thứ ba hoàn chỉnh và testnet giữ nguyên tuyệt
 đối các hằng số trước-devnet của nó (tham số Argon2id, đường
 cong, cửa sổ) — devnet không chia sẻ hằng số nào với các mạng
 khác ngoài chính mã nguồn.
-
-Hiệu chuẩn đo được của các đỉnh phẳng (2026-10, `cargo run
---release -p scone-core --example pow_bench` — thông lượng
-đơn luồng ~7,7 M H/s trên một x86-64 tham chiếu):
-
-| Loại (mainnet) | độ khó | thời gian thực trung bình |
-|---|---|---|
-| `RegisterTld` | 24 bit | ~7 s |
-| `RegisterDomain` | 20 bit | ~54 ms |
-
-Ở ~65 s/khối: một lời tuyên bố TLD tốn ~0,1 khối CPU đơn nhân,
-một tên miền ~1 ms khối — mang tính biểu tượng với người dùng,
-tốn kém để công nghiệp hóa ở quy mô lớn (chống chiếm dụng). Cần
-hiệu chuẩn lại nếu đối tượng phần cứng giảm (ARM di động: chậm
-hơn ~4–8×).
 
 Các nhánh trạng thái (M8b, đã bàn giao): `RegisterTld` LUÔN LUÔN
 yêu cầu PoW của nó; `RegisterDomain` yêu cầu nó trên một TLD
@@ -779,11 +831,11 @@ header móc vào băm cha (`prev_hash`), `version` =
 chữ ký) và timestamp do bên gọi cung cấp; trait `Consensus` hiện
 có được dùng đối xứng với xác thực.
 
-## Ví dụ hex (vectơ thật, tái lập được — M8b)
+## Ví dụ hex (vectơ minh họa — M8b)
 
 ### RegisterDomain `example.uip`, timestamp 42, testnet
 
-Payload ký (vectơ ghim; được sinh lịch sử bởi công cụ ngoại
+Payload ký (vectơ minh họa; được sinh lịch sử bởi công cụ ngoại
 tuyến đã gỡ — các giá trị vẫn là vectơ hợp lệ). `network` xuất
 hiện ở đây vì đây là PAYLOAD KÝ (nơi duy nhất của nó); giao
 dịch wire đã ký tự thân không chứa network:
@@ -798,13 +850,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`, timestamp 42
 
-Payload ký (vectơ ghim) — `TldId` là vectơ dẫn xuất được ghim
+Payload ký (vectơ minh họa) — `TldId` là vectơ dẫn xuất được ghim
 trong `/docs/en/general/naming.md`:
 
 ```text
@@ -822,7 +875,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 (Các giá trị đầy đủ từng tái lập được qua công cụ ngoại tuyến đã
-gỡ; các vectơ dưới vẫn được ghim và hợp lệ. PoW được đào tự động
+gỡ; các vectơ dưới vẫn là minh họa và hợp lệ. PoW được đào tự động
 ở độ khó mạng — nonce thay đổi theo mỗi lần chạy; chỉ
 network/name/id/owner/pk là ổn định. Kể từ thay đổi wire
 2026-09, hex của giao dịch đã ký KHÔNG CÒN chứa các byte

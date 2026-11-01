@@ -149,9 +149,9 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 `log₂(1.40) ≈ 0.480` 位元/字元 — 網域衰減
 較快：其價值在於承載它的 TLD。天生開放的 TLD
 位於私有頂點 − 1；網域位於私有頂點 − 2
-（主網：私有 TLD 25、開放 TLD 24、網域 23）。主網
+（主網：私有 TLD 28、開放 TLD 27、網域 26）。主網
 基準（記憶體困難 Argon2id，單執行緒約 11.4 H/s）：
-私有 TLD 1 字元 = 28 bits ≈ 30 天，9+ 字元 = 25-bit
+私有 TLD 1 字元 = 28 bits ≈ 30 天，10+ 字元 = 25-bit
 下限 ≈ 3.8 天；開放 TLD 1 字元 = 27 bits ≈ 15 天；
 網域 1 字元 = 26 bits ≈ 3.8 天，9+ 字元 = 22-bit
 下限 ≈ 11.5 小時。**8 核參考機**
@@ -159,7 +159,7 @@ domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the
 挖礦），約 11.4 H/s/核。**開放**既有
 私有 TLD（`SetTldOpen`）維持平難度
 （`open_tld_pow_difficulty`：testnet 6 bits／mainnet
-22 bits）：交易只攜帶 `tld_id`，名稱在建立時
+26 bits）：交易只攜帶 `tld_id`，名稱在建立時
 已為其長度付費。**另外兩種平式證明**補齊了
 這個家族（共識層級的反濫發、與註冊相同的
 epoch 鹽和窗口）：`transfer_pow_difficulty`
@@ -182,7 +182,7 @@ name` — 刻意為平：命名空間的排他性已在 TLD
 
 | 欄位 | 值 |
 |---|---|
-| `version` | `PROTOCOL_VERSION`（`1`） |
+| `version` | `PROTOCOL_VERSION`（`2`） |
 | `height` | `0` |
 | `prev_hash` | 32 個零位元組（無前一區塊） |
 | `tx_root` | 空清單的 Merkle 根 |
@@ -245,12 +245,15 @@ devnet（`scone-devnet`）是第三個網路，專為快速
 ## 正典狀態
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- enum (owner-option): the open/private invariant is
-               -- structural; the death deadline lives outside the entry
-               -- (tld_floors table + journaled death schedule)
+               -- structural; the term lives IN the entry, only the
+               -- derived death schedule (term + grace) lives outside
+               -- it (tld_deaths/tld_floors + journaled death schedule)
 ChainState   = NetworkParams                  (bound network, M8b)
                + DomainId -> DomainState      (direct access, in memory)
                + TldId -> TldState            (TLD registry, M7b)
@@ -273,6 +276,18 @@ ChainState   = NetworkParams                  (bound network, M8b)
 變更任何東西。完整衍生與理由：
 `transactions.md`（變更計數器）；安全性
 分析：`security-model.md`。
+
+`record_delegates`（KSK/ZSK-lite）：由擁有者管理的集合，
+至多 `MAX_RECORD_DELEGATES` = 3 把公鑰，獲准替本網域
+簽署 `UpdateDomain`、與擁有者並列（自身的操作永遠
+有效）。由 `SetRecordDelegates` 維護（0x66，
+僅限擁有者 — 受委者永遠不能編輯該集合，甚至不能
+加入或移除自己；如同每個受防護操作，以變更計數器
+做 CAS 綁定並提高它）；集合在 `TransferDomain` 時被
+清空（新擁有者的區域從沒有外部操作者金鑰開始），
+並隨網域一同消亡 — 無到期：名稱的生命週期界定了
+每一項授予。提交在網域葉中（`SCONE-LEAF-DOM-V4`，
+計數器之後的受委者字尾）。
 
 * `registered_at`／`valid_until`（M8b）：註冊到期，
   以**父區塊的時間戳**評估（決定性，
@@ -314,16 +329,22 @@ ChainState   = NetworkParams                  (bound network, M8b)
   執行 `pow::verify`，難度為該標籤的**依長度**
   難度（`pow_length`）：私有誕生 → `tld_difficulty`
   （網路頂點），開放誕生（`open = 0x01`）→
-  `open_tld_difficulty`（頂點 − 2）— 摘要
+  `open_tld_difficulty`（頂點 − 1）— 摘要
   從零重新計算
   （鹽 `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`、
   Argon2id 核心），自報的
   難度必須等於預期難度，且證明**宣告的 epoch**
-  必須等於套用區塊的 `height/POW_WINDOW`
-  （對預挖的 epoch 鹽 — 型別化拒絕
+  必須落在套用區塊的回溯有效窗口內：只要
+  `declared_epoch ≤ block_epoch < declared_epoch + W`
+  證明即有效，其中 `W = 1 << max(0, difficulty − 16)`
+  個 epoch（`POW_WINDOW_REF_BITS` = 16 — 難度 ≤ 16 時為
+  嚴格的單一 epoch 相等，每高出一個位元窗口加倍，
+  校準為涵蓋平均挖礦時間；僅回溯：證明永遠不能為
+  未來挖出 — 對預挖的 epoch 鹽 — 型別化拒絕
   `ProofEpochMismatch`，見 `transactions.md`）；
-- 套用時：`open = 0x01` → `{ Open }`（無主 — 自助、
-  PoS 席位釋放、死亡下限設於 `now + grace`）；
+- 套用時：`open = 0x01` → `{ Open { until } }`（無主 —
+  自助；該金鑰不授予 PoS 席位、也學不到任何事物；
+  死亡下限設於 `now + OPEN_TLD_FLOOR_SECS` — 1 年）；
   `open = 0x00` → `{ Private { owner } }` — **預設封閉**
   （僅限指派）；開放須透過 `SetTldOpen` 明示。
 
@@ -351,7 +372,11 @@ ChainState   = NetworkParams                  (bound network, M8b)
 **UPDATE（UpdateDomain）**：
 
 - 網域必須存在（未過期）；
-- `tx.owner` 必須是當前擁有者；
+- `tx.owner` 必須是網域的當前擁有者 — 而 SIGNER 可以
+  是擁有者或其記錄受委者之一（即使由受委者簽署，
+  `tx.owner` 仍是網域擁有者；否則
+  `RecordSignerUnauthorized` — 所有其他變體都保持
+  嚴格的擁有者↔金鑰衍生）；
 - `tx.sequence` 必須**恰好**是 `current_sequence + 1`
   （無間隙、無重播）；
 - 套用時：`sequence` 前進、`record_hash` 被替換。
@@ -361,7 +386,13 @@ ChainState   = NetworkParams                  (bound network, M8b)
 - TLD 必須存在且為**私有**（否則 `UnknownTld`／
   `TldIsOpen` — 開放 TLD 不屬於任何人）；
 - 簽署者必須是當前擁有者（否則 `NotTldOwner`）；
-- 套用時：`owner = new_owner`（受讓者的身分
+- **強制讓與 PoW**（反翻攪、平式）：挑戰狀態綁定於
+  命名空間**當前**的計數器綁定
+  （`tld_binding(tld_id, valid_until, mutations)`），證明以
+  平式 `transfer_pow_difficulty` 挖出（與註冊相同的
+  epoch 鹽）；
+- 套用時：`owner = new_owner` 且變更計數器提高
+  （+1）（受讓者的身分
   不透明；與可花費金鑰的綁定由後續
   交易完成）。沒有序號：第一筆被套用的轉移獲勝
   （鏈序）。
@@ -386,12 +417,13 @@ ChainState   = NetworkParams                  (bound network, M8b)
 - **開放 = 強制 PoW**：對挑戰
   `SCONE-TLD-OPEN-V1 || tld_id` 以網路的平
   `open_tld_pow_difficulty`（testnet 6 bits／
-  mainnet 22 bits）執行 `pow::verify`，
+  mainnet 26 bits）執行 `pow::verify`，
   含 epoch 鹽（證明存放於交易簽署的
   `open_proof` 欄位）；
 - 套用時：`TldState::Open` — **擁有者被抹除**
-  （不可逆、PoS 席位釋放），死亡下限設於
-  `now + grace`。
+  （不可逆；釋放席位的情況：前擁有者的 PoS
+  席位被釋放），死亡下限設於
+  `now + OPEN_TLD_FLOOR_SECS`（1 年）。
 
 **ASSIGN_DOMAIN（0xD4）**：
 
@@ -399,15 +431,26 @@ ChainState   = NetworkParams                  (bound network, M8b)
   （否則 `TldIsOpen`：開放 TLD 僅限自助），簽署者 =
   TLD 的擁有者（`NotTldOwner`）；
 - 網域必須空閒（與 REGISTER 相同的寬限規則）；
+- **強制 PoW**（反濫發、平式）：證明挖出挑戰
+  `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name`，難度為網路的
+  平 `assign_pow_difficulty`（16 bits mainnet／4 bits testnet／
+  1 bit devnet）— 與註冊相同的 epoch 鹽與窗口
+  （刻意為平：命名空間的排他性已在 TLD 建立時
+  付費、無按長度的重複課稅）；
 - 套用時：`{ owner: assignee, sequence: 0, record_hash:
   None, registered_at: now, valid_until: now + 1 year }`。
-  **無 PoW**：由命名空間的擁有者作保。
 
 **TRANSFER_DOMAIN（0xE2，M8c）**：
 
 - 網域必須存在（否則 `UnknownDomain`），簽署者 =
   當前擁有者（`NotOwner`）；
-- 套用時：`owner = new_owner`（PoS 席位在擁有者
+- **強制讓與 PoW**（反翻攪、平式）：挑戰狀態綁定於
+  命名空間**當前**的計數器綁定
+  （`domain_binding(domain_id, registered_at, mutations)`），證明
+  以平式 `transfer_pow_difficulty` 挖出（與註冊相同的
+  epoch 鹽）；
+- 套用時：`owner = new_owner` 且變更計數器提高
+  （+1）（PoS 席位在擁有者
   池中跟隨網域，與 `TransferTld` 對稱）。沒有
   序號：第一筆被套用的轉移獲勝（鏈序）。
 
@@ -420,8 +463,8 @@ ChainState   = NetworkParams                  (bound network, M8b)
     公鑰
     （`effective_operator(tld_owner) == renew.public_key` —
     委派永遠從 TLD 擁有者讀取，絕不
-    反向）。`proof` 欄位必須為空（非空
-    證明 = 拒絕）。
+    反向）。`proof` 欄位必須為空或恰好 20 個
+    零位元組（任何其他非空證明 = 拒絕）。
   - **開放 TLD**：**PoW** 授權 — 簽署者是
     當前網域擁有者（否則 `NotOwner`），證明
     挖出續期挑戰：與建立相同的難度
@@ -439,6 +482,39 @@ ChainState   = NetworkParams                  (bound network, M8b)
   延後其下開放 TLD 的死亡下限（交易為此
   攜帶正典名稱）。
 
+**Pow-to-owner 家族（D2）**：`RegisterTldPow`（0x2A）、
+`RenewTldPow`（0x57）、`RegisterDomainPow`（0x84）、
+`RenewDomainPow`（0xC3）**不攜帶簽署者與簽章** —
+挖出的證明就是全部授權（交易層僅做結構性
+驗證；略過簽章驗證）。每個挑戰都是
+`tag ‖ name ‖ beneficiary public key ‖ length ‖ network id`
+（`pow_challenge_to`）：證明只能被其網路上被指定的
+金鑰消費（無被竊證明重播、無跨網路重播），而
+受惠者（`pubkey_dest`）是參數、絕非簽署者。套用規則：
+
+- `RegisterTldPow`：映射 REGISTER_TLD（免費、非 ICANN
+  名稱；依誕生種類的依長度難度；`open` 旗標與
+  天生開放的生命下限）但記入 `pubkey_dest`；
+  受惠者的金鑰在首次出現時學得（私有誕生 —
+  PoS 利害關係人）；
+- `RenewTldPow`／`RenewDomainPow`：續期挑戰附加
+  當前的到期日（大端序 8 位元組）— 一個挖出的
+  證明支付一個任期（防重用）— 並被**鎖定**到鏈上
+  當前的擁有者：受惠者必須等於它（`NotTldOwner`／
+  `NotOwner`），續期永遠不能易手；固定任期，
+  與簽章路徑相同；
+- `RegisterDomainPow`／`RenewDomainPow`：**僅限開放
+  TLD**（私有 TLD 之下為 `TldClosed` — 私有命名空間中，
+  建立即指派，續期留在擁有者簽章路徑上）。
+
+**其他交易型別**：`Slash`（0x15 — 等價攻擊證據：
+違規者的金鑰終身離開資格池；套用時違規者必須在
+活躍池中、冪等、不扣押網域／TLD）、`Heartbeat`
+（0x71 — 每營運者的反重播：嚴格遞增的時間戳，
+每 epoch 每營運者一次心跳）、`SetTldOperator`（0xA9）／
+`SetDomainOperator`（0x5E — 營運者委派）。其完整的
+套用規則指定於 `/docs/en/technical/transactions.md`。
+
 **決定性 GC（M8b）**：套用區塊交易之前，
 鏈以**父區塊的時間戳**評估到期：任何
 `valid_until ≤ now` 的網域都自活躍狀態移除並
@@ -453,8 +529,12 @@ ChainState   = NetworkParams                  (bound network, M8b)
 
 - **私有 TLD**：聲明開啟 **3 年任期**
   （`TLD_TERM_SECS`）。續期（`RenewTld`、0x8F）支付
-  **與建立等量的 PoW** 並精確重置 3 年（套用時
-  重新衍生固定任期）。到期時開啟 **60 天寬限**
+  **與建立等量的 PoW**（挑戰 = `tld_challenge(name) ‖ current
+  expiry`，大端序 8 位元組 — 綁定於當前到期期限，
+  防重用：一個挖出的證明支付一個任期）並精確
+  重置 3 年（套用時重新衍生固定任期）；變更
+  計數器被保留。僅在 `now ≤ valid_until + 60 d` 時
+  允許續期（超過則 `TldExpiredFrozen`）。到期時開啟 **60 天寬限**
   （`TLD_GRACE_SECS`）：續期仍然可能，但**其他
   每項管理操作都凍結** — 尤其是 `AssignDomain`
   （型別化拒絕 `TldExpiredFrozen`）：過期的
@@ -533,6 +613,14 @@ canonical chain
 2. `height` == 尖端高度 + 1；
 3. `version` **恰好** == `PROTOCOL_VERSION`（任何其他
    版本 — 較低或較高 — 都被拒絕，不被重新解釋）；
+3bis. **鏈時間窗口**：父區塊的時間戳是鏈唯一的
+   時間來源（到期 GC、`valid_until` 期限）— 區塊必須
+   滿足 `parent_time ≤ timestamp ≤ parent_time +
+   MAX_TIMESTAMP_DRIFT_SECS`（10 年；型別化錯誤
+   `InvalidTimestamp`）。高度 1（鏈時間原點）照樣
+   承諾自己的時間戳，但必須在 `u64::MAX` 之下留下
+   相同的餘裕，因此任何單一區塊都無法開啟覆蓋
+   整個時間空間的 GC 窗口；
 4. 交易數 ≤ `MAX_TXS_PER_BLOCK`（4096）；
 5. 對區塊順序中的交易重新計算 `tx_root`；
 6. 共識掛鉤（`validate_header`、`validate_tx`）；
@@ -552,11 +640,17 @@ canonical chain
    （`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`，有界）；
    簽章涵蓋*生產者簽章雜湊* = 標頭的 `BlockHash`
    **且 `consensus` 欄位清空**（酬載住在該
-   欄位；簽完整雜湊會循環）；生產者必須
-   屬於區塊 `timestamp` 時獲授權的集合（由
-   檢查點選出的委員會，加上解鎖的復原抽籤；
-   引導：活躍網域的擁有者們 — 空池 = 開放
-   生產，否則第一次註冊將不可能）。創世
+   欄位；簽完整雜湊會循環）；在最終化體制下，
+   生產者必須屬於**整個凍結池**（最後一個已最終化
+   檢查點當下的合格擁有者 — 選出的委員會加上
+   復原抽籤只是檢查點的**簽署**集合，絕非生產
+   過濾器）；在第一次最終性之前且低於
+   `BOOTSTRAP_OPEN_MAX_HEIGHT`（1000）時，成員檢查被
+   **跳過** — 任何有效的生產者簽章都能生產（引導
+   委員會尚未是共識事實：兩個同尖端的視圖會算出
+   不同的集合並凍結鏈）；超過該窗口仍無最終性時，
+   驗證對本機池嚴格。
+   創世
    （高度 0、空酬載）是結構性的、永不受此
    約束。型別化錯誤 `InvalidProducer`；
 7. 對每筆交易依序：**密碼學**驗證
@@ -615,9 +709,11 @@ BlockBuilder::after(parent_height, prev_hash)
   獲勝；完全平手 → 決定性平手決勝（字典序
   中最小的尖端雜湊 — 持有相同區塊的兩個
   節點總是選出相同贏家，已測試）；
-- **最終性下限**：某祖先與已最終化檢查點
-  （收錄於某已接受檢查點的 `prev_checkpoint_hash`）
-  矛盾的分支被拒（型別化錯誤
+- **最終性下限**：分支被拒，除非它在**精確**
+  高度上包含每個**被保留**已最終化檢查點的區塊
+  （保留窗口為最後 `CHECKPOINT_KEEP` = 64 個
+  檢查點；更舊的退出該檢查 — 它們的區塊可能已
+  離開 RAM 視窗）（型別化錯誤
   `Consensus("branch contradicts a finalized checkpoint")`）；
 - 採納 = 從創世重播獲勝分支的區塊
   （逐位元決定性已測：兩個以不同順序收到
@@ -676,21 +772,27 @@ RAM。四個部件：
 ### KV 後端（`state_backend.rs`）
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
 - `Pkey` = `DomainId`／`TldId` 的 32 個原始位元組 — 單一
   有序金鑰空間（互異衍生前綴），值 =
-  `SCONE-ENTRY-DOM-V1`（88 固定位元組）／
-  `SCONE-ENTRY-TLD-V1`（可變：私有 33 位元組／
-  開放 1 位元組、owner-option 枚舉 — 旗標 + 條件
-  擁有者，不再有 `until` 欄位）編碼；
+  `SCONE-ENTRY-DOM-V1`（96 位元組基底：owner 32 ‖
+  sequence 8 ‖ record_hash 32 ‖ registered_at 8 ‖
+  valid_until 8 ‖ mutations 8，加上可選的記錄受委者
+  字尾 — 數量 1 位元組 + n×32 位元組金鑰，嚴格遞增，
+  n ≤ 3）／
+  `SCONE-ENTRY-TLD-V1`（私有 49 位元組：旗標 ‖ owner ‖
+  valid_until BE ‖ mutations BE／開放 9 位元組：旗標 ‖
+  until BE — owner-option 枚舉）編碼；
 - `MemoryBackend`（BTreeMap）= 參考實作（開發、
   測試）；`scone-blockchain` 中沒有具體相依
   （crate 內禁止 redb）— 協定／共識僅相依於
@@ -819,7 +921,9 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 - `pool` = `eligible_validators(已最終化區塊的時間戳)`
   — 之後最終性絕不重讀活躍狀態：檢查點後的
   任何註冊（聲明、轉移、禁權）只對
-  之後的 epoch 有效；
+  之後的 epoch 有效；在尖端**之後**才被接受的
+  檢查點，透過到檢查點自身高度的沙箱重播凍結其
+  池（`pool_at_height`）；
 - `seed` = `next_seed(signing_hash(checkpoint))` — 下個
   epoch 的種子由檢查點的**內容**雜湊衍生
   （帶鍵、簽章集合除外 — 對同一檢查點持有
@@ -924,7 +1028,9 @@ PoW（`RegisterTld` 恆為、開放 TLD 上的
   區塊／交易／檢查點 — 中繼規則 H2（切斷
   迴圈）。停等（孤兒）區塊絕不
   重播；接收缺口由同步路徑（`GetBlocks`）
-  填補，與中繼站相同。
+  填補 — 與中繼站相同，中繼站現在還會**額外**在
+  區塊因 `UnknownParent` 停泊時觸發即時回溯
+  拉取；sim 沒有這種孤兒觸發的拉取。
 - **生產**：每區間一次全域生產步；每個
   分區群每輪至多產出一個區塊，由持有
   最佳高度的獲授權節點產出。引導期間
@@ -958,7 +1064,7 @@ PoW（`RegisterTld` 恆為、開放 TLD 上的
 
 | 測試 | 證明什麼 |
 |---|---|
-| `convergence_simple` | 8 節點、5 ‰ 遺失、延遲 1–5 ticks、500 區塊：處處相同尖端、相同 `state_root_smt`；活躍最終性；每 epoch 絕無兩個不相容的檢查點。 |
+| `convergence_simple` | 8 節點、5 % 遺失、延遲 1–5 ticks、500 區塊：處處相同尖端、相同 `state_root_smt`；活躍最終性；每 epoch 絕無兩個不相容的檢查點。 |
 | `partition_then_heal` | 4a/4b 分區約 300 區塊：兩側皆產出，癒合 → 隨輸分支的 reorg 收斂；交叉的檢查點窗口絕不與共享 epoch 矛盾（癒合前後皆然）。 |
 | `crash_restart` | h≈200 當機、h≈400 重啟：透過重播網路區塊重新同步 — 相同高度、尖端、狀態；當機後交易對復活的節點可見。 |
 | `duplicate_and_delay` | 10 ‰ 重複：最終高度、狀態根與已最終化檢查點數與無重複的執行相同（冪等：TxReplay／seen 集合吸收重複）。 |
@@ -972,7 +1078,8 @@ PoW（`RegisterTld` 恆為、開放 TLD 上的
 測試內嵌 debug 模式下 < 60 秒的壁鐘防護
 （`assert_under_60s`）。主導成本是驗證核心
 （debug 下每個空的 `push_block_with_gc` 約 9 ms、
-Ed25519 未最佳化）：情境維持在約 8 節點 ×
+Ed25519 未最佳化，於 8 核參考機上）：情境維持在
+約 8 節點 ×
 500 區塊以下。
 
 ### 限制

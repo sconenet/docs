@@ -17,7 +17,7 @@ CLI 直接查询的 **p2p 协议**（`/scone/reqres/1`）
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -63,8 +63,6 @@ swarm 层面的硬性限制（libp2p `connection_limits`
 
 1. **显式种子**（`--bootstrap`、完整 multiaddr）——
    总是优先；提供非空列表**取代**其他一切。
-   `--no-builtin-seeds` 清空内嵌种子以实现 100% 私有
-   部署。
 2. **内嵌种子**（`scone-network/src/config.rs` 中的
    `builtin_seeds(network)`）—— 在每次官方二进制
    发布时冻结、按网络。未配置的中继独自加入
@@ -97,8 +95,8 @@ UPnP 保持**默认禁用**（`config.rs` 中
 路由器对话。**mDNS 发现已被移除**
 （remove-mdns-discovery、2026-10-22）：对等连接
 仅来自显式 bootstrap、内建种子与 Kademlia ——
-旧版 `--mdns`/`SCONE_MDNS` 标志仍被接受但无
-效果（脚本兼容、与 `--rpc` 同样处理）。
+旧版 `--mdns`/`SCONE_MDNS` 标志已被**移除**：如今
+传入它们是一个 clap 错误（不存在这样的参数）。
 
 ### 本地拓扑优化（常开）
 
@@ -179,12 +177,13 @@ scone relay --topology-profile tiny
 （`only_global_ips = false`）：局域网网格测试其
 局域网可达性。
 
-可达的中继启用 circuit-relay v2 **hop**（它可以为
-NAT 后的对等节点中继流量）与 **DCUtR**（打洞：
-经 circuit 连接的两个节点尝试直连并释放
-中继）。被判定在 NAT 后的中继自动向第一个已知
-可达对等节点请求保留并经其监听（地址
-`/p2p/<relay>/p2p-circuit`）。
+每个中继都**无条件地**运行 circuit-relay v2 **hop**
+（它可以为 NAT 后的对等节点中继流量）与
+**DCUtR**（打洞：经 circuit 连接的两个节点尝试
+直连并释放中继）；只有 NAT 一侧的保留请求受
+判定控制：被判定在 NAT 后的中继自动向第一个
+**已连接**的可达对等节点请求保留并经其监听
+（地址 `/p2p/<relay>/p2p-circuit`）。
 
 生产规则：经中继的 NAT 后节点不应成为区块
 生产者（延迟/可用性劣化）—— PoS 规则（席位 =
@@ -244,8 +243,9 @@ NAT 后的对等节点中继流量）与 **DCUtR**（打洞：
    显式 `--bootstrap`（必须以 `/p2p/<peer-id>`
    结尾）否则网络的内嵌种子否则习得目录
    （`peers.json`）；
-5. 拨号每个 multiaddr 并注册到 Kademlia 表
-   （死拨号被忽略 —— 其余节点组成网络）。
+5. 把每个种子的 multiaddr 同时注册到 swarm **以及**
+   Kademlia 表（拨号本身由 Kademlia 的自动
+   bootstrap 完成；死的对等节点只是永远无响应）。
 
 ### 接收交易（P2P 或 CLI 提交）
 
@@ -273,7 +273,14 @@ NAT 后的对等节点中继流量）与 **DCUtR**（打洞：
    TLD + 所有者、固定期限重推导、宽限窗口
    预检；`RenewDomain` → 已知域名 + 所有者、
    下一高度处（绑定当前到期时间的）续期 PoW
-   预检；
+   预检；`TransferDomain` → 已知域名 + 所有者；
+   `SetRecordDelegates`、`SetTldOperator`、
+   `SetDomainOperator` → 所有者 + CAS
+   `state_binding` = 当前世代；pow-to-owner 家族
+   （`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`）→ 名称/证明形状预检（无签名者、
+   无签名）；`Slash`/`Heartbeat` → 直通（push 时
+   完整验证）；
 4. 内存池插入（固定容量、按 `TxId` 去重 ——
    重新提交池中已有的交易是无操作）；
 5. 向对等节点广播（发送方除外）。
@@ -374,6 +381,10 @@ clap 总是覆盖它）：
 - **终局性追赶**：基座为空的中继（全新节点的
   启动）每个 tick 向对等节点请求
   `GetCheckpoints`、直到基座恢复；
+- **服务证明心跳**：在每个纪元边界，中继经
+  正常的内存池路径自动发出自己的 `Heartbeat`
+  交易（锚密钥签名、每纪元至多一次、仅当身份
+  持有存活席位时）；
 - 无锚密钥的中继保持**被动**：它累积、
   终局化、中继、但绝不签名；
 - `GetCheckpoints` → 提供 `checkpoint_window()`
@@ -388,9 +399,11 @@ clap 总是覆盖它）：
 区块（`ParentNotTip`/`UnknownParent`）绝不被
 丢弃：它被**停泊**（有界 map、
 `PARKED_CAP = 2048` 个区块、每个约 KiB —— 有界
-的最坏情况 RAM；满载的停泊区静默忽略新来
-者）。已被提供给 `accept_block` 的哈希被去重
-（`seen_blocks`）：被重新 gossip 的输掉区块不被
+的最坏情况 RAM；满载的停泊区**驱逐**
+最低的 `(height, hash)` 条目并插入新块 —— 绝不
+忽略新来者）。已被提供给 `accept_block` 的哈希被去重
+（`seen_blocks` —— 32,000 条的有界 FIFO）：被重新
+gossip 的输掉区块不被
 重新评估。
 
 在每个 `Produce` tick、`reconsider_parked`：
@@ -405,6 +418,14 @@ clap 总是覆盖它）：
 一次被提供然后被拒绝的获胜区块被周期性重新
 评估、而不是被永远遗忘（chaos-30 发现：相隔
 15 ms 的两个姊妹区块）。
+
+**深分叉停滞检测器**：节点被阻塞（停泊区非空
+或分支采纳命中 `BlockPruned` 修剪窗口错误）时
+连续 40 个生产 tick 无规范进展会触发
+`recover_deep_fork`：RAM 链与停泊区被重置、链从
+存储重新启动、中继从对等节点重新同步 —— 分区长于
+RAM 窗口时诚实的最后手段（被记录、自恢复；没有
+它，停滞的节点会保持分裂状态直到手动重启）。
 
 **重组持久化**：采纳另一分支无法通过单调追加
 （`NonMonotonicHeight`）。中继应用
@@ -421,8 +442,22 @@ clap 总是覆盖它）：
 期望高度的收到 `Block` 触发对下一高度的请求、
 直到耗尽（`Pong` = 没有更多）或 `MAX_SYNC_ROUNDS`
 （10,000）批次 —— 即使面对撒谎对等节点的绝对
-上界。收到的区块走完整验证：恶意对等节点无法
+上界。**孤儿触发的向后拉取**：一个因
+`UnknownParent` 停泊的收到区块（其父区块在本地
+未知 —— 例如我们断连期间长出的分叉）会向**同一**
+对等节点触发立即的
+`GetBlocks(start_height = block.height − 1)`；缺失的
+分叉段具象化、停泊的区块在之后的某次
+`reconsider_parked` 清空中接上。有界：每个孤儿一次
+拉取、重新提供时经 `seen_blocks` 去重。收到的区块走完整验证：恶意对等节点无法
 让任何无效的东西被接受。
+
+每个生产 tick 还运行周期性复检
+（`recheck_sync`）：每个已追赶上的已连接对等节点
+获得一次有界的 `GetBlocks(本地高度 + 1)`（每对等
+节点每 tick 一次请求；没有新东西时回复是立即的
+`Pong`）。这正是治愈被分区岛屿的机制：一个已完成
+追赶的对等节点仍然会得知之后生产的区块。
 
 ### 记录 DHT
 
@@ -444,6 +479,17 @@ clap 总是覆盖它）：
   需新的 DHT 查询即可服务。
 - Kademlia 以服务器模式运行、无记录 TTL（链
   而非时间主宰有效性）。
+- 记录 gossip 管道（有界、防风暴）：
+  (a) 每个生产 tick 向已连接对等节点 gossip 本地
+  持久缓存的一**页**（256 条记录、跨 tick 的游标
+  行走 —— 每 tick 有界 RAM、无论缓存大小都能在
+  多个 tick 内完整覆盖）；
+  (b) 收到的 `Record` 消息只有在其**新于**或**不同于**
+  本地缓存时才被重新 gossip 给其他对等节点（否则
+  每个接收者都会永远转发下去）；
+  (c) 发布拒绝带有多于 **12 个不同 NS 域名服务器**
+  的记录（`MAX_NS_PER_DOMAIN`、所有形式 —— 主机名、
+  v4、v6）。
 
 ### 记录验证（"链是权威"规则）
 
@@ -485,15 +531,18 @@ Ed25519 签名由中继**在收到时验证**
 `p2p:`）：监听一建立就输出一条
 `metrics: <addr>` 行。
 
-**19 个计数器**（`counter`、单调 —— 热路径：
+**27 个计数器序列**（`counter`、单调 —— 热路径：
 共享 `Arc<Metrics>` 上的 `fetch_add(Relaxed)`、
-绝不是共识输入）：
+绝不是共识输入），外加两个带标签的 geo 序列
+（在普通计数器之前渲染、每个标签一行 —— 相同
+名称、不同的标签集；仅在非空时发出）：
 
 | 组 | 序列 |
 |---|---|
 | 链 | `scone_blocks_applied_total`、`scone_blocks_rejected_total`、`scone_checkpoints_signed_total`、`scone_checkpoint_sigs_received_total` |
-| 内存池 | `scone_txs_admitted_total`、`scone_txs_rejected_total`、`scone_txs_evicted_grace_total`、`scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`、`scone_dns_cache_hits_total`、`scone_dns_cache_misses_total`、`scone_dns_local_chain_total`、`scone_dns_dht_answers_total`、`scone_dns_rejected_unverified_total` |
+| 内存池 | `scone_txs_admitted_total`、`scone_txs_duplicate_total`、`scone_txs_rejected_total`、`scone_txs_evicted_grace_total`、`scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`、`scone_dns_cache_hits_total`、`scone_dns_cache_misses_total`、`scone_dns_local_chain_total`、`scone_dns_dht_answers_total`、`scone_dns_rejected_unverified_total`、`scone_dns_geo_answers_total` |
+| Geo（带标签） | `scone_dns_geo_by_continent_total{continent}`（UN M49 码）、`scone_dns_geo_by_country_total{country}`（ISO 3166-1 码） |
 | DHT | `scone_dht_pulls_issued_total`、`scone_dht_negative_hits_total`、`scone_dht_negative_expired_total`、`scone_dht_negative_capped_total`、`scone_dht_cache_evictions_total` |
 | 对等网络 | `scone_peer_connections_established_total`、`scone_peer_connections_closed_total`、`scone_peer_connections_incoming_total`、`scone_peer_dial_failures_total`、`scone_peer_blocks_received_total`、`scone_peer_transactions_received_total` |
 
@@ -538,7 +587,7 @@ JSON TCP RPC 服务器已被**移除**：CLI（以及注册商
   消息到达客户端、而非 EOF）。
 
 客户端拉起一个最小的 libp2p swarm
-（request-response + identify）、30 s 调用超时
+（仅 request-response —— 无 identify）、30 s 调用超时
 （20 s 往返）。默认 `--peer`：
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…`
 （本地开发节点；带真实 peer id 的完整
@@ -574,10 +623,14 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 每条控制命令直接对中继的 multiaddr 说 QUIC
 （`--peer`、默认本地节点 —— RPC→p2p 统一、不再有
-JSON TCP 通道）。中继缺席 → 清晰消息
-"p2p node unreachable — is a relay running?"、非零
-退出。`--rpc` 标志保留但**过时且被忽略**（RPC
-服务器已移除；仅为脚本兼容）。
+JSON TCP 通道）。中继缺席 → 非零退出并给出可读
+消息：给出 `--peer`/`SCONE_PEER` 时为
+"p2p node unreachable — is a relay running? (...)"；
+本地中继默认下为
+"no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+（或设置 `SCONE_PEER`）"。旧版 `--rpc` 标志已被**移除**：
+如今传入它是一个 clap 错误（不存在这样的参数）。
 
 ### 环境配置（`.env`）
 
@@ -600,16 +653,12 @@ explicit CLI flag  >  .env variable  >  built-in default
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet`（默认）、`mainnet`、`devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | 数据目录（默认 `~/.scone/<network>/`） |
-| `SCONE_LISTEN` | `--listen` | P2P 监听 multiaddr（默认：所有接口、临时端口） |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap 种子、**可重复**（每值一行 —— dotenvy 累积）；取代内建种子 |
+| `SCONE_LISTEN` | `--listen` | P2P 监听 multiaddr（默认：`/ip4/0.0.0.0/udp/4001/quic-v1`） |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap 种子 —— 多个时**重复 CLI 标志**（`--bootstrap A --bootstrap B`）；在 `.env` 中每变量一个值（dotenvy 保留**首次出现**、不累积）；取代内建种子 |
 | `SCONE_GENESIS` | `--genesis` | 创世文件（创始人节点） |
-| `SCONE_MDNS` | `--mdns` | （已废弃 —— mDNS 发现已移除；被接受、被忽略） |
 | `SCONE_UPNP` | `--upnp` | UPnP 端口映射（`true` = 启用） |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS 服务器绑定地址 |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 递归回退、**可重复** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS 缓存条目上限 |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS 缓存内存上限（如 `64MB`） |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | 并发 DNS 查询上限 |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 递归回退 —— 多个时**重复 CLI 标志**（`--dns-upstream A --dns-upstream B`）；`.env` 中每变量一个值 |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | 指标端点 bearer 令牌 |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | 拓扑 profile（`tiny`/`small`/`default`/`high`/`very-high`/`devtest`；默认 `default`） |
@@ -752,7 +801,7 @@ TXT free text (spaces normalized)
 |---|---|
 | P2P 帧 | 解析前 `MAX_MESSAGE_LEN`（1 MiB） |
 | 内存池 | 4096 tx（超出类型化拒绝）；每域名 `MAX_PENDING_PER_DOMAIN = 4` 笔待定 tx |
-| 内存池宽限 | `MAX_GRACE_ATTEMPTS = 10` 次因非终局原因被冲刷的 tx 重新插入（按 40 s/周期约 7 分钟）、然后驱逐 |
+| 内存池宽限 | `MAX_GRACE_ATTEMPTS = 10` 次因非终局原因被冲刷的 tx 重新插入（按默认 2 s 生产 tick 约 20 s）、然后驱逐 |
 | 分叉停泊 | `PARKED_CAP = 2048` 个竞争区块 |
 | 累积检查点 | `MAX_PENDING_CHECKPOINTS = 256`（驱逐：最小数据哈希） |
 | 同时 DHT 等待者 | `MAX_DHT_WAITERS`（256）；DHT 查找 30 秒有界（`DHT_LOOKUP_TIMEOUT`） |
@@ -760,6 +809,11 @@ TXT free text (spaces normalized)
 | DHT 记录 | `MAX_DHT_CACHE_ENTRY`（64 KiB） |
 | 持久 DHT 缓存（磁盘） | 双重 LRU 边界：`DHT_CACHE_MAX_ENTRIES`（100,000 条）与 `DHT_CACHE_MAX_BYTES`（2 GiB）—— 先到者按键序驱逐；GC 驱逐在与区块相同的事务中（被链 GC 杀死的域名绝不留下孤儿条目） |
 | DHT 负缓存 | `DHT_NEGATIVE_TTL_SECS`（30 s）、FIFO 上限 `DHT_NEGATIVE_CAP`（4,096） |
+| req-res 请求超时 | 每请求 10 s、64 条并发流（中继侧） |
+| Kademlia 查询超时 | 10 s |
+| 空闲连接超时 | 300 s |
+| 指标端点 | 64 次并发抓取；头部读取 5 s 截止 |
+| 地址簿（RAM） | 在持久上限的 2 倍处设插入防护（持久上限：2,000 条） |
 | RAM 中的链 | 创世 + tip 窗口（历史由存储提供） |
 
 防循环规则（H2）：交易只有在其被**实际插入**

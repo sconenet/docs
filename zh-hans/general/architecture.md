@@ -70,16 +70,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### 决策：`scone-core` 依赖 `scone-crypto`
@@ -92,6 +94,8 @@ scone           ← binary / application
   （外加用于密钥生成的操作系统 RNG），零核心类型，
   无网络/文件系统/异步依赖 → 不可能出现循环依赖；
 - `scone-core` 仅将其用于哈希；
+- `scone-core` 还直接依赖 `argon2`（注册 PoW）和
+  `idna`（国际化名称）—— 纯粹的依赖，分层原则得到尊重；
 - Ed25519 签名和密钥位于 `scone-crypto` 中，
   作用于字节（由 `scone-protocol` 产生的规范载荷）。
 
@@ -105,8 +109,7 @@ tokio/异步、网络、文件、操作系统、DNS 服务器、区块链逻辑�
 
 **scone-crypto** —— 密码学原语。当前包括：`hash256`
 （BLAKE3）、Ed25519 签名与密钥（`SigningKey`、
-`PublicKey`、`Signature`、严格批量验证）、
-记录组的 AEAD 信封（XChaCha20-Poly1305）。计划中：Merkle 树。
+`PublicKey`、`Signature`、严格批量验证）。计划中：Merkle 树。
 规则：不使用自造算法，只使用经过审计的依赖。
 
 **scone-protocol** —— 协议的二进制格式：交易、DNS 记录、
@@ -143,7 +146,7 @@ KV 状态后端、区块日志、经校验的快照
 （GeoDNS 常开 —— 内嵌 GeoIP 表、递归回退）、锚节点的
 检查点/心跳循环（CLI 通过直接的 p2p QUIC 与
 中继通信，不再有本地 RPC）。可达性与发现：AutoNAT
-v2（可达/处于 NAT 后的判定）、面向 NAT 后节点的
+v1（可达/处于 NAT 后的判定）、面向 NAT 后节点的
 circuit-relay v2 + DCUtR 和 UPnP（由路由器做 QUIC
 端口映射，可选启用）。通过 `.env` 文件进行配置（见 `.env.example`）。
 参考：`/docs/en/technical/relay.md`。
@@ -202,11 +205,13 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-两类节点画像：
+节点画像（规划中 —— 目前不存在这样的运营者标志：当前每个
+节点都保留所有区块，前述可选启用的快照导入是唯一的
+保留控制手段）：
 
-- **归档节点**（运营者标志）：保留所有历史区块、
+- **归档节点**（规划中）：保留所有历史区块、
   向网络提供这些区块、通过现有路径启动；
-- **全状态节点**：持有 H 时刻的完整状态及其后缀，
+- **全状态节点**（规划中）：持有 H 时刻的完整状态及其后缀，
   但不保留 H 以下的历史 —— 它验证未来的区块并
   提供状态，不提供历史。
 

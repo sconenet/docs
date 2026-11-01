@@ -49,7 +49,7 @@ Heartbeat {
 Подписанное тело (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (ключ подписанта стоит в хвосте
-тела, как у каждой tx) `‖ signature[64]`, то есть ~230 байт
+тела, как у каждой tx) `‖ signature[64]`, то есть ~200–215 байт
 в кодировке — **без PoW**: цена — непрерывное присутствие (один
 пульс за эпоху, месяцами).
 
@@ -319,5 +319,5 @@ CLI-конструктор §8 (ручная или air-gapped работа). П
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, валидация | готово |
 | 2 | blockchain | скользящее окно (журналируемое), фильтрованный пул, избрание, ~15 тестов | готово |
 | 3 | network | автоматический выпуск, реле tx | готово |
-| 4 | CLI | `tx build heartbeat`, отображение `fresh operators` в `scone status` | готово |
+| 4 | CLI | автоматическая эмиссия реле (§7); отображение `fresh operators` в `scone status`; офлайн-билдер удалён (cli-simplify-v1) | готово |
 | 5 | docs | этот RFC консолидирован в нормативной форме, зеркало fr/en | готово |

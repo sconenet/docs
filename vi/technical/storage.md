@@ -35,10 +35,21 @@ M4 tương lai):
   `COUNT(*)`;
 - `iterate_domains(after, max) -> DomainPage` — phân trang theo
   con trỏ (lô 100 mặc định), thứ tự byte tăng của `DomainId`;
+  con trỏ `None` nghĩa là bước đi hoàn tất (kiệt sức bảng tự
+  nhiên);
 - `put_tld_state` / `tld_state` / `tld_count` / `iterate_tlds` —
   cùng hợp đồng cho registry TLD (`tld_count` được duy trì,
   con trỏ bị chặn) (M7d);
+- `put_states(...)` — ghi lại nguyên tử các bảng trạng thái
+  sống: upsert VÀ xóa tên miền/TLD + các bộ đếm được duy trì,
+  trong MỘT giao dịch (bên gọi duy nhất: lưu bền vững reorg);
+- `put_owner_keys` / `clear_owner_keys` / `iterate_owner_keys` —
+  bản đồ chủ→khóa được học (phân giải tập PoS), được lưu trong
+  bảng `owner_keys`;
 - `put_dht_cache` / `dht_cache` — byte `SignedDnsRecord` mờ;
+- `dht_cache_page(after, max)` — bước đi phân trang của cache
+  DHT theo thứ tự `DomainId` tăng (con trỏ `None` = bước đi
+  hoàn tất);
 - `resolve_name(canonical)` / `resolve_tld(tld)` — chỉ mục
   Name→Id bền vững (P0.2), tra cứu điểm O(1), không lặp qua tên
   miền (mặc định `None` = backend không chỉ mục, bên gọi quay về
@@ -74,6 +85,7 @@ Quy tắc:
 | `domains` | `DomainId` (32 B, thứ tự byte) | `DomainStateBytes` (dưới) |
 | `tlds` | `TldId` (32 B, thứ tự byte) | `TldStateBytes` (dưới, M7d) |
 | `dht_cache` | `DomainId` (32 B) | byte `SignedDnsRecord` (mờ) |
+| `owner_keys` (tập PoS) | id chủ (32 B, thứ tự byte) | khóa công khai Ed25519 (32 B) — bản đồ chủ→khóa được học, được soi gương sau mỗi khối |
 | `names_v3` (P0.2) | khóa chỉ mục (32 B, thứ tự byte) | id đích (32 B) |
 | `name_reverse_v3` (P0.2) | id đích (32 B, thứ tự byte) | `tag(1) ‖ canonical name` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -98,6 +110,7 @@ Các khóa `meta`:
 | `tip_height` | `u64 BE` (làm `tip()` O(1)) |
 | `domain_count` | `u64 BE` (bộ đếm được duy trì) |
 | `tld_count` | `u64 BE` (bộ đếm được duy trì, M7d) |
+| `finality_v1` (PoS) | blob: `varint(window.len) ‖ các checkpoint cửa sổ ‖ checkpoint nền ‖ varint(pool.len) ‖ các khóa tập (32 B mỗi cái, sắp, khử trùng lặp) ‖ seed(32) ‖ block_ts(8 BE)` — tính cuối được lưu bền (cửa sổ checkpoint + nền đóng băng), được ghi bởi vòng anchor của relay, được khôi phục trong mọi `load_chain` (ghép cửa-sổ↔nền + các kiểm tra đường cong lúc nạp); vắng trong các kho trước 2026-10-21 (tính cuối dựng lại từ đầu); không nằm trong danh sách dành riêng của `meta_set` (chỉ được ghi bởi đường lưu của chính nút) |
 
 Header `hash ‖ height` của `blocks_by_height` làm mỗi chỉ mục
 tự chứa (kiểm chứng được mà không đọc khối); cả hai chỉ mục được
@@ -113,16 +126,27 @@ genesis luôn được dẫn xuất lại
 
 ## Định dạng mã hóa `DomainStateBytes` (M8b)
 
-65 hay 97 byte tùy thẻ phiên bản dẫn đầu, số nguyên big-endian
+Một nền 97 hay 65 byte cộng một hậu tố record-delegate tùy chọn
+(65 đến 194 byte tổng thể), số nguyên big-endian
 độ-cố-định (chuẩn, so sánh được byte-cho-byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash present → exactly 97 bytes
-tag = 0x02 : record_hash absent  → exactly 65 bytes
+tag = 0x01 : record_hash present → base 97 bytes
+tag = 0x02 : record_hash absent  → base 65 bytes
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); the keys are
+                 strictly ascending (the canonical `BTreeSet`
+                 order). An empty set omits the suffix entirely —
+                 the base is then byte-identical to the
+                 pre-delegation format.
 ```
+
+Bao chiều dài là 65..=194 byte (nền 97 byte + byte count +
+3 × khóa 32 byte = 194 tối đa).
 
 `mutations` là bộ đếm biến đổi monotonic của namespace (thế hệ
 chống phát lại CAS — xem `transactions.md`, Bộ đếm biến đổi). Các
@@ -142,10 +166,15 @@ lại: `load_chain_replay`.)
 - `sequence`: sequence `UpdateDomain` áp dụng cuối (0 ngay sau
   một `RegisterDomain`);
 - `record_hash`: cam kết on-chain hiện tại của bộ bản ghi DNS
-  (`None` chừng nào chưa có `UpdateDomain` nào được áp dụng).
+  (`None` chừng nào chưa có `UpdateDomain` nào được áp dụng);
+- `record_delegates`: các khóa ủy nhiệm do chủ quản lý được phép
+  ký `UpdateDomain` (tối đa 3; quy tắc áp dụng trong
+  `transactions.md`).
 
 Giải mã **nghiêm ngặt** (`DomainStateBytes::decode`): thẻ lạ,
-sai chiều dài, hay byte thừa → `StorageError::Corrupted`, không
+sai chiều dài, byte thừa, một số ủy nhiệm trên 3, các khóa ủy
+nhiệm không tăng nghiêm ngặt, hay một khóa ủy nhiệm không phải
+một điểm đường cong Ed25519 → `StorageError::Corrupted`, không
 bao giờ panic.
 
 ## Định dạng mã hóa `TldStateBytes` (tùy chọn chủ)
@@ -184,7 +213,8 @@ tái tạo qua phát lại là đường di trú).
 Thẻ chỉ tồn tại cho sự tiến hóa định dạng: một bố cục tương lai
 nâng thẻ và các trình đọc cũ thất bại với `Corrupted` thay vì
 đoán. Giải mã **nghiêm ngặt** (`TldStateBytes::decode`): thẻ
-lạ, sai chiều dài, byte thừa, hay cờ không chuẩn →
+lạ, sai chiều dài, byte thừa, một cờ không chuẩn, hay một mục
+mở có `until` bằng 0 (chữ-ký-hỏng của bộ mã hóa cũ) →
 `StorageError::Corrupted`, không bao giờ panic.
 
 ## Bảo đảm nguyên tử
@@ -209,10 +239,13 @@ redb duy nhất:
    (`removed_tlds`) rời kho trong cùng giao dịch, bộ đếm giảm —
    một lần khởi động lại không bao giờ hồi sinh một đăng ký hết
    hạn;
-8. các delta **chỉ mục tên** của P0.2 (upsert và gỡ, xem dưới)
+8. mọi upsert sàn đời sống TLD **và** các sàn của các TLD bị gỡ
+   (`tld_floors_v1`, được mang bởi `StateDelta.tld_floors`) —
+   lịch chết của GC sống sót qua lần khởi động lại;
+9. các delta **chỉ mục tên** của P0.2 (upsert và gỡ, xem dưới)
    — cùng bảo đảm: một crash không bao giờ để lại một mục chỉ
    mục trỏ tới một tên miền thiếu;
-9. `tip` và `tip_height`.
+10. `tip` và `tip_height`.
 
 redb commit kiểu-WAL: một crash giữa chừng ghi để lại trạng
 thái **trước** mạch lạc. **Một khối được ghi không kèm trạng
@@ -248,14 +281,18 @@ kiểm soát/sửa chữa.
   đọc trạng thái cuối của các tên miền bị chạm VÀ các TLD được
   tuyên bố từ trạng thái RAM (đã được `push_block` cập nhật),
   nối thêm nguyên tử.
-- `load_chain(store)`: **không phát lại** — đọc đỉnh + khối
+- `load_chain(store, network)` (`NetworkParams`): **không phát
+  lại** — đọc đỉnh + khối
   đỉnh (đọc khối O(1)), khôi phục trạng thái tên miền theo trang
   100 (`DOMAIN_PAGE`) **và registry TLD theo trang 100**
   (`TLD_PAGE`, M7d — đóng cửa sổ khởi động lại: thiếu nó, một
   nút khởi động lại quên mọi TLD đã tuyên bố và từ chối mọi
   `RegisterDomain` dưới TLD đó với `UnknownTld`, dù đĩa của nó
   giữ trạng thái đầy đủ). Chuỗi RAM chỉ giữ genesis + đỉnh; các
-  khối lịch sử ở lại kho và được phục vụ từ đó. Từ M8,
+  khối lịch sử ở lại kho và được phục vụ từ đó. Một kho RỖNG
+  khởi động genesis của mạng được yêu cầu; một kho giữ chuỗi của
+  một mạng KHÁC thất bại — `Corrupted` trên đường trạng-thái-đầy,
+  `Unusable` (→ phát lại) trên đường snapshot. Từ M8,
   `load_chain` sau đó dựng lại **chỉ mục chống phát lại TXID**
   (xem dưới).
 - `load_chain_replay(store)`: phát lại mọi khối được lưu từng
@@ -273,7 +310,8 @@ kiểm soát/sửa chữa.
 - `touched_domains(block)`: id của các tên miền bị thay đổi bởi
   các giao dịch của khối, khử trùng, thứ tự khối.
 - `touched_tlds(block)`: id của các TLD bị đột biến bởi khối
-  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`),
+  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`,
+  `RegisterTldPow`),
   khử trùng, thứ tự khối (M8b).
 - `store_block_with_removals(...)`: biến thể của `store_block`
   nhận thêm các tên miền bị gỡ bởi GC của khối (M8b) cho lần
@@ -298,12 +336,21 @@ phép nối đơn điệu — ghi hậu tố thắng sẽ thất bại với
 kho):
 
 1. `rewind_to_height(fork_height)` — MỘT giao dịch redb gỡ các
-   khối trên điểm rẽ và đưa `tip`/`tip_height` về (chỉ mục tên
-   và trạng thái sống được sửa ở bước kế);
+   khối trên điểm rẽ và đưa `tip`/`tip_height` về (các bảng
+   trạng thái sống được sửa ở bước kế);
 2. `persist_state_snapshot(store, chain)` — ghi lại các bảng
-   sống (`domains`, `tlds`, chỉ mục tên, sàn TLD) từ bản xuất
-   trạng thái RAM sau-reorg: các bảng sống KHÔNG BAO GIỜ mô tả
-   nhánh THUA lúc khởi động;
+   sống `domains`/`tlds` (+ bộ đếm được duy trì của chúng, qua
+   `NodeStore::put_states`, một giao dịch nguyên tử) từ bản xuất
+   trạng thái RAM sau-reorg, rồi ghi lại các khóa chủ được học
+   (xóa-rồi-ghi — một rollback gỡ-học các khóa, nên một mình các
+   upsert sẽ giữ lại các ma của nhánh thua). Chỉ mục tên
+   (`names_v3`/`name_reverse_v3`) và các sàn TLD sống
+   (`tld_floors_v1`) KHÔNG được ghi lại bởi bước này. **Hạn chế
+   đã biết (việc cần làm theo mã đang chờ)**: sau một reorg,
+   các mục chỉ-mục-tên ma và các dòng sàn cũ của nhánh thua có
+   thể vương vấn cho đến khi các delta riêng của hậu tố được nối
+   lại ghi đè chúng hay một lần dựng lại (`rebuild_name_index`,
+   phát lại) chạy;
 3. nối lại đơn điệu của hậu tố được nhận nuôi (delta thường).
 
 Một thất bại lưu bền vững trên đường này được ghi nhật ký và suy
@@ -333,7 +380,9 @@ thức lưu theo khối). Nó cung cấp khởi động trong **O(tip − H)**
   Một crash ngay sau không bao giờ để lại một snapshot "trên"
   chuỗi được lưu.
 - **Nguyên tử**: sự đóng băng (xóa sạch + sao chép các bảng
-  `domains`/`tlds` sang `snapshot_v1_*`, ghi `snapshot_v1_meta`)
+  `domains`/`tlds` sang `snapshot_v1_*`, sao chép
+  `tld_floors_v1` sống sang
+  `snapshot_v1_floors`, và ghi `snapshot_v1_meta`)
   diễn ra trong CÙNG giao dịch redb với phép nối của khối kích
   hoạt — một crash để lại hoặc snapshot cũ nguyên vẹn, hoặc cái
   mới đầy đủ với khối của nó (WAL redb).
@@ -354,15 +403,23 @@ thức lưu theo khối). Nó cung cấp khởi động trong **O(tip − H)**
    `0 < H < tip_height`, và băm TÍNH LẠI của khối lưu tại `H`
    bằng `tip_hash` của snapshot (**neo** — một snapshot lạ với
    chuỗi lưu, bị sửa, hay từ tệp khác bị phát hiện ở đây),
-   trạng thái đóng băng được khôi phục theo trang 100 rồi chỉ
+   trạng thái đóng băng được khôi phục theo trang 100 — cùng với
+   các khóa chủ được lưu (một khóa vô hiệu → `Unusable`) và các
+   sàn đóng băng
+   (`snapshot_v1_floors`; mỗi `restore_tld_floor` xếp lại hàng
+   cái chết của TLD mở) — rồi chỉ
    các khối `H+1..=tip` được phát lại (xác thực đầy đủ, giống
    khối sống).
 3. Đỉnh đạt được bởi phát lại phải bằng đỉnh đã lưu.
-4. **Mọi thất bại trên đường này (snapshot thiếu, chiều cao
-   vô dụng, neo vô hiệu, byte không giải mã được, phát lại
-   thất bại) âm thầm suy giảm về nạp đầy pre-M6b** (đọc các
-   bảng sống, không phát lại) — một snapshot xấu không bao giờ
-   làm hỏng khởi động. Tương thích ngược là trường hợp riêng
+4. **Một snapshot có-mà-không-dùng-được (neo vô hiệu, mục đóng
+   băng không giải mã được, phát lại hậu tố thất bại, chiều cao
+   trên đỉnh) không bao giờ làm hỏng khởi động: lý do được ghi
+   như một cảnh báo và việc nạp quay về phát lại đầy đủ
+   không-tin
+   (`load_chain_replay`)** — nhật ký khối là thẩm quyền. Chỉ
+   một dòng `snapshot_v1_meta` KHÔNG ĐỌC ĐƯỢC (lỗi backend) mới
+   suy giảm về nạp trạng-thái-đầy trơn. Phép quay về không bao
+   giờ im lặng. Tương thích ngược là trường hợp riêng
    "không snapshot": một kho ghi trước M6b (không có các bảng
    `snapshot_v1_*`) nạp giống hệt, `snapshot_meta()` là
    `None`.
@@ -402,7 +459,7 @@ Tính chất:
   dụng) — y như trước.
 - **Snapshot KHÔNG đóng băng chỉ mục**: phát lại hậu tố của
   snapshot dựng lại các mục trên H, quét lại M8 thêm phần cửa
-  sổ DƯỚI H (cùng hợp đồng như owner_keys/grace: dựng lại,
+  sổ DƯỚI H (cùng hợp đồng như các cửa sổ hoãn: dựng lại,
   không bao giờ lưu).
 - **Chi phí**: ≤ 256 lần đọc khối điểm lúc khởi động, O(cửa
   sổ) — độc lập với tuổi chuỗi.
@@ -504,11 +561,16 @@ không phải đường khởi động.
 ### Snapshot không cam kết gì
 
 Trạng thái RAM `ChainState` mang các cấu trúc nội bộ không được
-đồng thuận cam kết (khóa chủ, cửa sổ hoãn). Chúng KHÔNG được
-đóng băng: phát lại hậu tố dựng lại chúng bằng cách áp dụng các
-giao dịch (tất định, cùng nội dung với phát lại đầy đủ cho
-cửa sổ liên quan). Chỉ mục chống phát lại TXID theo cùng hợp
-đồng (M8, xem mục trước): dựng lại lúc khởi động, không bao giờ
+đồng thuận cam kết. Các cửa sổ hoãn KHÔNG được đóng băng và
+không bao giờ được lưu: phát lại hậu tố dựng lại chúng bằng cách
+áp dụng các giao dịch (tất định, cùng nội dung với phát lại đầy
+đủ cho
+cửa sổ liên quan). Các khóa chủ CÓ được lưu — được soi gương
+vào bảng sống `owner_keys` sau mỗi khối (`put_owner_keys`)
+và được khôi phục bởi cả hai đường khởi động — nhưng snapshot
+cũng không nhúng chúng: khôi phục đọc bảng được lưu. Chỉ mục
+chống phát lại TXID theo cùng hợp đồng (M8, xem mục trước):
+dựng lại lúc khởi động, không bao giờ
 đóng băng. Đẳng thức bit-chính-xác với `load_chain_replay` được
 kiểm thử xác minh trên trạng thái chuẩn (state_root + SMT).
 
@@ -538,9 +600,17 @@ bằng TÍNH LẠI:
 3. **gốc SMT tính lại từ các mục nhập == `checkpoint.data.state_root`**
    — kiểm tra mật mã CHÍNH: toàn bộ trạng thái (tên miền + TLD)
    được gấp lại vào một SMT mới
-   (`snapshot_verify::recompute_state_root`, các lá
-   `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1` y như đường sống)
-   và gốc phải bằng cái ủy ban đã ký. Một snapshot giả mạo,
+   (`snapshot_verify::recompute_state_root`)
+   và gốc phải bằng cái ủy ban đã ký. Các lá đúng là của đường
+   sống (`finality.rs`): `SCONE-LEAF-DOM-V4` = tag ‖ id ‖
+   owner ‖ sequence(8 BE) ‖ registered_at(8 BE) ‖ valid_until(8 BE)
+   ‖ mutations(8 BE) ‖ record_hash-hoặc-0(32) ‖
+   count ủy nhiệm(1) ‖ các khóa ủy nhiệm đã sắp, và
+   `SCONE-LEAF-TLD-V4` = tag
+   ‖ id ‖ owner (byte 0 cho một TLD mở) ‖ until(8 BE) ‖ byte biến
+   thể (0x01 riêng tư — theo sau bởi mutations(8 BE) — hay 0x00
+   mở), rồi `state_root = blake3("SCONE-STATE-SMT-V1" ‖
+   smt_root)`. Một snapshot giả mạo,
    cắt cụt, hay không đầy đủ bị từ chối TRƯỚC MỌI LẦN GHI;
 4. **các nhất quán cấu trúc**: `height`/`tip_hash`/`state_root`
    của manifest == của checkpoint; id tăng nghiêm ngặt (không
@@ -566,12 +636,17 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — the full
+           delegate-aware envelope) or TldStateBytes 10/50 B —
            the existing canonical storage formats, reused; kind
            0x03 (lifetime floor of an open TLD, owner-option) has
            a dedicated format WITHOUT a length prefix:
            id(32) ‖ floor(8 BE), fixed size)
 ```
+
+Các phép dẫn xuất băm: băm trang = `blake3("SCONE-SNAP-PAGE-HASH" ‖
+mã hóa trang đầy đủ)`; băm manifest (được mang bởi dấu hiệu P0.4)
+= `blake3("SCONE-SNAP-MAN-HASH" ‖ mã hóa manifest đầy đủ)`.
 
 Thứ tự trang: mọi mục tên miền (id tăng), rồi mọi mục TLD (id
 tăng), rồi các sàn đời sống TLD ĐÓNG BĂNG tại chiều cao
@@ -606,7 +681,9 @@ tường minh: chờ khoảng/checkpoint kế tiếp).
 Xác minh mọi thứ (xem trên), rồi ghi trong MỘT giao dịch redb:
 các bảng sống `domains`/`tlds` + bộ đếm + `tip = (H, checkpoint
 hash)`, các bảng đóng băng `snapshot_v1_*` neo tại cùng khối,
-và dấu hiệu dành riêng
+các sàn đời sống TLD — được ghi CẢ vào bảng sống
+`tld_floors_v1` LẪN `snapshot_v1_floors` đóng băng (khởi động
+xếp lại lịch chết của các TLD mở) — và dấu hiệu dành riêng
 `meta["verified_snapshot_v1"]` (`height ‖ tip_hash ‖
 manifest_hash`). Đích: chỉ kho rỗng (nếu không
 `SnapshotUnavailable`).
@@ -711,7 +788,9 @@ cấp phát:
   hợp thù địch; mỗi mục đã bị nắp 64 KiB bởi
   `MAX_DHT_CACHE_ENTRY`), biên nào tới trước trục xuất theo thứ
   tự khóa. Các bộ đếm (mục + byte) được duy trì lúc ghi —
-  không bao giờ một quét để đếm; dựng lại chính xác chỉ xảy ra
+  không bao giờ một quét để đếm; việc trục xuất GC các dòng DHT
+  của một tên miền chết KHÔNG giảm chúng (đếm-dư bảo thủ: cache
+  trục xuất sớm hơn một chút); dựng lại chính xác chỉ xảy ra
   lúc mở (quét đầy duy nhất, lúc khởi động). Bộ truy cập
   `dht_cache_entries`/`dht_cache_bytes`, biên chỉnh được qua
   `set_dht_cache_bounds` (kiểm thử:
@@ -746,8 +825,8 @@ không phải `load_chain`.
 ## Đồng thời
 
 redb 4.x cho phép **một đối tượng `Database` duy nhất mỗi tệp
-và mỗi tiến trình** (mở kép đồng thời thất bại với
-`DatabaseAlreadyOpen`). Mô hình được hỗ trợ: một `RedbStore`
+và mỗi tiến trình** (một mở kép đồng thời nổi lên như
+`StorageError::Database("…already open…")`). Mô hình được hỗ trợ: một `RedbStore`
 nhân bản (`Arc<Database>`) chia sẻ giữa các luồng — trình ghi
 tuần tự bởi `&mut self` + khóa nội bộ redb, trình đọc đồng thời
 (giao dịch đọc snapshot). Sau khi mọi handle được thả hoàn
@@ -776,7 +855,8 @@ Mọi kiểm thử dùng tệp tạm redb riêng (`tempfile`). Phủ:
   động từ snapshot = phát lại đầy đủ bit-chính-xác (state_root
   + SMT, trạng thái logic hoàn chỉnh, đỉnh); snapshot bị sửa
   (tip_hash hỏng, trạng thái không giải mã được, chiều cao >
-  đỉnh, meta sai chiều dài) → quay về âm thầm nạp đầy, cùng
+  đỉnh, meta sai chiều dài) → quay về được ghi nhật ký về phát
+  lại không-tin (`load_chain_replay`), cùng
   chuỗi cuối; hậu tố phát lại < khoảng; thay thế snapshot
   (không tích lũy) khi vượt khoảng; kho pre-M6b không bảng
   snapshot nạp giống hệt;

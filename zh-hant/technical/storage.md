@@ -40,12 +40,23 @@
   `COUNT(*)`；
 - `iterate_domains(after, max) -> DomainPage` —
   基於游標的分頁（預設每批 100）、
-  `DomainId` 的位元組升序；
+  `DomainId` 的位元組升序；`None` 游標表示
+  走訪完成（自然的表耗盡）；
 - `put_tld_state` / `tld_state` / `tld_count` /
   `iterate_tlds` — TLD 登記冊的相同契約
   （`tld_count` 維護、有界游標）（M7d）；
+- `put_states(...)` — 活躍狀態資料表的原子
+  重寫：網域／TLD 的 upsert **及**刪除 +
+  維護的計數器，在**一**交易中（唯一呼叫者：
+  reorg 持久化）；
+- `put_owner_keys` / `clear_owner_keys` /
+  `iterate_owner_keys` — 學得的 owner→key 映射
+  （PoS 池解析），持久化於 `owner_keys` 資料表；
 - `put_dht_cache` / `dht_cache` — 不透明的
   `SignedDnsRecord` 位元組；
+- `dht_cache_page(after, max)` — DHT 快取按
+  `DomainId` 升序的分頁走訪（`None` 游標 =
+  走訪完成）；
 - `resolve_name(canonical)` /
   `resolve_tld(tld)` — 持久的 Name→Id
   索引（P0.2）、O(1) 點查找、不迭代
@@ -87,6 +98,7 @@
 | `domains` | `DomainId`（32 B、位元組序） | `DomainStateBytes`（見下） |
 | `tlds` | `TldId`（32 B、位元組序） | `TldStateBytes`（見下、M7d） |
 | `dht_cache` | `DomainId`（32 B） | `SignedDnsRecord` 位元組（不透明） |
+| `owner_keys`（PoS 池） | owner id（32 B、位元組序） | Ed25519 公鑰（32 B）— 學得的 owner→key 映射、每個區塊後鏡像 |
 | `names_v3`（P0.2） | 索引鍵（32 B、位元組序） | 目標 id（32 B） |
 | `name_reverse_v3`（P0.2） | 目標 id（32 B、位元組序） | `tag(1) ‖ canonical name` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -111,6 +123,7 @@
 | `tip_height` | `u64 BE`（使 `tip()` 為 O(1)） |
 | `domain_count` | `u64 BE`（維護的計數器） |
 | `tld_count` | `u64 BE`（維護的計數器、M7d） |
+| `finality_v1`（PoS） | blob：`varint(window.len) ‖ window checkpoints ‖ base checkpoint ‖ varint(pool.len) ‖ pool keys(每個 32 B、排序、去重) ‖ seed(32) ‖ block_ts(8 BE)` — 持久化的最終性（檢查點窗口 + 凍結基座），由中繼站的錨點迴圈寫入、每次 `load_chain` 恢復（載入時窗口↔基座配對 + 曲線檢查）；2026-10-21 之前的儲存庫中不存在（最終性從頭重建）；不在 `meta_set` 保留清單中（僅由節點自身的持久化路徑寫入） |
 
 `blocks_by_height` 的 `hash ‖ height` 標頭使
 每個索引自含（無需讀區塊即可驗證）；兩個
@@ -127,16 +140,27 @@
 
 ## `DomainStateBytes` 編碼格式（M8b）
 
-依開頭版本標籤為 65 或 97 位元組、固定寬度
+97 或 65 位元組的基底加上可選的記錄受委者
+字尾（整體 65 至 194 位元組）、固定寬度
 大端整數（正典、可逐位元組比較）：
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash present → exactly 97 bytes
-tag = 0x02 : record_hash absent  → exactly 65 bytes
+tag = 0x01 : record_hash present → base 97 bytes
+tag = 0x02 : record_hash absent  → base 65 bytes
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); the keys are
+                 strictly ascending (the canonical `BTreeSet`
+                 order). An empty set omits the suffix entirely —
+                 the base is then byte-identical to the
+                 pre-delegation format.
 ```
+
+長度封套為 65..=194 位元組（97 位元組基底 +
+計數位元組 + 3 × 32 位元組金鑰 = 至多 194）。
 
 `mutations` 是命名空間單調的變更計數器
 （CAS 反重播世代 — 見 `transactions.md`、
@@ -158,10 +182,15 @@ M7 編碼（41/73 位元組、無到期）自 M8b 起
   序號（`RegisterDomain` 之後立刻為 0）；
 - `record_hash`：DNS 記錄集當前的鏈上承諾
   （只要尚未套用 `UpdateDomain` 則為
-  `None`）。
+  `None`）；
+- `record_delegates`：獲准簽署 `UpdateDomain`
+  的擁有者管理受委者金鑰（至多 3 個；套用
+  規則見 `transactions.md`）。
 
 **嚴格**解碼（`DomainStateBytes::decode`）：
-未知標籤、錯誤長度或多餘位元組 →
+未知標籤、錯誤長度、多餘位元組、高於 3 的
+受委者計數、非嚴格遞增的受委者金鑰，或
+不是 Ed25519 曲線點的受委者金鑰 →
 `StorageError::Corrupted`、絕不 panic。
 
 ## `TldStateBytes` 編碼格式（owner-option）
@@ -204,7 +233,8 @@ M7d（33 位元組、標籤 `0x01`）、M8b（34
 標籤、舊讀取器以 `Corrupted` 失敗而非
 猜測。**嚴格**解碼
 （`TldStateBytes::decode`）：未知標籤、錯誤
-長度、多餘位元組或非正典旗標 →
+長度、多餘位元組、非正典旗標，或 `until`
+為零的開放條目（舊編碼器的損毀特徵）→
 `StorageError::Corrupted`、絕不 panic。
 
 ## 原子性保證
@@ -230,10 +260,14 @@ M7d（33 位元組、標籤 `0x01`）、M8b（34
   TLD（`removed_tlds`）在同一交易中離開
    儲存庫、計數器遞減 — 重啟絕不能復活
    過期的註冊；
-8. P0.2 的**名稱索引**差量（upsert 與移除、
+8. 每個 TLD 生命下限 upsert **以及**被移除
+   TLD 的下限（`tld_floors_v1`、由
+   `StateDelta.tld_floors` 攜帶）— GC 的死亡
+   時程在重啟後存續；
+9. P0.2 的**名稱索引**差量（upsert 與移除、
    見下）— 相同保證：當機絕不留下一個
    指向不存在網域的索引條目；
-9. `tip` 與 `tip_height`。
+10. `tip` 與 `tip_height`。
 
 redb 以 WAL 風格提交：寫入中途當機留下
 **前一個**一致狀態。**因此寫了區塊卻沒寫
@@ -271,7 +305,8 @@ redb 以 WAL 風格提交：寫入中途當機留下
   正典編碼區塊、從 RAM 狀態（已被
   `push_block` 更新）讀取被觸及網域**及**
   已聲明 TLD 的最終狀態、原子附加。
-- `load_chain(store)`：**不重播** — 讀取
+- `load_chain(store, network)`（`NetworkParams`）：
+  **不重播** — 讀取
   尖端 + 尖端區塊（O(1) 區塊讀取）、以
   100 頁（`DOMAIN_PAGE`）還原網域狀態
   **並以 100 頁**（`TLD_PAGE`、M7d — 關閉
@@ -280,7 +315,10 @@ redb 以 WAL 風格提交：寫入中途當機留下
   TLD 下的每個 `RegisterDomain`、儘管其
   磁碟持有完整狀態）還原 TLD 登記冊。
   RAM 鏈只保留創世 + 尖端；歷史區塊留在
-  儲存庫並由它服務。自 M8 起、
+  儲存庫並由它服務。空儲存庫啟動所請求
+  網路的創世；持有**不同**網路鏈的儲存庫
+  失敗 — 完整狀態路徑上為 `Corrupted`、
+  快照路徑上為 `Unusable`（→ 重播）。自 M8 起、
   `load_chain` 隨後重建 **TXID 防重播
   索引**（見下）。
 - `load_chain_replay(store)`：逐一再重播
@@ -302,8 +340,8 @@ redb 以 WAL 風格提交：寫入中途當機留下
   修改的網域 id、去重、區塊順序。
 - `touched_tlds(block)`：被區塊突變的 TLD
   id（`RegisterTld`、`TransferTld`、
-  `RevokeTld`、`SetTldOpen`）、去重、區塊
-  順序（M8b）。
+  `RevokeTld`、`SetTldOpen`、`RegisterTldPow`）、
+  去重、區塊順序（M8b）。
 - `store_block_with_removals(...)`：
   `store_block` 的變體、另接收被區塊 GC
   移除的網域（M8b）以進行上述原子寫入。
@@ -333,13 +371,22 @@ reorg（切換到更強的姊妹分支）無法經過
 
 1. `rewind_to_height(fork_height)` — 一個
    redb 交易移除分叉點以上的區塊並把
-   `tip`／`tip_height` 帶回（名稱索引與
-   活躍狀態在下一步修正）；
+   `tip`／`tip_height` 帶回（活躍狀態資料表
+   在下一步修正）；
 2. `persist_state_snapshot(store, chain)` —
    從 reorg 後的 RAM 狀態匯出重寫活躍
-   資料表（`domains`、`tlds`、名稱索引、
-   TLD 下限）：活躍資料表在開機時**絕不**
-   描述**輸**分支；
+   `domains`／`tlds` 資料表（+ 其維護的
+   計數器、經 `NodeStore::put_states`、單一
+   原子交易），然後重寫學得的擁有者金鑰
+   （先清後寫 — 回滾會「遺忘」金鑰，因此
+   僅 upsert 會留下輸分支的幽靈）。名稱索引
+   （`names_v3`／`name_reverse_v3`）與活躍
+   TLD 下限（`tld_floors_v1`）**不**被此步驟
+   重寫。**已知限制（程式碼後續修正待辦）**：
+   reorg 之後，輸分支的幽靈名稱索引條目與
+   過時的下限列可能滯留、直到重附加字尾
+   自身的差量覆蓋它們或執行重建
+   （`rebuild_name_index`、重播）；
 3. 被採納字尾的單調重附加（普通差量）。
 
 此路徑上的持久化失敗被記錄並降級
@@ -370,7 +417,9 @@ RAM 狀態必須**經重播**重建的情況（修復、
   當機絕不能留下「高於」已持久化鏈的
   快照。
 - **原子**：凍結（清除 + 把 `domains`／
-  `tlds` 資料表複製到 `snapshot_v1_*`、寫入
+  `tlds` 資料表複製到 `snapshot_v1_*`、把活躍
+  `tld_floors_v1` 複製到 `snapshot_v1_floors`、
+  寫入
   `snapshot_v1_meta`）發生在與觸發區塊附加
   **相同**的 redb 交易中 — 當機留下的是
   完整的舊快照、或是連同其區塊完整的新
@@ -394,15 +443,23 @@ RAM 狀態必須**經重播**重建的情況（修復、
    `H` 的區塊**重新計算**的雜湊等於快照的
    `tip_hash`（**錨** — 與持久化鏈無關、
    被竄改、或來自另一檔案的快照在此被
-   偵測）、凍結狀態以 100 頁還原、然後
+   偵測）、凍結狀態以 100 頁還原 —
+   連同持久化的擁有者金鑰（無效金鑰 →
+   `Unusable`）與凍結的下限
+   （`snapshot_v1_floors`；每次
+   `restore_tld_floor` 把開放 TLD 的死亡重新
+   入隊）— 然後
    只重播區塊 `H+1..=tip`（完整驗證、與
    活躍區塊相同）。
 3. 重播到達的尖端必須等於儲存的尖端。
-4. **此路徑上的任何失敗（快照缺失、不可用
-   的高度、無效錨、無法解碼的位元組、
-   重播失敗）靜靜降級為 M6b 之前的完整
-   載入**（讀活躍資料表、不重播）— 壞
-   快照絕不使開機失敗。向後相容是「無
+4. **存在但不可用的快照（無效錨、無法解碼
+   的凍結條目、字尾重播失敗、高於尖端的
+   高度）絕不使開機失敗：原因以警告記錄、
+   載入退回完整的零信任重播
+   （`load_chain_replay`）** — 區塊日誌是
+   權威。只有**不可讀**的 `snapshot_v1_meta`
+   列（後端錯誤）才降級為普通的完整狀態
+   載入。退回絕不沉默。向後相容是「無
    快照」的特例：M6b 之前寫入的儲存庫
   （沒有 `snapshot_v1_*` 資料表）相同地
    載入、`snapshot_meta()` 為 `None`。
@@ -445,7 +502,7 @@ TxId 以**其原始高度**重新插入。因此少於
   規則）— 與之前完全相同。
 - **快照不凍結索引**：快照的字尾重播
   重建 H 之上的條目、M8 重掃補上窗口中
-  H **之下**的部分（與 owner_keys／grace
+  H **之下**的部分（與 grace 窗口
   相同契約：重建、絕不持久化）。
 - **成本**：開機時 ≤ 256 次點區塊讀、
   O(窗口) — 與鏈齡無關。
@@ -558,10 +615,14 @@ O(見過的互異名稱)（每名稱 ≤ 253 B）、
 ### 快照不承諾什麼
 
 RAM 狀態 `ChainState` 攜帶不由共識承諾的
-內部結構（擁有者金鑰、寬限窗口）。它們
-**不**被凍結：字尾重播經套用交易重建
+內部結構。寬限窗口**不**被凍結且絕不
+持久化：字尾重播經套用交易重建
 它們（決定性、相關窗口的內容與完整重播
-相同）。TXID 防重播索引遵循相同契約
+相同）。擁有者金鑰**確實**被持久化 — 在
+每個區塊後鏡像進活躍的 `owner_keys`
+資料表（`put_owner_keys`）並由兩條開機路徑
+還原 — 但快照也不內嵌它們：還原讀取
+持久化的資料表。TXID 防重播索引遵循相同契約
 （M8、見前節）：開機時重建、絕不凍結。
 與 `load_chain_replay` 的逐位元相等由測試
 在正典狀態（state_root + SMT）上驗證。
@@ -595,10 +656,19 @@ RAM 狀態 `ChainState` 攜帶不由共識承諾的
    `checkpoint.data.state_root`** — 關鍵的
    密碼學檢查：整個狀態（網域 + TLD）
    被重新折疊進一個新鮮的 SMT
-  （`snapshot_verify::recompute_state_root`、
-   葉 `SCONE-LEAF-DOM-V1`／
-   `SCONE-LEAF-TLD-V1` 與活躍路徑完全
-   相同）、且根必須等於委員會簽署的。
+  （`snapshot_verify::recompute_state_root`）、
+   且根必須等於委員會簽署的。葉與活躍
+   路徑完全相同（`finality.rs`）：
+   `SCONE-LEAF-DOM-V4` = tag ‖ id ‖
+   owner ‖ sequence(8 BE) ‖ registered_at(8 BE) ‖
+   valid_until(8 BE) ‖ mutations(8 BE) ‖
+   record_hash-or-zero(32) ‖ delegate count(1) ‖
+   排序的受委者金鑰，`SCONE-LEAF-TLD-V4` = tag
+   ‖ id ‖ owner（開放 TLD 為零）‖ until(8 BE) ‖
+   變體位元組（0x01 私有 — 後接
+   mutations(8 BE) — 或 0x00 開放），然後
+   `state_root = blake3("SCONE-STATE-SMT-V1" ‖
+   smt_root)`。
    偽造、截斷或不完整的快照在任何
    寫入**之前**被拒；
 4. **結構一致性**：清單的
@@ -625,12 +695,18 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — the full
+           delegate-aware envelope) or TldStateBytes 10/50 B —
            the existing canonical storage formats, reused; kind
            0x03 (lifetime floor of an open TLD, owner-option) has
            a dedicated format WITHOUT a length prefix:
            id(32) ‖ floor(8 BE), fixed size)
 ```
+
+雜湊衍生：頁雜湊 =
+`blake3("SCONE-SNAP-PAGE-HASH" ‖ 完整頁編碼)`；
+清單雜湊（由 P0.4 標記攜帶）=
+`blake3("SCONE-SNAP-MAN-HASH" ‖ 完整清單編碼)`。
 
 頁序：所有網域條目（id 遞增）、然後所有
 TLD 條目（id 遞增）、然後凍結於快照高度的
@@ -670,7 +746,10 @@ M6b 持久化快照（`snapshot_v1_*`）
 中寫入：活躍資料表 `domains`／`tlds` +
 計數器 + `tip = (H, 檢查點雜湊)`、凍結
 資料表 `snapshot_v1_*` 錨定於同一區塊、
-以及保留標記
+TLD 生命下限 — 同時寫入活躍的
+`tld_floors_v1` 資料表**與**凍結的
+`snapshot_v1_floors`（開機重新排程開放
+TLD 的死亡）— 以及保留標記
 `meta["verified_snapshot_v1"]`（`height ‖
 tip_hash ‖ manifest_hash`）。目標：僅限
 空儲存庫（否則 `SnapshotUnavailable`）。
@@ -788,7 +867,9 @@ synced — boot replays ONLY the suffix above H
   `MAX_DHT_CACHE_ENTRY` 鉗制在 64 KiB）、
   先觸及者依金鑰序逐出。計數器（條目 +
   位元組）在寫入時維護 — 絕不為了計數
-  而掃描；精確重建只發生在開啟時（唯一
+  而掃描；死網域 DHT 列的 GC 逐出**不**
+  遞減它們（保守的高估：快取略早逐出）；
+  精確重建只發生在開啟時（唯一
   的完整掃描、在開機時）。存取器
   `dht_cache_entries`／`dht_cache_bytes`、
   可調界限經 `set_dht_cache_bounds`（測試：
@@ -825,7 +906,8 @@ synced — boot replays ONLY the suffix above H
 
 redb 4.x 允許**每檔每行程單一
 `Database` 物件**（同時雙重 `open` 以
-`DatabaseAlreadyOpen` 失敗）。受支援的
+`StorageError::Database("…already open…")`
+浮現）。受支援的
 模型：跨執行緒共享的克隆 `RedbStore`
 （`Arc<Database>`）— 寫入者由 `&mut self` +
 redb 內部鎖序列化、讀取者並發（快照讀
@@ -861,8 +943,9 @@ redb 內部鎖序列化、讀取者並發（快照讀
   （state_root + SMT、完整邏輯狀態、
   尖端）；被竄改的快照（損毀的
   tip_hash、無法解碼的狀態、height >
-  tip、錯誤長度的 meta）→ 靜靜退回完整
-  載入、相同的最終鏈；重播的字尾 <
+  tip、錯誤長度的 meta）→ 記錄後退回
+  零信任重播（`load_chain_replay`）、
+  相同的最終鏈；重播的字尾 <
   區間；跨越區間時快照替換（無累積）；
   沒有快照資料表的 M6b 前儲存庫相同地
   載入；

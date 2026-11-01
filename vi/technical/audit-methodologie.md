@@ -11,7 +11,7 @@ Mô hình đối thủ: một nút p2p thù địch tùy ý (có thể gửi b�
 nào qua QUIC/UDP), một người gửi tx thù địch, một vận hành viên
 relay tò mò, một thư mục dữ liệu bị đánh cắp. BỊ LOẠI TRỪ theo
 thiết kế: client cuối (DNS vốn công khai theo bản chất), tính
-sẵn sàng toàn cục (chaos đã kiểm thử).
+sẵn sàng toàn cục (chaos đã kiểm thử — bộ `tests/adversarial*.rs`).
 
 Bảng tài sản, theo thứ tự tới hạn:
 1. **Quyền sở hữu** (chuỗi trạng thái: Register/Update/Transfer/Assign) —
@@ -26,10 +26,20 @@ Bảng tài sản, theo thứ tự tới hạn:
 
 ## 1. Kiểm toán tĩnh tự động (ngày 1 — cơ học)
 
-- `cargo audit` (CVE phụ thuộc: libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + rà soát `unsafe` (kỳ vọng ≈ 0).
+- `cargo audit` (CVE phụ thuộc: libp2p/quinn/rustls/redb/ed25519);
+  các lần chấp nhận được theo dõi trong `audit.toml`
+  (RUSTSEC-2024-0436 được chấp nhận: `paste` không còn được bảo
+  trì, không có lỗ hổng đã biết).
+- `cargo geiger` + rà soát `unsafe` (kỳ vọng ≈ 0 — đã xác minh:
+  `unsafe` duy nhất nằm trong các kiểm thử; `#![forbid(unsafe_code)]`
+  trong scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (đã xanh, giữ làm rào CI).
+  (đã xanh; giữ làm rào cản cục bộ trước khi merge — chưa có CI
+  nào tồn tại).
+- Chưa có harness fuzz nào tồn tại: sản phẩm bàn giao đầu tiên
+  là crate `fuzz/` nhắm vào năm bộ giải mã (`decode_complete`,
+  `parse_query`, `extract_answers`, bộ phân tích tệp bản ghi,
+  bộ phân tích keyfile).
 - Fuzz các ranh giới giải mã (ngày 2-3):
   `cargo-fuzz` trên `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — đây CHÍNH LÀ
@@ -46,7 +56,8 @@ Sắp theo mức tới hạn của tài sản, 1 thành phần = 1 danh sách
 kiểm tra:
 
 ### 2.1 scone-crypto + dẫn xuất danh tính (ngày 4)
-- OwnerId = BLAKE3(pubkey): kiểm tra chuẩn hóa byte (không có
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)): kiểm tra chuẩn hóa byte (không có
   biểu diễn mơ hồ → 2 khóa, 1 chủ).
 - Ed25519: GIẢI MÃ nghiêm ngặt (khóa không chuẩn bị từ chối?),
   xác minh với tách biệt ngữ cảnh (mỗi lần dùng có thẻ miền riêng:
@@ -56,7 +67,7 @@ kiểm tra:
   quyền tệp, oracle đệm trên bản mã.
 
 ### 2.2 Áp dụng giao dịch (ngày 5) — trái tim
-Với TỪNG biến thể Transaction (hiện 13):
+Với TỪNG biến thể Transaction (hiện 19):
 - Tx có lũy tính khi phát lại không (txid duy nhất, nonce/sequence)?
 - Kiểm tra sở hữu có đi trước mọi hiệu lực không? (người ký ==
   chủ được học on-chain, không bao giờ tin từ chính tx.)
@@ -108,8 +119,10 @@ nó:
   sai dạng/không đồng ý) — mở rộng SimNet với vai trò "byzantine
   bị động";
 - mạng lưới 30 nút thật với 3 nút thù địch (byte ngẫu nhiên,
-  loạt tx vô hiệu, bản ghi DHT giả mạo) — bộ chaos đã có, thêm
-  vai trò kẻ tấn công;
+  loạt tx vô hiệu, bản ghi DHT giả mạo) — hiện nay chỉ là khát
+  vọng: bộ hiện có là `tests/adversarial*.rs` (adversarial,
+  adversarial_consensus, adversarial_dos) cộng với các kịch bản
+  sim; mở rộng nó với vai trò kẻ tấn công;
 - đối chiếu chéo: hai triển khai của việc giải mã (tài liệu
   protocol.md mang tính CHUẨN — một kiểm toán viên triển khai
   wire chỉ từ tài liệu và so sánh byte; bất kỳ khác biệt nào =
@@ -134,7 +147,8 @@ tảng của đặc tả yêu cầu — đây là một lợi thế chi phí th�
       hay hỏng cache
 - [ ] Khác biệt tài liệu/mã: bằng không (xác minh bằng triển
       khai wire kép)
-- [ ] CVE chặn: bằng không (cargo audit)
+- [ ] CVE chặn: bằng không (cargo audit; các RUSTSEC được chấp
+      nhận được theo dõi trong `audit.toml`)
 - [ ] Kiểm toán bên ngoài phạm vi mật mã/wire/tx đã xong (nếu
       được cấp ngân sách)
 

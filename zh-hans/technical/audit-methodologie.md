@@ -11,7 +11,7 @@
 字节）、一个恶意的交易提交者、一个好奇的中继
 运营者、一个被盗的 data-dir。设计上排除：终端客户端
 （DNS 天生是公开的）、全局可用性（混沌测试
-已覆盖）。
+已覆盖 —— `tests/adversarial*.rs` 测试组）。
 
 按关键性排序的资产表：
 1. **所有权**（状态链：Register/Update/Transfer/Assign）——
@@ -25,10 +25,17 @@
 
 ## 1. 自动化静态审计（第 1 天 —— 机械性）
 
-- `cargo audit`（依赖 CVE：libp2p/quinn/rustls/redb/ed25519）。
-- `cargo geiger` + `unsafe` 审查（预期 ≈ 0）。
+- `cargo audit`（依赖 CVE：libp2p/quinn/rustls/redb/ed25519）；
+  接受项记录在 `audit.toml` 中（RUSTSEC-2024-0436 已接受：
+  不再维护的 `paste`，无已知缺陷）。
+- `cargo geiger` + `unsafe` 审查（预期 ≈ 0 —— 已验证：
+  唯一的 `unsafe` 位于测试中；scone-topology 含
+  `#![forbid(unsafe_code)]`）。
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  （已是绿色，保持为 CI 门槛）。
+  （已是绿色；保持为合并前的本地门槛 —— 尚无 CI）。
+- 尚无模糊测试套件：首个交付物是面向五个解码器
+  （`decode_complete`、`parse_query`、`extract_answers`、
+  记录文件解析器、keyfile 解析器）的 `fuzz/` crate。
 - 对解码边界做模糊测试（第 2-3 天）：
   对 `scone_protocol::decode_complete` 运行 `cargo-fuzz`（Message、
   Transaction、Block、SignedDnsRecord、Checkpoint）—— 这是"在不可信数据上绝不 panic"
@@ -44,7 +51,8 @@
 按资产关键性排序，1 个组件 = 1 张清单：
 
 ### 2.1 scone-crypto + 身份派生（第 4 天）
-- OwnerId = BLAKE3(pubkey)：检查字节规范化（无
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey))：检查字节规范化（无
   歧义表示 → 2 个密钥、1 个所有者）。
 - Ed25519：严格的反序列化（拒绝非规范密钥？）、
   带上下文分离的验证（每个用途有自己的域
@@ -54,7 +62,7 @@
   文件权限、密文上的填充预言机。
 
 ### 2.2 交易应用（第 5 天）—— 核心
-对每一种交易变体（当前 13 种）：
+对每一种交易变体（当前 19 种）：
 - 交易在重放下是否幂等（唯一 txid、nonce/序列）？
 - 所有权检查是否先于任何效果？（签名者 == 链上
   习得的所有者，绝不信任交易自身的声明。）
@@ -106,8 +114,10 @@
   异议消息的节点）—— 为 SimNet 扩展"被动
   拜占庭"角色；
 - 真实的 30 节点网格，含 3 个恶意节点（随机字节、
-  无效交易洪流、伪造的 DHT 记录）—— 混沌测试组
-  已存在，加上攻击者角色；
+  无效交易洪流、伪造的 DHT 记录）—— 今日仍是愿景：
+  现有测试组是 `tests/adversarial*.rs`（adversarial、
+  adversarial_consensus、adversarial_dos）加上 sim 场景；
+  为其扩展攻击者角色；
 - 交叉检查：解码的两种实现（protocol.md 文档是
   规范性的 —— 审计员仅凭文档
   实现线上格式并比较字节；任何分歧 = 文档或
@@ -132,7 +142,8 @@ scone-protocol（线上格式）、交易应用（state.rs），约 8-10 k LOC�
       分歧或缓存损坏
 - [ ] 文档/代码分歧：零（由双实现
       线上格式验证）
-- [ ] 阻断性 CVE：零（cargo audit）
+- [ ] 阻断性 CVE：零（cargo audit；已接受的 RUSTSEC
+      记录在 `audit.toml` 中）
 - [ ] 加密/线上格式/交易范围的外部审计完成（如有
       预算）
 

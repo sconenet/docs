@@ -11,7 +11,7 @@
 傳送任何位元組）、一個敵對的交易提交者、一個好奇的
 中繼站營運者、一個被竊的 data-dir。設計上排除：
 終端客戶端（DNS 本質上是公開的）、整體可用性
-（混沌測試已做過）。
+（混沌測試已做過 — `tests/adversarial*.rs` 電池）。
 
 資產表，依關鍵性排序：
 1. **所有權**（狀態鏈：Register/Update/Transfer/Assign）—
@@ -25,10 +25,18 @@
 
 ## 1. 自動化靜態稽核（第 1 天 — 機械性）
 
-- `cargo audit`（相依套件 CVE：libp2p/quinn/rustls/redb/ed25519）。
-- `cargo geiger` + `unsafe` 檢視（預期 ≈ 0）。
+- `cargo audit`（相依套件 CVE：libp2p/quinn/rustls/redb/ed25519）；
+  接受項追蹤於 `audit.toml`（RUSTSEC-2024-0436 已接受：
+  未維護的 `paste`，無已知缺陷）。
+- `cargo geiger` + `unsafe` 檢視（預期 ≈ 0 — 已驗證：
+  唯一的 `unsafe` 位於測試中；`#![forbid(unsafe_code)]`
+  見於 scone-topology）。
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  （已綠，保持為 CI 閘門）。
+  （已綠；保持為合併前的本機閘門 — 尚無 CI）。
+- 尚無模糊測試 harness：第一個交付物是針對五個
+  解碼器的 `fuzz/` crate（`decode_complete`、
+  `parse_query`、`extract_answers`、記錄檔解析器、
+  keyfile 解析器）。
 - 對解碼邊界做模糊測試（第 2-3 天）：
   對 `scone_protocol::decode_complete`（Message、
   Transaction、Block、SignedDnsRecord、Checkpoint）跑
@@ -46,7 +54,8 @@
 依資產關鍵性排序，1 個元件 = 1 份檢查清單：
 
 ### 2.1 scone-crypto + 身分衍生（第 4 天）
-- OwnerId = BLAKE3(pubkey)：檢查位元組正典化（沒有
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey))：檢查位元組正典化（沒有
   歧義表示 → 2 把金鑰、1 個擁有者）。
 - Ed25519：嚴格的反序列化（非正典金鑰被拒？）、
   帶情境分離的驗證（每個用途有自己的領域
@@ -56,7 +65,7 @@
   （zeroization）、檔案權限、密文上的 padding oracle。
 
 ### 2.2 交易套用（第 5 天）— 核心
-對每個 Transaction 變體（目前 13 個）：
+對每個 Transaction 變體（目前 19 個）：
 - 交易在重播下是否冪等（唯一 txid、nonce/序號）？
 - 所有權檢查是否先於任何效果？（簽署者 == 鏈上
   學得的擁有者，絕不信任交易本身聲稱的。）
@@ -105,8 +114,10 @@
   不一致訊息的節點）— 為 SimNet 擴充「被動
   拜占庭」角色；
 - 真實的 30 節點網格含 3 個敵對節點（隨機位元組、
-  無效交易爆發、偽造的 DHT 記錄）— 混沌電池
-  已在，加上攻擊者角色；
+  無效交易爆發、偽造的 DHT 記錄）— 今日仍是願景：
+  既有的電池是 `tests/adversarial*.rs`（adversarial、
+  adversarial_consensus、adversarial_dos）加上 sim 情境；
+  為它擴充攻擊者角色；
 - 交叉檢查：解碼的兩個實作（protocol.md 文件是
   規範性的 — 稽核者僅依文件實作線上
   格式並比對位元組；任何分歧 = 文件或
@@ -130,7 +141,8 @@ scone-protocol（線上格式）、交易套用（state.rs），約 8-10 k LOC�
       分歧或快取損毀
 - [ ] 文件／程式碼分歧：零（由雙線上實作
       驗證）
-- [ ] 阻斷性 CVE：零（cargo audit）
+- [ ] 阻斷性 CVE：零（cargo audit；已接受的 RUSTSEC
+      追蹤於 `audit.toml`）
 - [ ] 密碼學／線上／交易範圍的外部稽核完成（若有
       預算）
 

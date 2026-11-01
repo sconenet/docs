@@ -8,7 +8,7 @@
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`
 中抽取，作用于**由检查点 N 所终局化的区块冻结的
 资格池**。`signing_hash` 是检查点**内容**的
-哈希（纪元、高度、区块、prev、状态根 —— 不含
+哈希（纪元、高度、recovery、区块、prev、状态根 —— 不含
 签名集）：种子是"什么被终局化"的纯函数，而绝不
 是"哪个法定人数子集签了它"的函数 —— 持有同一
 检查点的不同（均有效）子集的两个视图选出

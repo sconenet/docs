@@ -17,7 +17,9 @@
   中继的日志 —— 迁移之前中继就已经
   输出到 stderr 了。
 - CLI 面向用户的错误消息（`scone: <error>`）留在
-  stderr：这是 UX，不是日志。
+  stderr：这是 UX，不是日志。失败的命令还会输出
+  第二行 stderr，`[Failed: <error>]`，与成功命令的
+  状态行相呼应。
 
 ## 级别与 `--verbose` / `-v`
 
@@ -34,7 +36,7 @@
 与 `scone identity list -vv` 等价）。
 
 **为什么 `scone relay` 默认保持在 INFO**：中继是一个
-守护进程 —— 它必须记录自己的活动（RPC/p2p 监听、
+守护进程 —— 它必须记录自己的活动（p2p 监听、
 接受与产出的区块、连接的对等节点、拒绝事件）才能
 被运维，而无需额外标志。相反，一次性命令保持
 安静（WARN），以免污染终端或脚本。
@@ -69,8 +71,11 @@ explicit CLI flag  >  .env variable  >  built-in default
   真实进程环境中 —— 同一个变量，同样的效果）；
 - 否则使用 clap 的内建默认值。
 
-可重复的变量（`SCONE_BOOTSTRAP`、`SCONE_DNS_UPSTREAM`）
-会累积：`.env` 中每个值一行（dotenvy 追加）。
+`.env` 中每个变量只持有一个值：dotenvy 应用变量的
+**首次**出现（重复项被静默跳过），绝不累积；
+真实进程环境也胜过文件。因此多个 bootstrap 种子或
+DNS 上游需要在命令行上重复 `--bootstrap` /
+`--dns-upstream` 标志。
 
 `SCONE_*` 变量的完整表格（网络、P2P 监听、
 bootstrap、创世、UPnP、DNS 面、指标、拓扑
@@ -81,13 +86,15 @@ profile、锚节点）及各自的语义位于
 
 ## 级别语义（代码约定）
 
-- `error!`：失败（今日没有调用点 —— 网络失败被
+- `error!`：致命的本地失败（签名者状态不可读/损坏时
+  签名者被禁用、存储不可用、深分叉恢复失败、锚节点
+  口令未持久化）—— 网络失败被
   吞为 `warn!`，只有致命的本地失败才以
-  `run()` 抛出的类型化错误呈现）；
+  `run()` 抛出的类型化错误呈现；
 - `warn!`：被拒之门外的恶意或敌意网络输入、
   从内存池驱逐的过期交易、出块期间丢弃的
   冲突交易、出站/入站失败、DHT 键不匹配；
-- `info!`：区块接受/产出、RPC/p2p 监听、对等节点
+- `info!`：区块接受/产出、p2p 监听、对等节点
   连接、中继启动（状态检查点）；
 - `debug!`：内部细节（交易接受、对等节点断开、RPC
   往返、keystore 列出、`SCONE_KAD_DEBUG` 下的
@@ -107,8 +114,10 @@ profile、锚节点）及各自的语义位于
 - 当 keystore 只持有一个身份时**不需要
   `--identity`**（静默使用；多个 → 错误会
   列出它们）。
-- 已移除（存根会提示替代品）：`show`、`submit`、
-  `lookup`、`owned`。
+- 已移除：`show`、`submit`、
+  `lookup`、`owned` —— 无存根；clap 以其通用的
+  "unrecognized subcommand" 错误加上最接近名称的
+  建议拒绝这些名称。
 - 新增：`scone domain renew <name>`、`scone domains`、
   `scone domain get|set`（单条记录，无文件）。
 
@@ -180,7 +189,7 @@ scone domain delegates clear example.uip --identity alice
 上面的默认值覆盖日常使用。面向脚本和 web/API
 互操作，完整命令面仍然可用：
 
-每个操作只有一条规范路径；以前的根级别别名（`show`、`lookup`、`owned`、`renew`）已被移除（remove-cli-aliases），从未真实存在的 `domain info` 提法也一并移除。
+每个操作只有一条规范路径；以前的根级别别名（`show`、`lookup`、`owned`、`renew`）已被移除（remove-cli-aliases）；`domain info` 保留为 `domain get` 的兼容别名。
 
 离线十六进制命令面（`tx build|sign|verify`、`submit tx`
 子命令）已被移除（remove-tx-surface-v2）：它所服务的 M8b
@@ -189,7 +198,11 @@ scone domain delegates clear example.uip --identity alice
 挖矿的开放 PoW）、`scone tld transfer <tld> <owner>`、
 `scone tld revoke <tld>`、`scone domain assign <name> <owner>`
 （TLD 所有者，私有 TLD）以及 `scone domain transfer <name>
-<owner>`。每一条都是：读状态、签名、提交、txid。DNS 记录
+<owner>`。每一条都是：签名、提交、txid。转移路径
+（`tld transfer`、`domain transfer`）在客户端预读链上
+状态 —— 让渡证明绑定到当前世代 —— 而 `tld open`、
+`tld revoke` 与 `domain assign` 不做客户端状态读取
+（由节点强制执行）。DNS 记录
 解析移到了 `scone domain resolve <name>`（原 `record
 get`）；十六进制发布通道（`record put`）已消失 ——
 编辑通过 `domain set` / `domain update` 进行。
@@ -214,8 +227,9 @@ get`）；十六进制发布通道（`record put`）已消失 ——
   <pubkey>` / `scone tld renew <tld> --to <pubkey>`
   提交挑战绑定受益者密钥的证明；链上 `owner`
   重新计算为 `hash(pubkey_dest)`（续期绝不改变
-  所有权）。不带 `--proof` 时，命令自己挖证明；
-  带 `--proof -`/FILE 时消费
+  所有权）。`--to` 命令总是在原地挖证明 ——
+  `--proof` 只存在于 `domain register --to` 上：带
+  `--proof -`/FILE 时消费
   `scone-domain-pow-to-v1` 载荷，并拒绝为其他
   受益者挖出的证明。管道风格：`scone domain
   mine n.tld --mine-for <pubkey> | scone domain
@@ -246,7 +260,8 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 曲线）。所选网络决定 Argon2id 参数（mainnet：
 64 MiB、t=2 —— 真实成本；testnet/devnet：轻量
 配置，毫秒级证明）。每个 worker 分配自己的
-64 MiB Argon2id 通道 —— 请按可用内存调整
+Argon2id 通道 —— mainnet 配置下为 64 MiB，轻量
+testnet/devnet 配置下为 8 KiB —— 请按可用内存调整
 `--cores`。
 
 ## 构建：dev 与启用主网（mainnet-compile-gate）
@@ -260,8 +275,7 @@ mainnet`（以及带 `SCONE_NETWORK=mainnet` 的注册服务）
 cargo build --release --features mainnet
 ```
 
-`scone --version` 在此类构建上显示 `+mainnet`，
-中继启动日志显示 `build: mainnet-enabled`。
+`scone --version` 在此类构建上显示 `+mainnet`。
 
 默认的 `--network` 也随构建而定：在启用主网的
 构建上是 `mainnet`（官方二进制让用户落在

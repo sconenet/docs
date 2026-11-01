@@ -1,4 +1,4 @@
-# Máy chủ DNS UDP + TCP (M6 + M7b) — `scone dns`
+# Máy chủ DNS UDP + TCP (M6 + M7b) — `scone relay --dns`
 
 > Đặc tả chuẩn của bề mặt DNS Scone.
 > Bất kỳ sự khác biệt tài liệu/mã = bug (sửa nguồn chân lý).
@@ -13,11 +13,12 @@ lại. Nó không sở hữu chuỗi, kho, hay DHT: các quyết định tồn
 tại/hết hạn đi qua **snapshot DNS có thẩm quyền** (một góc nhìn
 RAM được xuất bản sau mỗi khối được áp dụng — xem dưới), và các
 lần lấy bản ghi đi qua relay (tiến trình), qua kênh nội bộ
-`RelayCommand`/`ResolveLocal` (trong tiến trình, một vòng) —
+`RelayCommand`/`ResolveLocal` (trong tiến trình: một vòng, hai
+vòng khi câu trả lời đầu là `pending` — xem đường phân giải) —
 cùng đường đã xác minh như CLI.
 
 ```text
-              UDP+TCP :5353 (default 127.0.0.1)
+              UDP+TCP :5353 (no value = bind 0.0.0.0:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -32,8 +33,10 @@ cùng đường đã xác minh như CLI.
                     │  │           chain + verified record (hash,
                     │  │           owner, sequence) → answers
                     │  │        apex without a published record → NODATA
-                    │  └─ NO → upstream fallback (if configured)
-                    │           otherwise REFUSED
+                    │  └─ NO → 1 or > 16 labels → REFUSED (even
+                    │           with upstreams); right shape but
+                    │           foreign TLD → upstream fallback
+                    │           (if configured), else REFUSED
                     │
                     │  response budget:
                     │    UDP → 512 bytes (no EDNS); overflow =
@@ -51,6 +54,12 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 1.1.1.1:53 \
             --dns-upstream 8.8.8.8:53       # + recursive fallback
 ```
+
+`--dns` KHÔNG có giá trị buộc `0.0.0.0:5353` — TẤT CẢ các giao
+diện (chạm được từ mọi mạng mà máy gắn vào; một mặc định
+chỉ-loopback là một việc bảo mật cần làm đã được ghi nhận).
+Truyền một địa chỉ tường minh để buộc chính xác
+(`--dns 127.0.0.1:5353` = chỉ các truy vấn cục bộ).
 
 Relay loan báo địa chỉ hiệu lực trên stdout (hợp đồng đọc-được-
 bởi-máy, như `p2p:`): một dòng `dns: <addr>` ngay khi socket
@@ -88,8 +97,9 @@ Client kiểm chứng: `dig <name> --dns 127.0.0.1:5353
    lập khóa theo `hash(qname)` (qtype chia sẻ shard: tính cục bộ
    theo-tên). Một tên nóng cạnh tranh với 1/16 lưu lượng thay vì
    xếp hàng sau một mutex duy nhất ở hàng nghìn qps. Biên TOÀN
-   CỤC (100.000 mục / 64 MiB mặc định,
-   `--dns-cache-limit` / `--dns-cache-max-mem`) chia theo shard
+   CỤC (100.000 mục / 64 MiB — mặc định cố định; các trình
+   nhúng thư viện có thể ghi đè các trường `Config`) chia theo
+   shard
    (trường hợp xấu được ghi nhận: một hệ số 1 + N/shards). Kích
    thước rdata THẬT của từng mục được tính (~128 byte chi phí
    trên mỗi mục) và trục xuất FIFO kích hoạt ở biên đầu tiên
@@ -119,11 +129,17 @@ Client kiểm chứng: `dig <name> --dns 127.0.0.1:5353
      được vang lại — câu hỏi không bao giờ được mã hóa lại đầy
      đủ cho mỗi bản ghi.
 2. **Hình-Scone?** Tiền lọc nghiêm ngặt: các nhãn `[a-z0-9-_]`
-   (1..63), ≥ 2 nhãn, TLD 1..63 byte `[a-z0-9-]` (xem
+   (1..63), **2..=16 nhãn** (hình dạng mức phân tích), TLD
+   1..63 byte `[a-z0-9-]` (xem
    `TldName::MAX_LEN`), tổng chiều dài ≤ 253 — **và TLD ngoài
    root ICANN** (`is_icann_tld`, danh sách IANA đóng băng +
    RFC 2606: `com`, `fr`, `org`… không bao giờ thuộc về Scone).
-   Một tên KHÔNG THỂ là tên Scone (ví dụ `www.foo_bar`, gạch
+   Một tên có dạng đúng NGOÀI hình 2..=16 (chỉ-TLD, nhiều hơn
+   16 nhãn) bị **REFUSED vô điều kiện, trước mọi fallback — kể
+   cả khi có upstream** (nếu không, một stub resolver sẽ treo
+   cho đến khi hết hạn của nó).
+   Một tên có hình dạng đúng mà KHÔNG THỂ là tên Scone (ví dụ
+   `www.foo_bar`, gạch
    dưới trong TLD) đi sang fallback; một tên có thể là Scone
    (`absent.uip`) là việc của chuỗi: chưa đăng ký → NXDOMAIN có
    thẩm quyền, kể cả khi không có upstream. Một TLD ICANN
@@ -135,7 +151,12 @@ Client kiểm chứng: `dig <name> --dns 127.0.0.1:5353
    biết = apex; bộ bản ghi phục vụ toàn bộ qname (các tên con
    kể cả — hành vi wildcard ngầm, quyết định mở).
 4. **`resolve_local` (kênh nội bộ)**: một vòng duy nhất, không
-   bao giờ một trình chờ DHT. Trạng thái on-chain (`registered`,
+   bao giờ một trình chờ DHT. Ngoại lệ: một câu trả lời đầu mang
+   `pending: true` (bản ghi đã được cam kết on-chain —
+   `record_hash` có mặt — nhưng cache DHT cục bộ vẫn còn rỗng:
+   một kéo từ peer vừa được phát hành) kích thích MỘT lần thử
+   lại tự động sau 300 ms, cho lần kéo một cơ hội đáp đất — hai
+   vòng tối đa. Trạng thái on-chain (`registered`,
    owner, sequence, mutations) + bản ghi cache DHT cục bộ
    **được xác minh lại** (owner, sequence, record_hash == cam kết
    on-chain; chữ ký của bản ghi có thể đến từ chủ hoặc một ủy
@@ -163,7 +184,11 @@ Client kiểm chứng: `dig <name> --dns 127.0.0.1:5353
 - Các kiểu phục vụ: A, AAAA, CNAME, NS, MX, TXT, **PTR, SRV,
   CAA** (+ Unknown mã hóa lại nguyên văn; tổng 9 kiểu bản địa,
   rdata mã hóa theo RFC — 1035/2782/8659; CAA nghiêm ngặt: bit
-  tới hạn 0x80 duy nhất, tag chữ thường). Một truy vấn A/AAAA
+  tới hạn 0x80 duy nhất, tag chữ thường). Các kiểu ủy nhiệm
+  RIÊNG **NS4 = 32769 / NS6 = 32770** (nameserver theo
+  IPv4/IPv6) trả lời các truy vấn tường minh và được gồm trong
+  ANY — không bao giờ được phục vụ như A/AAAA của tên miền. Một
+  truy vấn A/AAAA
   gồm các CNAME của bộ (đuổi alias). Truy vấn ANY (255): toàn
   bộ bộ được lọc bởi codec.
 - Giới hạn (M7b): **ngân sách phản hồi phụ thuộc vận chuyển** —
@@ -207,17 +232,23 @@ trong một cache âm tính bị chặn (FIFO, nắp
 cùng tên trong TTL bị **dập tắt** (đếm, không bao giờ kéo lại).
 Một máy quét — hay một tên nóng mà chủ chưa từng xuất bản —
 không thể còn khuếch đại một truy vấn DNS thành một `GetRecord`
-cho mỗi peer lưới cho mỗi truy vấn. Mục âm tính chết tại TTL,
-khi bản ghi đến (lần kéo thành công ghi vào cache thật), hay
-bị đẩy ra nắp FIFO.
+cho mỗi peer lưới cho mỗi truy vấn. Mục âm tính chết tại TTL hay
+bị đẩy ra nắp FIFO; khi bản ghi đến nó KHÔNG bị gỡ — lần kéo
+thành công ghi vào cache thật, cái trả lời trước, nên mục đơn
+giản ngừng được tham vấn cho đến khi nó hết hạn.
 
 Các bộ đếm phơi bày (`scone_dht_negative_hits_total`,
 `_expired_total`, `_capped_total` — xem "Metrics" trong
-`relay.md`).
+`relay.md`): hiện nay chỉ `_hits_total` được nối dây;
+`_expired_total` và `_capped_total` được khai báo nhưng không
+được đo (hiện luôn 0).
 
 ## TCP (M7b, RFC 7766)
 
-Cùng cổng với UDP (buộc TCP thứ hai trên địa chỉ `--dns`). Vận
+Cùng cổng với UDP (buộc TCP thứ hai trên địa chỉ `--dns`). Buộc
+TCP mang tính **nỗ lực-tốt-nhất**: khi thất bại, relay ghi
+nhật ký `dns tcp bind failed (udp only)` và tiếp tục phục vụ
+một mình UDP. Vận
 chuyển theo RFC 1035 §4.2.2: mọi thông điệp được tiền tố chiều
 dài trên **2 byte** big-endian.
 
@@ -257,10 +288,10 @@ client                     server
 | Phản hồi TCP tối đa | 65.535 byte |
 | Kết nối TCP đồng thời | 64 (semaphore, từ chối tức thì) |
 | Hết hạn đọc TCP | 5 s |
-| Cache | biên TOÀN CỤC 100.000 mục / 64 MiB mặc định, chia trên 16 shard (`--dns-cache-limit` / `--dns-cache-max-mem`) |
+| Cache | biên TOÀN CỤC 100.000 mục / 64 MiB (mặc định cố định), chia trên 16 shard |
 | TTL có thẩm quyền | **theo từng bản ghi** (`record.ttl`, biên 1..=2.592.000 s; hằng số lịch sử 60 s chỉ còn cho các phản hồi dịch vụ) |
 | TTL fallback (kẹp) | 600 s |
-| Truy vấn UDP song song | 4.096 (`MAX_INFLIGHT_UDP`, semaphore; vượt: bỏ, client thử lại) — chỉnh được `--dns-max-inflight` (tối thiểu 1) |
+| Truy vấn UDP song song | 4.096 (`MAX_INFLIGHT_UDP`, semaphore; mặc định cố định — các trình nhúng thư viện có thể ghi đè trường `Config`). Vượt quá: vòng nhận ÁP LỰC NGƯỢC (mỗi lần nhận chờ một permit; bộ đệm socket của nhân, rồi các hết hạn của client, hấp thụ phần dư) |
 | Cache âm tính DHT | 30 s (`DHT_NEGATIVE_TTL_SECS`), nắp FIFO 4.096 tên |
 | Hết hạn mỗi upstream | 2 s |
 
@@ -425,6 +456,17 @@ băng).
 
 ### Lựa chọn (phân giải)
 
+> **Hạn chế của relay (nhị phân hiện tại)**: chỉ các scope
+> **World**, **Continent** và **Country** thực sự được bộ phân
+> giải `scone relay` phục vụ. Các tuyến **Region**, **Asn** và
+> **IpPrefix** xác thực on-chain (giải mã wire, chữ ký, tính duy
+> nhất) và được tính trong sắp chuẩn, nhưng đường phục vụ giải
+> mã lại các bộ bản ghi qua một dạng JSON chỉ biết ba scope v1:
+> các tuyến mang những scope đó bị bỏ trước lựa chọn và không
+> bao giờ được bầu. Một tên miền mà CHỈ các tuyến của nó mang
+> Region/Asn/IpPrefix quay về đường DNS cổ điển (thường là
+> NODATA trên A/AAAA). Việc cần làm theo mã đang chờ.
+
 1. **Scope** — tính cụ thể giảm dần, **6 tầng**: **tiền tố IP
    khớp dài nhất → AS chính xác → quốc gia chính xác → vùng
    chính xác → châu lục → thế giới**.
@@ -437,10 +479,13 @@ băng).
      hơn quốc gia (đánh số mờ, chỉ đáng tin nếu bên xuất bản
      và locator chia sẻ cùng một cái), nhưng hơn châu lục
      (nó nằm trong quốc gia của nó, do đó a fortiori trong
-     châu lục của nó).
-   - *Asn*: số AS chính xác của client.
+     châu lục của nó) — **không được phục vụ** bởi relay hiện
+     tại (xem hạn chế trên).
+   - *Asn*: số AS chính xác của client (**không được phục vụ**
+     bởi relay hiện tại — xem hạn chế trên).
    - *Country*: quốc gia chính xác.
-   - *Region*: vùng chính xác (định danh mờ).
+   - *Region*: vùng chính xác (định danh mờ; **không được
+     phục vụ** bởi relay hiện tại — xem hạn chế trên).
    - *Continent*: do locator cung cấp **hoặc dẫn xuất từ quốc
      gia** qua bảng cục bộ (`continent_of_country`); một quốc
      gia không rõ bảng quay về châu lục tường minh hay thế
@@ -490,9 +535,16 @@ băng).
 
 Quyết định định tuyến geo **KHÔNG BAO GIỜ được cache** dưới
 `(qname, qtype)`: nó phụ thuộc scope client của bộ phân giải,
-và một khóa như vậy sẽ phục vụ tuyến US cho một client TW. Các
-câu trả lời geo được tính lại ở mỗi truy vấn (chi phí: một
-select_scope + rút trọng số, µs) và bypass cache. Cache cổ
+và một khóa như vậy sẽ phục vụ tuyến US cho một client TW. Một
+**mini-cache geo có biên** chuyên dụng tồn tại thay thế: khóa
+`(qname, quốc-gia-client)` (cùng quốc gia + cùng tên = cùng
+quyết định tuyến), bị chặn ở 4.096 mục, mỗi mục hết hạn với TTL
+riêng bị chặn ở 60 s (một cập nhật bản ghi có hiệu lực trong
+biên đó ngay cả khi không có trục xuất). Nó chỉ được lấp KHI
+mọi scope thắng của mọi tuyến giữ một endpoint duy nhất — một
+quyết định tất định; các scope có trọng số (đa endpoint) được
+tính lại ở mỗi truy vấn để nonce theo từng yêu cầu tiếp tục
+phân phối tải. Cache cổ
 điển (qname, qtype) không đổi cho mọi thứ khác — kể cả NODATA
 được tạo khi geo không quyết gì. Các rcode lỗi vẫn không bao
 giờ cache.
@@ -504,11 +556,16 @@ Chủ của một tên miền chọn chế độ phục vụ theo từng tên mi
 - **DHT (mặc định)** — không có bản ghi `ns`, mạng Scone phục
   vụ các A/AAAA on-chain (relay `--dns`, hay cầu NSD qua
   export);
-- **NS độc lập** — chủ thêm các bản ghi `ns <ip-hay-tên>`
+- **NS độc lập** — chủ XUẤT BẢN một bộ bản ghi `ns <ip-hay-tên>`
   (nameserver CỦA HỌ, IP trực tiếp hay hostname): tên miền bị
-  ỦY QUYỀN — mạng ngừng phục vụ nội dung của nó (A/AAAA →
-  NODATA + thẩm quyền NS), và bất cứ ai phân giải đều theo NS
-  của chủ. Giới hạn: **12 NS phân biệt mỗi tên miền** (mọi
+  ỦY QUYỀN. Mạng không tước bỏ gì: nó phục vụ bộ có ký nguyên
+  trạng — một bộ chỉ-NS đơn giản không để lại A/AAAA nào để
+  trả lời (các truy vấn địa chỉ → NODATA, các bản ghi NS mang
+  thẩm quyền), và bất cứ ai phân giải đều theo NS
+  của chủ. Các mục NS-theo-IP chỉ trả lời ở các kiểu riêng
+  NS4 = 32769 / NS6 = 32770 — không bao giờ như địa chỉ của
+  tên miền.
+  Giới hạn: **12 NS phân biệt mỗi tên miền** (mọi
   dạng, khử trùng lặp theo giá trị — phản chiếu các trần của
   registry ngoài đời). Gỡ một NS giải phóng slot; gỡ tất cả
   khôi phục chế độ DHT.
@@ -521,8 +578,12 @@ phục vụ bộ bản ghi có ký nguyên trạng, theo thứ tự bản ghi
 ### Bảo mật
 
 - Các bản ghi GEOROUTE là các bản ghi có ký như mọi bản ghi
-  khác: được xác minh đối với chuỗi (owner, sequence,
-  record_hash) trước mọi sử dụng. **Không tin mạng nếu chưa
+  khác: được xác minh đối với chuỗi trước mọi sử dụng — owner,
+  sequence, record_hash,
+  và một quy tắc thứ tư: **tối đa MỘT GEOROUTE mỗi scope** (một
+  tuyến thứ hai cùng scope bị từ chối, `geo_scopes_unique` —
+  hai "vùng EU" sẽ làm phân giải nhập nhằng). **Không tin mạng
+  nếu chưa
   xác minh** — một GEOROUTE DHT chưa xác minh không bao giờ
   trả lời.
 - Vị trí client đến từ **mạch tự khám phá**: relay tự định vị

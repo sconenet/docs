@@ -16,7 +16,9 @@
 - **Mọi nhật ký đều đi vào stderr** (định dạng `tracing` gọn),
   kể cả của relay — relay đã ghi vào stderr trước khi di trú.
 - Các thông báo lỗi hướng người dùng của CLI (`scone: <error>`) ở
-  lại stderr: đây là UX, không phải nhật ký.
+  lại stderr: đây là UX, không phải nhật ký. Một lệnh thất bại
+  cũng in một dòng stderr thứ hai, `[Failed: <error>]`, soi gương
+  các dòng trạng thái của các lệnh thành công.
 
 ## Các cấp và `--verbose` / `-v`
 
@@ -33,7 +35,7 @@ nhận trước hoặc sau lệnh con (`scone -vv identity list` và
 `scone identity list -vv` là tương đương).
 
 **Vì sao `scone relay` giữ INFO mặc định**: relay là một daemon —
-nó phải ghi lại hoạt động của mình (lắng nghe RPC/p2p, các khối
+nó phải ghi lại hoạt động của mình (lắng nghe p2p, các khối
 được chấp nhận và tạo ra, peer kết nối, các lần từ chối) để vận
 hành được, mà không cần một cờ nào. Ngược lại, các lệnh dùng một
 lần giữ im lặng (WARN) để không làm bẩn một terminal hay một
@@ -69,8 +71,11 @@ explicit CLI flag  >  .env variable  >  built-in default
   trình thực — cùng một biến, cùng hiệu ứng);
 - nếu không, mặc định dựng sẵn của clap.
 
-Các biến lặp được (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`) tích
-lũy: một dòng cho mỗi giá trị trong `.env` (dotenvy nối thêm).
+`.env` giữ MỘT giá trị cho mỗi biến: dotenvy áp dụng LẦN XUẤT
+HIỆN ĐẦU TIÊN của một biến (các bản trùng bị bỏ qua im lặng) và
+không bao giờ tích lũy; môi trường tiến trình thực cũng thắng
+tệp. Nhiều seed bootstrap hay upstream DNS do đó đòi hỏi lặp lại
+các cờ `--bootstrap` / `--dns-upstream` trên dòng lệnh.
 
 Bảng đầy đủ các biến `SCONE_*` (mạng, lắng nghe P2P, bootstrap,
 genesis, UPnP, bề mặt DNS, chỉ số, hồ sơ cấu trúc liên kết,
@@ -81,13 +86,16 @@ thích là `.env.example` ở thư mục gốc của kho (sao chép sang
 
 ## Ngữ nghĩa các cấp (quy ước mã)
 
-- `error!`: thất bại (hiện không có call site — thất bại mạng bị
+- `error!`: các thất bại cục bộ nghiêm trọng (signer bị vô hiệu
+  hóa trên một trạng thái signer không đọc được/hỏng, kho dùng
+  không được, khôi phục fork sâu thất bại, cụm mật khẩu anchor
+  không được lưu) — thất bại mạng bị
   nuốt thành `warn!` và chỉ thất bại cục bộ nghiêm trọng nổi lên
-  thành một lỗi có kiểu từ `run()`);
+  thành một lỗi có kiểu từ `run()`;
 - `warn!`: các mục mạng thù địch hoặc độc hại bị đẩy lùi, tx cũ
   bị đẩy ra khỏi mempool, tx xung đột bị bỏ trong quá trình tạo
   khối, thất bại outbound/inbound, lệch khóa DHT;
-- `info!`: khối được chấp nhận/tạo ra, lắng nghe RPC/p2p, peer
+- `info!`: khối được chấp nhận/tạo ra, lắng nghe p2p, peer
   kết nối, khởi động relay (checkpoint trạng thái);
 - `debug!`: chi tiết nội bộ (tx được chấp nhận, peer ngắt kết nối,
   vòng RPC, liệt kê keystore, sự kiện kad dưới
@@ -106,8 +114,9 @@ cần nhật ký của nó ngay từ lúc khởi động).
   cục bộ; biến môi trường `SCONE_PEER` hoặc `--peer` ghi đè.
 - **Không cần `--identity`** khi keystore giữ một danh tính duy
   nhất (nó được dùng âm thầm; nhiều hơn → lỗi liệt kê chúng).
-- Đã gỡ bỏ (các stub gợi ý thay thế): `show`, `submit`,
-  `lookup`, `owned`.
+- Đã gỡ bỏ: `show`, `submit`, `lookup`, `owned` — không stub
+  nào; clap từ chối các tên này với lỗi chung "unrecognized
+  subcommand" kèm một gợi ý tên gần nhất.
 - Mới: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (bản ghi đơn, không tệp).
 
@@ -180,8 +189,8 @@ tác web/API, toàn bộ bề mặt vẫn khả dụng:
 
 mỗi thao tác chỉ có đúng MỘT đường dẫn chuẩn; các bí danh gốc cũ
 (`show`, `lookup`, `owned`, `renew`) đã bị xóa
-(remove-cli-aliases), cùng với đề cập `domain info` — vốn chưa
-bao giờ tương ứng với lệnh thật.
+(remove-cli-aliases); `domain info` vẫn tồn tại như một bí danh
+tương thích của `domain get`.
 
 Bề mặt hex ngoại tuyến (`tx build|sign|verify`, các lệnh con
 `submit tx`) đã BỊ GỠ BỎ (remove-tx-surface-v2): các thao tác M8b
@@ -190,7 +199,11 @@ mà nó phục vụ nay là các lệnh hạng nhất —
 hộ bạn), `scone tld transfer <tld> <owner>`,
 `scone tld revoke <tld>`, `scone domain assign <name> <owner>`
 (chủ TLD, TLD tư nhân) và `scone domain transfer <name>
-<owner>`. Mỗi lệnh: đọc trạng thái, chữ ký, gửi, txid. Việc phân
+<owner>`. Mỗi lệnh: chữ ký, gửi, txid. Các đường chuyển nhượng
+(`tld transfer`, `domain transfer`) đọc trước trạng thái
+on-chain phía client — bằng chứng nhượng quyền gắn với thế hệ
+hiện tại — trong khi `tld open`, `tld revoke` và `domain assign`
+không đọc trạng thái nào phía client (nút áp đặt). Việc phân
 giải bản ghi DNS chuyển sang `scone domain resolve <name>` (trước
 là `record get`); kênh xuất bản hex (`record put`) đã biến mất —
 chỉnh sửa đi qua `domain set` / `domain update`.
@@ -215,7 +228,8 @@ chỉnh sửa đi qua `domain set` / `domain update`.
   <tld> --to <pubkey>` gửi một bằng chứng mà challenge gắn
   khóa NGƯỜI THỤ HƯỞNG; `owner` trên chuỗi được tính lại
   thành `hash(pubkey_dest)` (một renew KHÔNG BAO GIỜ đổi
-  chủ). Không có `--proof`, lệnh tự đào bằng chứng; với
+  chủ). Các lệnh `--to` luôn đào bằng chứng của chúng tại chỗ —
+  `--proof` chỉ tồn tại TRÊN `domain register --to`: với
   `--proof -`/FILE nó tiêu thụ một payload
   `scone-domain-pow-to-v1` và từ chối bằng chứng đào cho
   người thụ hưởng KHÁC. Kiểu pipe: `scone domain mine n.tld
@@ -246,8 +260,9 @@ bình dự kiến mỗi thao tác — chuyển nhượng/gán (giá phẳng), m�
 TLD riêng tư, và các sàn đăng ký TLD/tên miền (đường cong chiều
 dài). Mạng được chọn quyết định tham số Argon2id (mainnet:
 64 MiB, t=2 — chi phí thật; testnet/devnet: hồ sơ nhẹ, bằng
-chứng mili-giây). Mỗi worker cấp phát lane Argon2id 64 MiB của
-riêng nó — chỉnh `--cores` theo RAM khả dụng.
+chứng mili-giây). Mỗi worker cấp phát lane Argon2id của riêng
+nó — 64 MiB trên hồ sơ mainnet, 8 KiB trên hồ sơ nhẹ
+testnet/devnet — chỉnh `--cores` theo RAM khả dụng.
 
 ## Build: dev vs bật-mainnet (mainnet-compile-gate)
 
@@ -260,8 +275,7 @@ chính thức được build bằng:
 cargo build --release --features mainnet
 ```
 
-`scone --version` hiển thị `+mainnet` trên các build như vậy, và
-nhật ký khởi động relay ghi `build: mainnet-enabled`.
+`scone --version` hiển thị `+mainnet` trên các build như vậy.
 
 `--network` mặc định cũng theo build: `mainnet` trên build bật
 mainnet (tệp nhị phân chính thức đặt người dùng lên mạng sản
