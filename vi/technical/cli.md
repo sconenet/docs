@@ -96,7 +96,8 @@ thích là `.env.example` ở thư mục gốc của kho (sao chép sang
   bị đẩy ra khỏi mempool, tx xung đột bị bỏ trong quá trình tạo
   khối, thất bại outbound/inbound, lệch khóa DHT;
 - `info!`: khối được chấp nhận/tạo ra, lắng nghe p2p, peer
-  kết nối, khởi động relay (checkpoint trạng thái);
+  kết nối, khởi động relay (checkpoint trạng thái) và dòng biến
+  thể build (`build: mainnet-enabled` / `build: standard`);
 - `debug!`: chi tiết nội bộ (tx được chấp nhận, peer ngắt kết nối,
   vòng RPC, liệt kê keystore, sự kiện kad dưới
   `SCONE_KAD_DEBUG`);
@@ -265,6 +266,10 @@ nó — 64 MiB trên hồ sơ mainnet, 8 KiB trên hồ sơ nhẹ
 testnet/devnet — chỉnh `--cores` theo RAM khả dụng.
 
 ## Build: dev vs bật-mainnet (mainnet-compile-gate)
+
+Nhật ký khởi động relay mở đầu bằng biến thể build
+(`build: mainnet-enabled` / `build: standard`) — đối tác runtime
+của đánh dấu phiên bản `+mainnet`.
 
 Build mặc định **không mang mainnet**: `scone relay --network
 mainnet` (và các dịch vụ registrar với `SCONE_NETWORK=mainnet`)

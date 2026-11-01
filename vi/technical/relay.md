@@ -231,6 +231,9 @@ cố ý: không bao giờ hơn một khối đang bay mỗi peer.
 
 ### Khởi động
 
+Nhật ký khởi động mở đầu bằng biến thể build
+(`build: mainnet-enabled` / `build: standard`).
+
 0. phân giải mạng (`--network testnet|mainnet|devnet`, mặc định
    testnet trong khi dự án đang phát triển — M8b). Thư mục dữ
    liệu là **theo từng mạng** (`~/.scone/<network>/`): một kho

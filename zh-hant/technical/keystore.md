@@ -125,12 +125,10 @@ ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 
 `GeneratedKey.signing_key` 在 drop 時由
 `ed25519-dalek` 歸零（預設 `zeroize`
-特性）。衍生的 AEAD 金鑰與
-解密後的明文都包在 `zeroize::Zeroizing`
-中 — Drop 涵蓋所有退出路徑，包括 `?`
-傳播的錯誤。在密封路徑上，seed 副本是暫態的：
-一個在密封呼叫結束時離開作用域的
-普通堆疊陣列。
+特性）。衍生的 AEAD 金鑰、解密後的
+明文與密封路徑的 seed 副本都包在
+`zeroize::Zeroizing` 中 — Drop 涵蓋所有
+退出路徑，包括 `?` 傳播的錯誤。
 
 ## 檔案權限
 

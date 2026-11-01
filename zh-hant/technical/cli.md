@@ -98,7 +98,9 @@ gitignore）。
   捨棄的衝突交易、出站／入站失敗、DHT 金鑰
   不符；
 - `info!`：區塊接受／產出、p2p 監聽、peer
-  連線、中繼站啟動（狀態檢查點）；
+  連線、中繼站啟動（狀態檢查點）與建置
+  風味行（`build: mainnet-enabled` /
+  `build: standard`）；
 - `debug!`：內部細節（交易接受、peer 斷線、RPC
   往返、keystore 列表、`SCONE_KAD_DEBUG` 下的
   kad 事件）；
@@ -275,6 +277,10 @@ testnet/devnet 設定檔為 8 KiB — 請按可用記憶體調整
 `--cores`。
 
 ## 建置：開發 vs 啟用主網（mainnet-compile-gate）
+
+中繼站啟動日誌以建置風味開頭
+（`build: mainnet-enabled` / `build: standard`）—
+`+mainnet` 版本標記的執行期對應物。
 
 預設建置**不含主網**：`scone relay --network
 mainnet`（以及帶 `SCONE_NETWORK=mainnet` 的

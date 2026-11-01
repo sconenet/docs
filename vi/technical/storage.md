@@ -345,12 +345,11 @@ kho):
    (xóa-rồi-ghi — một rollback gỡ-học các khóa, nên một mình các
    upsert sẽ giữ lại các ma của nhánh thua). Chỉ mục tên
    (`names_v3`/`name_reverse_v3`) và các sàn TLD sống
-   (`tld_floors_v1`) KHÔNG được ghi lại bởi bước này. **Hạn chế
-   đã biết (việc cần làm theo mã đang chờ)**: sau một reorg,
-   các mục chỉ-mục-tên ma và các dòng sàn cũ của nhánh thua có
-   thể vương vấn cho đến khi các delta riêng của hậu tố được nối
-   lại ghi đè chúng hay một lần dựng lại (`rebuild_name_index`,
-   phát lại) chạy;
+   (`tld_floors_v1`) được ghi lại trong CÙNG giao dịch: các mục
+   ma của nhánh thua và các dòng sàn cũ được gỡ bỏ (delta đối
+   chiếu với trạng thái sau-reorg), nên không liên kết ma hay
+   sàn cũ nào sống sót qua reorg; `rebuild_name_index`/phát lại
+   lúc khởi động vẫn là lưới an toàn sửa chữa sau sự cố;
 3. nối lại đơn điệu của hậu tố được nhận nuôi (delta thường).
 
 Một thất bại lưu bền vững trên đường này được ghi nhật ký và suy

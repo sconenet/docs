@@ -118,11 +118,9 @@ ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 
 `GeneratedKey.signing_key` 在 drop 时由
 `ed25519-dalek` 清零（默认 `zeroize` 特性）。
-派生的 AEAD 密钥以及解密后的明文都包在
-`zeroize::Zeroizing` 中 —— Drop 覆盖所有退出路径，
-包括由 `?` 传播的错误。在封装路径上，seed 副本是
-瞬态的：一个普通的栈上数组，在封装调用结束时
-离开作用域。
+派生的 AEAD 密钥、解密后的明文以及封装路径上的
+seed 副本都包在 `zeroize::Zeroizing` 中 —— Drop 覆盖
+所有退出路径，包括由 `?` 传播的错误。
 
 ## 文件权限
 

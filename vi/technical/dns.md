@@ -18,7 +18,7 @@ vòng khi câu trả lời đầu là `pending` — xem đường phân giải) 
 cùng đường đã xác minh như CLI.
 
 ```text
-              UDP+TCP :5353 (no value = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (no value = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -55,11 +55,10 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + recursive fallback
 ```
 
-`--dns` KHÔNG có giá trị buộc `0.0.0.0:5353` — TẤT CẢ các giao
-diện (chạm được từ mọi mạng mà máy gắn vào; một mặc định
-chỉ-loopback là một việc bảo mật cần làm đã được ghi nhận).
-Truyền một địa chỉ tường minh để buộc chính xác
-(`--dns 127.0.0.1:5353` = chỉ các truy vấn cục bộ).
+`--dns` KHÔNG có giá trị buộc `127.0.0.1:5353` — an toàn theo
+mặc định (chỉ các truy vấn cục bộ). Phơi bày công khai là tùy
+chọn: truyền một địa chỉ tường minh (`--dns 0.0.0.0:5353` = TẤT
+CẢ các giao diện, chạm được từ mọi mạng mà máy gắn vào).
 
 Relay loan báo địa chỉ hiệu lực trên stdout (hợp đồng đọc-được-
 bởi-máy, như `p2p:`): một dòng `dns: <addr>` ngay khi socket
@@ -456,16 +455,10 @@ băng).
 
 ### Lựa chọn (phân giải)
 
-> **Hạn chế của relay (nhị phân hiện tại)**: chỉ các scope
-> **World**, **Continent** và **Country** thực sự được bộ phân
-> giải `scone relay` phục vụ. Các tuyến **Region**, **Asn** và
-> **IpPrefix** xác thực on-chain (giải mã wire, chữ ký, tính duy
-> nhất) và được tính trong sắp chuẩn, nhưng đường phục vụ giải
-> mã lại các bộ bản ghi qua một dạng JSON chỉ biết ba scope v1:
-> các tuyến mang những scope đó bị bỏ trước lựa chọn và không
-> bao giờ được bầu. Một tên miền mà CHỈ các tuyến của nó mang
-> Region/Asn/IpPrefix quay về đường DNS cổ điển (thường là
-> NODATA trên A/AAAA). Việc cần làm theo mã đang chờ.
+Cả sáu scope wire đều được bộ phân giải phục vụ: đường phục vụ
+giải mã cùng tập scope mà wire chấp nhận (world, continent,
+country, region, asn, ipPrefix) — một tuyến đã xác thực on-chain
+không bao giờ bị bỏ trước lựa chọn.
 
 1. **Scope** — tính cụ thể giảm dần, **6 tầng**: **tiền tố IP
    khớp dài nhất → AS chính xác → quốc gia chính xác → vùng
@@ -479,13 +472,10 @@ băng).
      hơn quốc gia (đánh số mờ, chỉ đáng tin nếu bên xuất bản
      và locator chia sẻ cùng một cái), nhưng hơn châu lục
      (nó nằm trong quốc gia của nó, do đó a fortiori trong
-     châu lục của nó) — **không được phục vụ** bởi relay hiện
-     tại (xem hạn chế trên).
-   - *Asn*: số AS chính xác của client (**không được phục vụ**
-     bởi relay hiện tại — xem hạn chế trên).
+     châu lục của nó).
+   - *Asn*: số AS chính xác của client.
    - *Country*: quốc gia chính xác.
-   - *Region*: vùng chính xác (định danh mờ; **không được
-     phục vụ** bởi relay hiện tại — xem hạn chế trên).
+   - *Region*: vùng chính xác (định danh mờ).
    - *Continent*: do locator cung cấp **hoặc dẫn xuất từ quốc
      gia** qua bảng cục bộ (`continent_of_country`); một quốc
      gia không rõ bảng quay về châu lục tường minh hay thế

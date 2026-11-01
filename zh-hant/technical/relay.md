@@ -251,6 +251,9 @@ bytes 是 `scone-protocol` 中 `Message` 的
 
 ### 啟動
 
+啟動日誌以建置風味開頭
+（`build: mainnet-enabled` / `build: standard`）。
+
 0. 網路解析（`--network testnet|mainnet|devnet`、
    專案開發期間預設 testnet — M8b）。
    data-dir **每網路一份**

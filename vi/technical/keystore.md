@@ -118,11 +118,10 @@ sự niêm phong đó với một nhãn công khai hoặc một cụm từ BIP39
 người gọi cung cấp; chúng nằm ngoài bảng cốt lõi phía trên.
 
 `GeneratedKey.signing_key` bị zeroize khi drop bởi `ed25519-dalek`
-(tính năng `zeroize` mặc định). Khóa AEAD dẫn xuất và văn
-bản rõ đã giải mã được bọc trong `zeroize::Zeroizing` — Drop
-phủ mọi đường thoát, kể cả lỗi truyền qua `?`. Trên đường niêm
-phong, bản sao seed mang tính tạm thời: một mảng thường trên
-stack hết phạm vi ở cuối lệnh gọi niêm phong.
+(tính năng `zeroize` mặc định). Khóa AEAD dẫn xuất, văn bản rõ
+đã giải mã và bản sao seed trên đường niêm phong được bọc trong
+`zeroize::Zeroizing` — Drop phủ mọi đường thoát, kể cả lỗi
+truyền qua `?`.
 
 ## Quyền tệp
 

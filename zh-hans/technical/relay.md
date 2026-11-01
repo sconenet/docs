@@ -230,6 +230,9 @@ scone relay --topology-profile tiny
 
 ### 启动
 
+启动日志以构建风味开头（`build: mainnet-enabled` /
+`build: standard`）。
+
 0. 网络解析（`--network testnet|mainnet|devnet`、
    项目开发期间默认 testnet —— M8b）。data-dir
    **按网络**（`~/.scone/<network>/`）：持有另一

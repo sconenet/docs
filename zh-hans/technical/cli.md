@@ -95,7 +95,8 @@ profile、锚节点）及各自的语义位于
   从内存池驱逐的过期交易、出块期间丢弃的
   冲突交易、出站/入站失败、DHT 键不匹配；
 - `info!`：区块接受/产出、p2p 监听、对等节点
-  连接、中继启动（状态检查点）；
+  连接、中继启动（状态检查点）以及构建风味行
+  （`build: mainnet-enabled` / `build: standard`）；
 - `debug!`：内部细节（交易接受、对等节点断开、RPC
   往返、keystore 列出、`SCONE_KAD_DEBUG` 下的
   kad 事件）；
@@ -265,6 +266,10 @@ testnet/devnet 配置下为 8 KiB —— 请按可用内存调整
 `--cores`。
 
 ## 构建：dev 与启用主网（mainnet-compile-gate）
+
+中继启动日志以构建风味开头（`build:
+mainnet-enabled` / `build: standard`）—— `+mainnet`
+版本标记的运行时对应物。
 
 默认构建**不含主网**：`scone relay --network
 mainnet`（以及带 `SCONE_NETWORK=mainnet` 的注册服务）

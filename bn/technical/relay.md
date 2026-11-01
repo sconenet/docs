@@ -262,6 +262,9 @@ SATURATED বাকেটে `Disconnected` হয়
 
 ### স্টার্টআপ
 
+স্টার্টআপ লগ বিল্ড ফ্লেভার দিয়ে শুরু হয়
+(`build: mainnet-enabled` / `build: standard`)।
+
 0. নেটওয়ার্ক রেজোলিউশন (`--network testnet|mainnet|devnet`,
    প্রকল্প dev-এ থাকাকালীন ডিফল্ট testnet
    — M8b)। data-dir **প্রতি
