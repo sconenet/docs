@@ -109,9 +109,7 @@ besar).
 
 ## Batasan dan aturan mendatang (belum ditetapkan)
 
-- nama internasionalisasi (IDN) via punycode;
-- panjang minimum label tingkat kedua;
-- kedaluwarsa/perpanjangan klaim domain.
+- panjang minimum label tingkat kedua.
 
 ## TLDId (M7a)
 

@@ -108,9 +108,7 @@ autre (pas de troncature, pas de préfixe, pas de majuscules).
 
 ## Limites et règles futures (non arrêtées)
 
-- noms internationalisés (IDN) via punycode ;
-- longueur minimale des labels de deuxième niveau ;
-- expiration/renouvellement des revendications de domaines.
+- longueur minimale des labels de deuxième niveau.
 
 ## TLDId (M7a)
 

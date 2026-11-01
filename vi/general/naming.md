@@ -105,9 +105,7 @@ khác (không cắt ngắn, không tiền tố, không chữ in hoa).
 
 ## Giới hạn và quy tắc tương lai (chưa định xong)
 
-- tên quốc tế hóa (IDN) qua punycode;
-- chiều dài tối thiểu của nhãn cấp hai;
-- hạn/kéo dài cho việc claimed tên miền.
+- chiều dài tối thiểu của nhãn cấp hai.
 
 ## TldId (M7a)
 

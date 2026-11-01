@@ -110,9 +110,7 @@ kein Präfix, keine Großbuchstaben).
 
 ## Grenzen und künftige Regeln (nicht entschieden)
 
-- internationalisierte Namen (IDN) über Punycode;
-- Mindestlänge zweiter Labels-Ebenen;
-- Ablauf/Verlängerung von Domain-Claims.
+- Mindestlänge zweiter Labels-Ebenen.
 
 ## TLDId (M7a)
 

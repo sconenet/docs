@@ -103,9 +103,7 @@ truncamento, sem prefixo, sem maiúsculas).
 
 ## Limites e regras futuras (não decididas)
 
-- nomes internacionalizados (IDN) via punycode;
-- comprimento mínimo dos labels de segundo nível;
-- expiração/renovação das reivindicações de domínios.
+- comprimento mínimo dos labels de segundo nível.
 
 ## TLDId (M7a)
 

@@ -103,9 +103,7 @@ truncation, no prefix, no uppercase).
 
 ## Limits and future rules (not settled)
 
-- internationalized names (IDN) via punycode;
-- minimum length of second-level labels;
-- expiration/renewal of domain claims.
+- minimum length of second-level labels.
 
 ## TLDId (M7a)
 

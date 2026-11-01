@@ -111,9 +111,7 @@ ninguna otra (sin truncamiento, sin prefijo, sin mayúsculas).
 
 ## Límites y reglas futuras (no decididas)
 
-- nombres internacionalizados (IDN) vía punycode;
-- longitud mínima de las etiquetas de segundo nivel;
-- expiración/renovación de las reclamaciones de dominios.
+- longitud mínima de las etiquetas de segundo nivel.
 
 ## TLDId (M7a)
 
