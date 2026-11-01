@@ -620,14 +620,17 @@ letra:
 2. `height` == altura do tip + 1;
 3. `version` == `PROTOCOL_VERSION` **exatamente** (qualquer outra
    versão — menor ou maior — é rejeitada, não reinterpretada);
-3bis. **janela de chain-time**: o timestamp do bloco pai é a ÚNICA
+3bis. **política de chain-time**: o timestamp do bloco pai é a ÚNICA
    fonte de tempo da chain (GC de expiração, prazos `valid_until`)
    — o bloco deve satisfazer `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS` (10 anos; erro tipado
-   `InvalidTimestamp`). A altura 1, origem do chain-time, comete seu
-   timestamp tal qual, mas deve deixar a mesma margem abaixo de
-   `u64::MAX`, de modo que nenhum bloco isolado possa jamais abrir
-   uma janela de GC cobrindo todo o espaço de tempo;
+   MAX_BLOCK_TIME_STEP_SECS` (600 s; erro tipado
+   `InvalidTimestamp`). O tempo da chain é monotônico (nunca anda
+   para trás) e sua validação nunca lê o relógio de parede de um nó.
+   A altura 1, origem do chain-time, comete seu timestamp tal qual,
+   mas deve deixar a mesma margem abaixo de `u64::MAX`. O passo
+   limita o horizonte de expiração que um único bloco pode consumir:
+   a expiração em massa exige uma parcela majoritária de produção
+   sustentada;
 4. contagem de transações ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` recomputado sobre as transações na ordem do bloco;
 6. hooks de consenso (`validate_header`, `validate_tx`);

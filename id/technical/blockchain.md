@@ -636,16 +636,17 @@ diberikan peer tidak pernah diterima apa adanya:
 3. `version` == `PROTOCOL_VERSION` **secara eksak** (versi lain
    — lebih rendah atau lebih tinggi — ditolak, tidak
    diinterpretasikan ulang);
-3bis. **jendela waktu chain**: timestamp blok induk adalah
+3bis. **kebijakan waktu chain**: timestamp blok induk adalah
    SATU-SATUNYA sumber waktu chain (GC kedaluwarsa, tenggat
-   `valid_until`) — blok harus memenuhi `parent_time ≤ timestamp
-   ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS` (10 tahun; error bertipe
-   `InvalidTimestamp`). Tinggi 1, asal waktu chain, mengkomit
+   `valid_until`) — blok harus memenuhi `parent_time ≤ timestamp ≤
+   parent_time + MAX_BLOCK_TIME_STEP_SECS` (600 detik; error
+   bertipe `InvalidTimestamp`). Waktu chain bersifat monoton
+   (tidak pernah berjalan mundur) dan validasinya tidak pernah
+   membaca jam lokal node. Tinggi 1, asal waktu chain, mengkomit
    timestamp-nya apa adanya tetapi harus menyisakan ruang kepala
-   yang sama di bawah `u64::MAX`, sehingga tidak ada satu blok
-   pun yang pernah bisa membuka jendela GC yang meliputi seluruh
-   ruang waktu;
+   yang sama di bawah `u64::MAX`. Langkah ini membatasi horizon
+   kedaluwarsa yang dapat dikonsumsi satu blok: kedaluwarsa massal
+   menuntut pangsa produksi mayoritas yang berkelanjutan;
 4. jumlah transaksi ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` dihitung ulang atas transaksi dalam urutan blok;
 6. hook konsensus (`validate_header`, `validate_tx`);
