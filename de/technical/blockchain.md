@@ -652,15 +652,17 @@ bare Münze genommen:
 2. `height` == Spitzhöhe + 1;
 3. `version` == `PROTOCOL_VERSION` **exakt** (jede andere Version —
    niedriger oder höher — wird abgelehnt, nicht neu interpretiert);
-3bis. **Kettenzeit-Fenster**: der Zeitstempel des Parent-Blocks ist
+3bis. **Kettenzeit-Richtlinie**: der Zeitstempel des Parent-Blocks ist
    die EINZIGE Zeitquelle der Chain (Ablauf-GC, `valid_until`-
    Fristen) — der Block muss erfüllen `parent_time ≤ timestamp ≤
-   parent_time + MAX_TIMESTAMP_DRIFT_SECS` (10 Jahre; typisierter
-   Fehler `InvalidTimestamp`). Höhe 1, der Ursprung der Kettenzeit,
-   committet seinen Zeitstempel wie er ist, muss aber denselben
-   Headroom unter `u64::MAX` lassen, damit kein einzelner Block je
-   ein GC-Fenster eröffnen kann, das den gesamten Zeitraum
-   abdeckt;
+   parent_time + MAX_BLOCK_TIME_STEP_SECS` (600 s; typisierter
+   Fehler `InvalidTimestamp`). Die Kettenzeit ist monoton (läuft
+   nie rückwärts) und ihre Validierung liest nie die Wanduhr eines
+   Knotens. Höhe 1, der Ursprung der Kettenzeit, committet seinen
+   Zeitstempel wie er ist, muss aber denselben Headroom unter
+   `u64::MAX` lassen. Der Schritt begrenzt den Ablaufhorizont, den
+   ein einzelner Block konsumieren kann: Massenablauf erfordert
+   einen anhaltenden Mehrheitsanteil an der Blockproduktion;
 4. Transaktionszahl ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` über die Transaktionen in Blockreihenfolge neu
    berechnet;

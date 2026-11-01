@@ -640,16 +640,18 @@ aparente:
 2. `height` == altura del tip + 1;
 3. `version` == `PROTOCOL_VERSION` **exactamente** (cualquier otra
    versión — menor o mayor — se rechaza, no se reinterpreta);
-3bis. **ventana de tiempo de cadena**: el timestamp del bloque
+3bis. **política de tiempo de cadena**: el timestamp del bloque
    padre es la ÚNICA fuente de tiempo de la cadena (GC de
    expiración, plazos `valid_until`) — el bloque debe satisfacer
    `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS` (10 años; error tipado
-   `InvalidTimestamp`). La altura 1, origen del tiempo de cadena,
-   compromete su timestamp tal cual pero debe dejar el mismo
-   margen por debajo de `u64::MAX`, de modo que ningún bloque
-   pueda abrir jamás una ventana de GC que cubra todo el espacio
-   de tiempo;
+   MAX_BLOCK_TIME_STEP_SECS` (600 s; error tipado
+   `InvalidTimestamp`). El tiempo de cadena es monótono (nunca
+   retrocede) y su validación nunca lee el reloj de pared de un
+   nodo. La altura 1, origen del tiempo de cadena, compromete su
+   timestamp tal cual pero debe dejar el mismo margen por debajo
+   de `u64::MAX`. El paso acota el horizonte de expiración que un
+   único bloque puede consumir: la expiración masiva exige una
+   cuota de producción mayoritaria sostenida;
 4. número de transacciones ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` recomputado sobre las transacciones en orden de
    bloque;
