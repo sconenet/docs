@@ -9,7 +9,7 @@ Scone پروٹوکول کے لیے حوالہ دستاویز: بائنری فا�
 
 ## پروٹوکول ورژن
 
-- مستقل: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`)؛
+- مستقل: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`)؛
 - `Hello.version` (ہینڈ شیک) اور `BlockHeader.version` کے ذریعے
   لے جایا جاتا ہے؛
 - ہم آہنگی کے قواعد:
@@ -17,9 +17,13 @@ Scone پروٹوکول کے لیے حوالہ دستاویز: بائنری فا�
     (`ProtocolError::UnsupportedVersion`)؛ نوڈ اس ورژن کا فارمیٹ
     نہیں اندازہ کرتا جسے وہ نہیں جانتا؛
   - ورژن `0` → غلط؛
-  - فارمیٹس کا صرف ایک سیٹ ہے: ٹرانزیکشن ورژن بائٹس
-    (`0x01`) اور بلاک ورژن مقامی قیمتوں سے **بالکل** ملتے
-    ہوں گے؛
+  - بلاکس **بالکل** ورژن `2` ہونے چاہئیں: ورژن `1` (پری
+    دستخط بلاک فارمیٹ، مائل اسٹون M1) ایک غیر ہم آہنگ فارمیٹ ہے،
+    غلط پارس ہونے کے بجائے واضح طور پر مسترد؛
+  - `Hello` ورژنز `1..=2` برداشت کرتا ہے (صرف ہینڈ شیک — وہ
+    کوئی بلاک نہیں لے جاتا)؛
+  - ٹرانزیکشن فارمیٹ ورژن بائٹ (`0x01`) مقامی قیمت سے **بالکل**
+    ملنی چاہیے؛
 - اس مرحلے پر کوئی major/minor تقسیم نہیں: ایک ہی عدد، جو
   وائر فارمیٹ کے ہر وقفے پر بڑھایا جاتا ہے۔
 
@@ -38,8 +42,10 @@ Scone پروٹوکول کے لیے حوالہ دستاویز: بائنری فا�
   پہلے): مقامی endianness لاگو نہیں ہوتی؛
 - IPv4/IPv6 پتے اور 32 بائٹ شناخت کنندگان: خام بائٹ قطاریں، کوئی
   لمبائی سابقہ نہیں؛
-- فارمیٹ میں کوئی مقررہ سائز کا چوڑا عدد نہیں: ایک ہی عدد
-  انکوڈنگ قاعدہ۔
+- واحد استثنا: 116 بائٹ چیک پوائنٹ جسم (`CheckpointData`) مقررہ
+  چوڑائی **لٹل-endian** اعداد رکھتا ہے، varints نہیں (دیکھیں
+  [Checkpoint (M5)](#checkpoint-m5))؛ ہر دوسرا عدد واحد varint
+  قاعدے کی پیروی کرتا ہے۔
 
 ### Varint (کم سے کم LEB128)
 
@@ -81,10 +87,15 @@ Scone پروٹوکول کے لیے حوالہ دستاویز: بائنری فا�
 | `RecordHash` | 32 خام بائٹس |
 | `BlockHash` | 32 خام بائٹس |
 | `MerkleRoot` | 32 خام بائٹس |
-| `DomainName` | `str` (≤ 253 بائٹس، `scone-core` سے دوبارہ تصدیق) |
+| `DomainName` | `str` ≤ 253 بائٹس (کیننیکل ASCII A-label)، `scone-core` سے دوبارہ تصدیق |
 
 اخذ (`BLAKE3-256` + `SCONE-DOMAIN-V1` سابقے، وغیرہ) `scone-core`
 کی طرف سے متعین رہتے ہیں (دیکھیں `/docs/en/general/naming.md`)۔
+
+وائر نام — `DomainName` اور `REGISTER_TLD` کا TLD — **صرف
+کیننیکل ASCII A-labels** ہیں: غیر ASCII بائٹس ڈی کوڈنگ پر مسترد
+(`NonCanonical`)۔ IDNA کیننیکلائزیشن صرف تعمیر کے وقت (صارف
+ان پٹ) موجود ہے؛ یہ کبھی وائر پر نہیں چلتی۔
 
 ## ٹرانزیکشنز
 
@@ -102,7 +113,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-ہر ڈسکریمیننٹ ایک غیر متعین اپاہج مستقل ہے (کوئی منطقی
+اوپر کی جدول ایک **ذیلی سیٹ** ہے (19 ٹرانزیکشن اقسام میں سے 7)۔ ہر
+ڈسکریمیننٹ ایک غیر متعین اپاہج مستقل ہے (کوئی منطقی
 تسلسل نہیں؛ `0x00` کبھی درست نہیں) — مکمل نافذہ جدول
 `/docs/en/technical/transactions.md` میں۔
 
@@ -142,7 +154,7 @@ epoch نمک `epoch = height/144` اطلاق والے بلاک کا، اطلاق
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 TLD کا دعوی (رجسٹری، ڈومین رجسٹری سے الگ، M7):
@@ -152,7 +164,12 @@ TLD ڈومین کے نام کی طرح **صاف الفاظ میں** لے جای�
 قواعد (M8b): TLD آزاد + ICANN-محفوظ نہیں
 (`IcannTldReserved` — ICANN روٹ TLDs کا دعوی کوئی نہیں کر سکتا)
 + لیبل کی **لمبائی پر مبنی** مشکل پر PoW (`pow_length` منحنی —
-دیکھیں `blockchain.md`)؛ دعوی شدہ بند ہے (صرف assign)۔
+دیکھیں `blockchain.md`)؛ دعوی شدہ بند ہے (صرف assign)۔ `open`
+ایک کیننیکل بولین ہے (`0x00`|`0x01`؛ کوئی اور بائٹ سخت ڈی کوڈنگ
+خرابی ہے، `NonCanonical`): **پیدائش سے کھلی** TLD کے لیے مالک
+آپشن (`0x01` = پیدائش پر خود سروس رجسٹریشن کے لیے کھلی)۔ یہ
+متغیر لمبائی کے `proof` کے بعد، عوامی کلید سے بالکل پہلے لکھا
+جاتا ہے۔
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -160,8 +177,12 @@ TLD ڈومین کے نام کی طرح **صاف الفاظ میں** لے جای�
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-ڈی کوڈنگ پر دوبارہ چیک شدہ مستقل حقیقت: `sequence > 0` اور
-`owner` == `public_key` کا حصول۔ کوئی `timestamp` نہیں: ترتیب
+ڈی کوڈنگ پر دوبارہ چیک شدہ مستقل حقیقت: صرف `sequence > 0` —
+بعلاوہ پے لوڈ پر دستخط، جو شامل `public_key` کے خلاف تصدیق
+ہوتی ہے۔ اختیار کا قاعدہ (دستخط کنندہ ڈومین کا مالک یا اس کی
+ریکارڈ delegates میں سے ایک ہو، زیادہ سے زیادہ 3) ایک **اسٹیٹ**
+قاعدہ ہے جو `scone-blockchain` اطلاق پر نافذ کرتا ہے، وائر چیک
+نہیں۔ کوئی `timestamp` نہیں: ترتیب
 `sequence` سے ہوتی ہے۔ ٹرانزیکشن صرف کمپیکٹ حوالے رکھتی ہے — مکمل
 DNS مواد DHT میں رہتا ہے (نیچے دیکھیں)۔
 
@@ -194,7 +215,13 @@ varint) ٹائپ کوڈ کے بعد آتا ہے اور پورے ریکارڈ ک�
 | 33 | SRV | `priority.v`، `weight.v`، `port.v`، `target(name)` |
 | 257 | CAA | `flags u8`، `tag` (1–15 B)، `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (نیچے دیکھیں) |
+| 32769 | NS4 | 4 بائٹس (IPv4 پتہ) |
+| 32770 | NS6 | 16 بائٹس (IPv6 پتہ) |
 | دیگر | Unknown | code.v + `bytes` ≤ 4096 |
+
+اقسام 32769 (`NS4`) اور 32770 (`NS6`) ذاتی Scone اقسام ہیں
+(غیر IANA حد، `GEOROUTE` جیسے خاندان کی): نام کے بجائے
+IPv4/IPv6 پتے سے مقرر شدہ nameserver کو delegation۔
 
 مثال: `A 192.0.2.1` (TTL 86,400) → `01 80 a3 05 c0 00 02 01`
 (ٹائپ، TTL varint، پتہ)۔
@@ -317,19 +344,19 @@ Message = disc u8 || payload
 | `0x0a` | `Checkpoint` | دونوں | `Checkpoint` | signers ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | دونوں | — | — | چیک پوائنٹ کھڑکی |
 | `0x0c` | `GetStatus` | دونوں | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | دونوں | نوڈ اسٹیٹ (نیٹ ورک، ٹِپ، اونچائی، NAT، ڈومینز، mempool، پیرز، فائنلٹی، تازہ آپریٹرز) | — | — |
+| `0x0d` | `NodeStatus` | دونوں | نوڈ اسٹیٹ (نیٹ ورک، ٹِپ، اونچائی، NAT، ڈومینز، mempool، پیرز، فائنل شدہ epoch، چیک پوائنٹ کھڑکی سائز، تازہ آپریٹرز) | — | — |
 | `0x0e` | `LookupName` | دونوں | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | دونوں | نام + TLD کی آن چین اسٹیٹ، بشمول CAS generation (عدّادِ طفرات، registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | دونوں | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | دونوں | مالک کی زندہ ڈومینز + TLDs | — | — |
-| `0x12` | `Error` | جواب | ایپلیکیشن سطح کا خرابی پیغام (`str`) | — | — |
+| `0x12` | `Error` | جواب | ایپلیکیشن سطح کا خرابی پیغام (`str`، ≤ 4096 بائٹس، انکوڈنگ اور ڈی کوڈنگ پر چیک شدہ) | — | — |
 
 ### Checkpoint (M5)
 
 ایک مجموعی چیک پوائنٹ وائر پر اس طرح جاتی ہے: ٹیگ `SCONE-CKPT-V1` ||
 جسم `CheckpointData` (116 B، LE — دستخطی پری امیج کے آخر جیسا:
-`epoch(8) height(8) block_hash(32) prev_checkpoint_hash(32)
-state_root(32) recovery(4)`) || `count.v` || فی دستخط کنندہ
+`epoch(8) height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) || `count.v` || فی دستخط کنندہ
 `pk[32] ‖ sig[64]`، **بڑھتی pk سے ترتیب شدہ، کوئی ڈپلیکیٹ نہیں**،
 `count ≤ 64` (`MAX_CHECKPOINT_SIGNERS`)۔ سخت ڈی کوڈنگ: کتراؤ، غلط
 ٹیگ، غیر کیننیکل pk، ڈپلیکیٹس یا غیر ترتیب شدہ = انکار (`None`)،
@@ -411,12 +438,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | غیر کم سے کم، اوور فلو یا بہت لمبا varint |
 | `IntegerOutOfRange` | عدد اپنی ہدف نوعیت میں نہیں سمٹا |
 | `UnsupportedVersion` | صفر یا مقامی سے بڑا ورژن |
+| `PowNotSignable` | دستخطی پاتھ سے گزرنے والی pow-to-owner شکل (ان پر کبھی دستخط نہیں ہوتی — مائن کیا گیا ثبوت ہی اجازت ہے) |
 | `UnknownDiscriminant` | نامعلوم ٹرانزیکشن/پیغام ڈسکریمیننٹ |
 | `LimitExceeded` | حد سے باہر لمبائی یا گنتی |
 | `InvalidUtf8` | غیر UTF-8 اسٹرنگ |
+| `InvalidTransactionKey` | شامل Ed25519 عوامی کلید درست curve نقطہ نہیں |
 | `TrailingBytes` | مکمل قیمت کے بعد باقی بائٹس |
 | `Validation` | کسی `scone-core` مستقل حقیقت کی خلاف ورزی |
 | `NonCanonical` | فی فیلڈ درست مگر غیر کیننیکل انکوڈنگ |
+| `InvalidDelegateSet` | ریکارڈ-delegate سیٹ حدود سے باہر یا غیر کیننیکل (≤ 3 کلیدیں، سخت صعودی، کوئی ڈپلیکیٹ نہیں) |
 
 ڈی کوڈنگ نیٹ ورک ڈیٹا پر کبھی panic نہیں کرتی۔
 
@@ -427,8 +457,13 @@ canonical object → canonical binary encoding → hash / signature
   دستخط اور کمزور کلیدیں مسترد)؛
 - **چین ٹرانزیکشنز**: ہر `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` میں `public_key` (32 B) + `signature` (64 B)
-  پے لوڈ `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`
-  پر؛ مکمل نافذہ تفصیل: `/docs/en/technical/transactions.md`؛
+  پے لوڈ `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` پر —
+  `network_id` انکوڈ شدہ ٹرانزیکشن کا پہلا فیلڈ بن کر ڈالی
+  جاتی ہے (ڈسکریمیننٹ اور فارمیٹ ورژن کے بالکل بعد)، ہر دستخط
+  کو ایک نیٹ ورک سے باندھتی ہے (وائر خود کوئی `network` فیلڈ
+  نہیں رکھتا، اوپر دیکھیں)؛
+  مکمل نافذہ تفصیل: `/docs/en/technical/transactions.md`؛
 - **DHT ریکارڈز** (`SignedDnsRecord`): دستخط شدہ پے لوڈ
   `DnsRecord` کی کیننیکل انکوڈنگ ہے؛ تصدیق `record + owner +
   signature` کو بلاکچین میں رجسٹرڈ شناخت کے ساتھ کراس کرتی ہے؛

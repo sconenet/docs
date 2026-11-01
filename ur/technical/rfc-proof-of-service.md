@@ -50,7 +50,7 @@ Heartbeat {
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (دستخط کنندہ کی کلید جسم کے دمے
 میں آتی ہے، ہر tx کی طرح) `‖ signature[64]`، یعنی انکوڈ شدہ
-تقریباً 230 بائٹس — **کوئی PoW نہیں**: لاگت مسلسل موجودگی ہے
+تقریباً 200–215 بائٹس — **کوئی PoW نہیں**: لاگت مسلسل موجودگی ہے
 (فی epoch ایک ہارٹ بیٹ، مہینوں تک)۔
 
 دستخط کنندہ وہی آپریٹر ہے: `owner` ہمیشہ `operator` سے دوبارہ
@@ -301,5 +301,5 @@ Epoch 0 (اور جب تک `MIN_FINALITY_COMMITTEE_SIZE` سے کم
 | 1 | core + protocol | `Heartbeat`، `SetTldOperator`، `SetDomainOperator`، وائر، تصدیق | مکمل |
 | 2 | blockchain | پھسلتی کھڑکی (journaled)، فلٹر شدہ پول، انتخاب، ~15 ٹیسٹ | مکمل |
 | 3 | network | خودکار اخراج، tx ریلے | مکمل |
-| 4 | CLI | `tx build heartbeat`، `scone status` میں `fresh operators` نمائش | مکمل |
+| 4 | CLI | خودکار ریلے اخراج (§7)؛ `scone status` میں `fresh operators` نمائش؛ آف لائن بلڈر ہٹا دیا گیا (cli-simplify-v1) | مکمل |
 | 5 | docs | یہ RFC نافذہ شکل میں مرتب، fr/en عکس | مکمل |

@@ -70,16 +70,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### সিদ্ধান্ত: `scone-core`, `scone-crypto`-র উপর নির্ভর করে
@@ -92,6 +94,9 @@ scone           ← binary / application
   ফাংশন (প্লাস কী জেনারেশনের জন্য OS RNG), শূন্য কোর টাইপ,
   কোনো নেটওয়ার্ক/ফাইলসিস্টেম/অ্যাসিঙ্ক ডিপেন্ডেন্সি নেই → কোনো বৃত্তীয়তা সম্ভব নয়;
 - `scone-core` এটি শুধুমাত্র হ্যাশিংয়ের জন্য ব্যবহার করে;
+- `scone-core` সরাসরি `argon2` (রেজিস্ট্রেশন PoW) এবং `idna`
+  (আন্তর্জাতিক নাম)-এর উপরও নির্ভর করে — বিশুদ্ধ ডিপেন্ডেন্সি,
+  স্তরবিন্যাস সম্মানিত;
 - Ed25519 সিগনেচার ও কী `scone-crypto`-তে থাকে এবং
   বাইটের উপর কাজ করে (ক্যানোনিকাল পেলোড `scone-protocol` উৎপাদন করে)।
 
@@ -105,8 +110,8 @@ tokio/async, নেটওয়ার্ক, ফাইল, OS, DNS সার্�
 
 **scone-crypto** — ক্রিপ্টোগ্রাফিক প্রিমিটিভ। আজ: `hash256`
 (BLAKE3), Ed25519 সিগনেচার ও কী (`SigningKey`,
-`PublicKey`, `Signature`, কঠোর ব্যাচ ভেরিফিকেশন), রেকর্ড
-গ্রুপের AEAD এনভেলপ (XChaCha20-Poly1305)। পরিকল্পিত: মার্কেল ট্রি।
+`PublicKey`, `Signature`, কঠোর ব্যাচ ভেরিফিকেশন)। পরিকল্পিত:
+মার্কেল ট্রি।
 নিয়ম: কোনো স্বশিক্ষিত অ্যালগরিদম নয়, শুধুমাত্র অডিটেড ডিপেন্ডেন্সি।
 
 **scone-protocol** — প্রোটোকলের বাইনারি ফরম্যাট: লেনদেন, DNS
@@ -144,7 +149,7 @@ DNS সার্ভার। রেফারেন্স: `/docs/en/technical/bl
 এমবেডেড GeoIP টেবিল, রিকার্সিভ ফলব্যাক), অ্যাঙ্করদের
 চেকপয়েন্ট/হার্টবিট লুপ (CLI রিলের সাথে সরাসরি p2p QUIC-এ কথা বলে,
 আর কোনো লোকাল RPC নেই)। রিচেবিলিটি ও ডিসকভারি: AutoNAT
-v2 (reachable/NATed রায়), NATed নোডের জন্য circuit-relay v2 + DCUtR
+v1 (reachable/NATed রায়), NATed নোডের জন্য circuit-relay v2 + DCUtR
 এবং UPnP (রাউটার দ্বারা QUIC পোর্ট ম্যাপিং, অপ্ট-ইন)। একটি `.env` ফাইলের মাধ্যমে কনফিগারেশন (দেখুন `.env.example`)।
 রেফারেন্স: `/docs/en/technical/relay.md`।
 
@@ -203,13 +208,15 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-দুটি নোড প্রোফাইল:
+নোড প্রোফাইল (পরিকল্পিত — আজ এমন কোনো অপারেটর ফ্ল্যাগ নেই:
+প্রতিটি বর্তমান নোড সব ব্লক ধরে রাখে, এবং উপরের অপ্ট-ইন
+স্ন্যাপশট ইমপোর্টই একমাত্র রিটেনশন নিয়ন্ত্রণ):
 
-- **আর্কাইভ নোড** (অপারেটর ফ্ল্যাগ): সব ঐতিহাসিক ব্লক রাখে,
+- **আর্কাইভ নোড** (পরিকল্পিত): সব ঐতিহাসিক ব্লক রাখে,
   নেটওয়ার্ককে সেবা দেয়, বিদ্যমান পাথ দিয়ে শুরু হয়;
-- **ফুল-স্টেট নোড**: H-তে সম্পূর্ণ অবস্থা ও সাফিক্স ধারণ করে,
-  কিন্তু H-এর নিচের ইতিহাস নয় — এটি ভবিষ্যৎ ব্লক ভ্যালিডেট করে ও
-  অবস্থার সেবা দেয়, ইতিহাসের সেবা দেয় না।
+- **ফুল-স্টেট নোড** (পরিকল্পিত): H-তে সম্পূর্ণ অবস্থা ও সাফিক্স
+  ধারণ করে, কিন্তু H-এর নিচের ইতিহাস নয় — এটি ভবিষ্যৎ ব্লক
+  ভ্যালিডেট করে ও অবস্থার সেবা দেয়, ইতিহাসের সেবা দেয় না।
 
 এই পাথটি অপ্ট-ইন: একটি ভেরিফায়েড স্ন্যাপশট ইমপোর্ট করা একটি স্পষ্ট
 অপারেটর ক্রিয়া (`import_verified_snapshot`), কখনো স্বয়ংক্রিয় নয় —

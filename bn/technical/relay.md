@@ -19,7 +19,7 @@
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -68,8 +68,6 @@ storage) সিঙ্ক্রোনাস ও বিশুদ্ধ থাক�
 1. **স্পষ্ট সিড** (`--bootstrap`, সম্পূর্ণ multiaddr) — সর্বদা
    অগ্রাধিকার নেয়; একটি অ-খালি তালিকা দিলে বাকি সবকিছু
    প্রতিস্থাপিত হয়।
-   `--no-builtin-seeds` ১০০% প্রাইভেট
-   স্থাপনার জন্য এমবেডেড সিড খালি করে।
 2. **এমবেডেড সিড** (`builtin_seeds(network)`
    `scone-network/src/config.rs`-এ) — প্রতিটি অফিসিয়াল বাইনারি
    রিলিজে ফ্রোজেন, প্রতি নেটওয়ার্কে। একটি অ-কনফিগারকৃত রিলে
@@ -107,8 +105,8 @@ UPnP **ডিফল্টে নিষ্ক্রিয়** থাকে (`con
 কথা বলে না। **mDNS ডিসকভারি সরিয়ে ফেলা হয়েছে**
 (remove-mdns-discovery, 2026-10-22): পিয়ারিং আসে কেবল স্পষ্ট
 বুটস্ট্র্যাপ, বিল্ট-ইন সিড এবং Kademlia থেকে — লিগ্যাসি
-`--mdns`/`SCONE_MDNS` ফ্ল্যাগ এখনও কোনো প্রভাব ছাড়াই গৃহীত হয়
-(স্ক্রিপ্ট সামঞ্জস্য, `--rpc`-এর মতোই আচরণ)।
+`--mdns`/`SCONE_MDNS` ফ্ল্যাগগুলো REMOVED: সেগুলো পাস করা আজ
+একটি clap ত্রুটি (এমন কোনো আর্গুমেন্ট নেই)।
 
 ### লোকাল টোপোলজি অপ্টিমাইজেশন (সর্বদা চালু)
 
@@ -199,13 +197,14 @@ SATURATED বাকেটে `Disconnected` হয়
 আসে (`only_global_ips = false`): একটি LAN মেশ তার LAN
 রিচেবিলিটি পরীক্ষা করে।
 
-একটি পৌঁছানো যায় এমন রিলে circuit-relay v2 **hop**
-সক্ষম করে (এটি NATed পিয়ারদের জন্য ট্রাফিক
+প্রতিটি রিলে circuit-relay v2 **hop**
+চালায় (এটি NATed পিয়ারদের জন্য ট্রাফিক
 রিলে করতে পারে) এবং **DCUtR** (হোল-পাঞ্চিং: একটি
 সার্কিটের মাধ্যমে সংযুক্ত দুটি নোড একটি সরাসরি
 সংযোগের চেষ্টা করে এবং রিলে
-মুক্ত করে)। NATed বলে বিবেচিত একটি রিলে স্বয়ংক্রিয়ভাবে
-প্রথম পরিচিত পৌঁছানো যায় এমন পিয়ার থেকে একটি
+মুক্ত করে) শর্তহীনভাবে; শুধুমাত্র NATed পাশের সংরক্ষণ
+অনুরোধ রায়-দ্বারা-নিয়ন্ত্রিত: NATed বলে বিবেচিত একটি রিলে স্বয়ংক্রিয়ভাবে
+প্রথম সংযুক্ত পৌঁছানো যায় এমন পিয়ার থেকে একটি
 সংরক্ষণ চায় এবং এটির মাধ্যমে শোনে (ঠিকানা
 `/p2p/<relay>/p2p-circuit`)।
 
@@ -281,10 +280,10 @@ SATURATED বাকেটে `Disconnected` হয়
    `--bootstrap` (`/p2p/<peer-id>`-তে শেষ হতে হবে)
    ELSE নেটওয়ার্কের এমবেডেড
    সিড ELSE শেখা ডিরেক্টরি (`peers.json`);
-5. প্রতিটি multiaddr ডায়াল করুন এবং Kademlia
-   টেবিলে নিবন্ধন করুন
-   (একটি মৃত ডায়াল উপেক্ষিত — বাকিরা নেটওয়ার্ক গঠন
-   করে)।
+5. প্রতিটি সিড multiaddr স্ওয়ার্ম এবং Kademlia
+   টেবিল — উভয়ে — নিবন্ধন করুন (ডায়ালগুলো নিজেই
+   Kademlia-র স্বয়ংক্রিয় বুটস্ট্র্যাপ দ্বারা করা হয়; একটি মৃত
+   পিয়ার কেবল কখনো উত্তর দেয় না)।
 
 ### একটি লেনদেন গ্রহণ (P2P বা CLI জমা)
 
@@ -318,6 +317,13 @@ SATURATED বাকেটে `Disconnected` হয়
    `RenewDomain` → পরিচিত ডোমেইন + owner, নবায়ন
    PoW প্রি-চেক (বর্তমান মেয়াদের
    সাথে আবদ্ধ) পরবর্তী উচ্চতায়;
+   `TransferDomain` → পরিচিত ডোমেইন + owner; `SetRecordDelegates`,
+   `SetTldOperator`, `SetDomainOperator` → owner + CAS
+   `state_binding` = বর্তমান জেনারেশন; pow-to-owner পরিবার
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) → নাম/প্রুফ আকৃতি প্রি-চেক (কোনো স্বাক্ষরকারী
+   নেই, কোনো সিগনেচার নেই); `Slash`/`Heartbeat` →
+   পাস-থ্রু (পুশ টাইমে পূর্ণ ভ্যালিডেটেড);
 4. মেমপুল সন্নিবেশ (নির্দিষ্ট ক্ষমতা, `TxId` দিয়ে
    ডিডুপ — পুলে থাকা একটি tx পুনঃজমা
    একটি নো-অপ);
@@ -441,6 +447,10 @@ SATURATED বাকেটে `Disconnected` হয়
 - **ফাইনালিটি ক্যাচ-আপ**: যে রিলের বেস খালি (একটি নতুন নোডের
   বুট) সে প্রতিটি টিকে একটি পিয়ার থেকে `GetCheckpoints` চায়
   যতক্ষণ না বেস পুনরুদ্ধার হয়;
+- **proof-of-service হার্টবিট**: প্রতিটি এপোক সীমায় রিলে তার
+  `Heartbeat` লেনদেন অটো-ইমিট করে (অ্যাঙ্কর-কী-স্বাক্ষরিত,
+  প্রতি এপোকে সর্বাধিক একটি, শুধুমাত্র পরিচয়ের একটি লাইভ সিট
+  থাকাকালীন) স্বাভাবিক মেমপুল পাথ দিয়ে;
 - অ্যাঙ্কর কী ছাড়া একটি রিলে **নিষ্ক্রিয়**
   থাকে: এটি জমা করে,
   ফাইনালাইজ করে এবং রিলে করে, কিন্তু কখনো
@@ -461,9 +471,10 @@ SATURATED বাকেটে `Disconnected` হয়
 এটি **পার্কড** (বাউন্ডেড ম্যাপ, `PARKED_CAP = 2048` ব্লক,
 প্রতিটি ~KiB
 — বাউন্ডেড সবচেয়ে খারাপ ক্ষেত্রে RAM; একটি পূর্ণ
-পার্কিং নতুনদের নীরবে
-উপেক্ষা করে)। `accept_block`-এ ইতিমধ্যে
-অফারকৃত হ্যাশ ডিডুপ্লিকেটেড (`seen_blocks`): একটি
+পার্কিং সর্বনিম্ন-`(height, hash)` এন্ট্রি EVICT করে এবং
+ফ্রেশ ব্লক সন্নিবেশ করায় — কখনো নতুনটি নয়)। `accept_block`-এ ইতিমধ্যে
+অফারকৃত হ্যাশ ডিডুপ্লিকেটেড (`seen_blocks` — ৩২,০০০ এন্ট্রির
+বাউন্ডেড FIFO): একটি
 পুনঃগসিপকৃত পরাজিত ব্লক পুনঃমূল্যায়িত
 হয় না।
 
@@ -484,6 +495,15 @@ SATURATED বাকেটে `Disconnected` হয়
 প্রত্যাখ্যাত, চিরতরে ভুলে যাওয়ার বদলে
 পর্যায়ক্রমে পুনঃমূল্যায়িত হয় (chaos-30
 সন্ধান: ১৫ ms আলাদা দুটি বোন ব্লক)।
+
+**ডিপ-ফর্ক স্টল ডিটেক্টর**: কোনো ক্যানোনিকাল অগ্রগতি ছাড়া
+৪০টি ধারাবাহিক প্রোডাকশন টিক যখন নোড ব্লকড (পার্কিং অ-খালি বা
+ব্রাঞ্চ দত্তকগ্রহণ `BlockPruned` প্রুনড-উইন্ডো ত্রুটিতে আটকে) তখন
+`recover_deep_fork` ট্রিগার করে: RAM চেইন ও পার্কিং রিসেট হয়,
+চেইন স্টোর থেকে পুনরায় বুট হয়, এবং রিলে পিয়ারদের থেকে পুনঃসিঙ্ক
+করে — RAM উইন্ডোর চেয়ে দীর্ঘ পার্টিশনের সৎ শেষ অবলম্বন
+(লগড, স্বয়ং-পুনরুদ্ধারকৃত; এটি ছাড়া একটি স্টলড নোড ম্যানুয়াল
+রিস্টার্ট পর্যন্ত split-brained থাকে)।
 
 **রিঅর্গ পারসিস্টেন্স**: অন্য ব্রাঞ্চ দত্তক
 নেওয়া একচেটিয়া বর্ধমান অ্যাপেন্টের মধ্য দিয়ে
@@ -506,10 +526,23 @@ SATURATED বাকেটে `Disconnected` হয়
 (`Pong` = আর কিছু নেই) বা
 `MAX_SYNC_ROUNDS` (10,000) ব্যাচ — একটি
 মিথ্যুক পিয়ারের বিরুদ্ধেও একটি পরম
-বাউন্ড। গৃহীত ব্লক সম্পূর্ণ ভ্যালিডেশনের মধ্য দিয়ে
+বাউন্ড। **অরফান-ট্রিগারড পশ্চাদমুখী পুল**: `UnknownParent`-এ
+পার্কড একটি গৃহীত ব্লক (তার প্যারেন্ট লোকালি অজানা — যেমন আমরা
+বিচ্ছিন্ন থাকাকালীন বেড়ে ওঠা একটি ফর্ক) একই পিয়ারে তাৎক্ষণিক
+`GetBlocks(start_height = block.height − 1)` ট্রিগার করে; অনুপস্থিত
+ফর্ক সেগমেন্ট মূর্ত হয় এবং পার্কড ব্লক পরবর্তী `reconsider_parked`
+ড্রেইনে সংযুক্ত হয়। বাউন্ডেড: প্রতি অরফানে একটি পুল,
+পুনঃঅফারে `seen_blocks` দ্বারা ডিডুপ্লিকেটেড। গৃহীত ব্লক সম্পূর্ণ ভ্যালিডেশনের মধ্য দিয়ে
 যায়: একটি
 ক্ষতিকর পিয়ার কোনো অবৈধ কিছু গ্রহণ
 করাতে পারে না।
+
+প্রতিটি প্রোডাকশন টিক একটি পর্যায়ক্রমিক পুনঃপরীক্ষাও চালায়
+(`recheck_sync`): ইতিমধ্যে ক্যাচ-আপ সম্পন্ন প্রতিটি সংযুক্ত পিয়ার
+একটি বাউন্ডেড `GetBlocks(local height + 1)` পায় (প্রতি টিকে প্রতি
+পিয়ারে একটি অনুরোধ; নতুন কিছু না থাকলে উত্তর তাৎক্ষণিক
+`Pong`)। এটিই পার্টিশনড দ্বীপগুলোকে সারায়: ক্যাচ-আপ শেষ করা একটি
+পিয়ার পরে উৎপাদিত ব্লকগুলো সম্পর্কে এখনও জানতে পারে।
 
 ### রেকর্ড DHT
 
@@ -539,6 +572,18 @@ SATURATED বাকেটে `Disconnected` হয়
 - Kademlia সার্ভার মোডে চলে, কোনো রেকর্ড TTL
   নেই (চেইন
   বৈধতা শাসন করে, সময় নয়)।
+- রেকর্ড গসিপ প্লাম্বিং (বাউন্ডেড, অ্যান্টি-স্টর্ম):
+  (a) প্রতিটি প্রোডাকশন টিক লোকাল পারসিস্টেন্ট ক্যাশের একটি
+  PAGE সংযুক্ত পিয়ারদের কাছে গসিপ করে (২৫৬ রেকর্ড, টিক জুড়ে
+  কার্সর ওয়াক — প্রতি টিকে বাউন্ডেড RAM, ক্যাশ সাইজ যাই হোক
+  বেশ কয়েক টিকে সম্পূর্ণ কভারেজ);
+  (b) একটি গৃহীত `Record` বার্তা অন্য পিয়ারদের কাছে পুনঃগসিপ
+  হয় শুধুমাত্র যখন এটি লোকাল ক্যাশের তুলনায় NEW বা DIFFERENT
+  (অন্যথায় প্রতিটি রিসিভার চিরকাল পুনঃফরওয়ার্ড করত);
+  (c) পাবলিকেশন **১২টির বেশি স্বতন্ত্র NS
+  nameserver**-সহ রেকর্ড প্রত্যাখ্যান করে
+  (`MAX_NS_PER_DOMAIN`, সব রূপ — hostname, v4,
+  v6)।
 
 ### রেকর্ড যাচাই ("চেইনই কর্তৃত্ব" নিয়ম)
 
@@ -587,16 +632,19 @@ owner-এর শেখা পাবলিক কী **অথবা** ডোম�
 `metrics: <addr>` লাইট যত তাড়াতাড়ি এটি
 শোনে।
 
-**১৯টি কাউন্টার** (`counter`, একচেটিয়া বর্ধমান —
+**২৭টি কাউন্টার সিরিজ** (`counter`, একচেটিয়া বর্ধমান —
 হট পাথ: একটি শেয়ার্ড `Arc<Metrics>`-এ
 `fetch_add(Relaxed)`, কখনো
-কনসেনসাস ইনপুট নয়):
+কনসেনসাস ইনপুট নয়), প্লাস দুটি লেবেলড geo সিরিজ (সাধারণ
+কাউন্টারের আগে রেন্ডারড, প্রতি লেবেলে একটি লাইন — একই নাম,
+ভিন্ন লেবেল সেট; অ-খালি হলেই নির্গত):
 
 | গ্রুপ | সিরিজ |
 |---|---|
 | Chain | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (লেবেলড) | `scone_dns_geo_by_continent_total{continent}` (UN M49 কোড), `scone_dns_geo_by_country_total{country}` (ISO 3166-1 কোড) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Peer network | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -644,7 +692,7 @@ JSON TCP RPC সার্ভার **অপসারিত** হয়েছে:
   পৌঁছায়, একটি EOF নয়)।
 
 ক্লায়েন্ট একটি ন্যূনতম libp2p স্ওয়ার্ম তোলে
-(request-response + identify), ৩০ সে কল
+(শুধুই request-response — কোনো identify নেই), ৩০ সে কল
 টাইমআউট (২০ সে রাউন্ড ট্রিপ)। ডিফল্ট `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…`
 (লোকাল dev নোড; প্রকৃত পিয়ার id-সহ সম্পূর্ণ
@@ -683,12 +731,13 @@ scone domain resolve NAME [--peer MULTIADDR]
 প্রতিটি নিয়ন্ত্রণ কমান্ড রিলের
 multiaddr-এ সরাসরি QUIC কথা বলে (`--peer`,
 ডিফল্ট লোকাল নোড — RPC→p2p একীকরণ, আর
-কোনো JSON TCP চ্যানেল নেই)। রিলে অনুপস্থিত →
-স্পষ্ট বার্তা "p2p node unreachable — is a relay
-running?", অ-শূন্য প্রস্থান। `--rpc`
-ফ্ল্যাগ রাখা হয়েছে কিন্তু **অপ্রচলিত এবং উপেক্ষিত**
-(RPC সার্ভার অপসারিত হয়েছে; শুধুমাত্র
-স্ক্রিপ্ট সামঞ্জস্য)।
+কোনো JSON TCP চ্যানেল নেই)। রিলে অনুপস্থিত → পাঠযোগ্য
+বার্তাসহ অ-শূন্য প্রস্থান: `--peer`/`SCONE_PEER` দেওয়া হলে,
+"p2p node unreachable — is a relay running? (...)"; লোকাল-রিলে
+ডিফল্টে, "no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)। লিগ্যাসি `--rpc` ফ্ল্যাগ REMOVED:
+সেটি পাস করা আজ একটি clap ত্রুটি (এমন কোনো আর্গুমেন্ট নেই)।
 
 ### এনভায়রনমেন্ট কনফিগারেশন (`.env`)
 
@@ -716,16 +765,12 @@ explicit CLI flag  >  .env variable  >  built-in default
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (ডিফল্ট), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | ডেটা ডিরেক্টরি (ডিফল্ট `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | P2P লিসেন multiaddr (ডিফল্ট: সব ইন্টারফেস, এফেমারাল পোর্ট) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | বুটস্ট্র্যাপ সিড, **পুনরাবৃত্তিযোগ্য** (প্রতি মানে একটি লাইন — dotenvy জমা করে); builtin সিড প্রতিস্থাপন করে |
+| `SCONE_LISTEN` | `--listen` | P2P লিসেন multiaddr (ডিফল্ট: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | বুটস্ট্র্যাপ সিড — একাধিকের জন্য **CLI ফ্ল্যাগ পুনরাবৃত্তি করুন** (`--bootstrap A --bootstrap B`); `.env`-এ প্রতি ভেরিয়েবলে একটি মান (dotenvy প্রথম অগ্রাহার রাখে, জমা করে না); builtin সিড প্রতিস্থাপন করে |
 | `SCONE_GENESIS` | `--genesis` | জেনেসিস ফাইল (ফাউন্ডার নোড) |
-| `SCONE_MDNS` | `--mdns` | (অপ্রচলিত — mDNS ডিসকভারি সরিয়ে ফেলা হয়েছে; গৃহীত, উপেক্ষিত) |
 | `SCONE_UPNP` | `--upnp` | UPnP পোর্ট ম্যাপিং (`true` = সক্ষম) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS সার্ভার বাইন্ড ঠিকানা |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | রিকার্সিভ ফলব্যাক, **পুনরাবৃত্তিযোগ্য** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS ক্যাশ এন্ট্রি ক্যাপ |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS ক্যাশ মেমরি ক্যাপ (যেমন `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | সমান্তরাল DNS কোয়েরি ক্যাপ |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | রিকার্সিভ ফলব্যাক — একাধিকের জন্য **CLI ফ্ল্যাগ পুনরাবৃত্তি করুন** (`--dns-upstream A --dns-upstream B`); `.env`-এ প্রতি ভেরিয়েবলে একটি মান |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | মেট্রিক্স এন্ডপয়েন্ট বিয়ারার টোকেন |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | টোপোলজি প্রোফাইল (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; ডিফল্ট `default`) |
@@ -928,7 +973,7 @@ TXT free text (spaces normalized)
 |---|---|
 | P2P ফ্রেম | পার্সিংয়ের আগে `MAX_MESSAGE_LEN` (1 MiB) |
 | মেমপুল | 4096 tx (বাইরে টাইপড প্রত্যাখ্যান); প্রতি ডোমেইনে `MAX_PENDING_PER_DOMAIN = 4` বিচলিত tx |
-| মেমপুল গ্রেস | `MAX_GRACE_ATTEMPTS = 10` একটি tx-এর পুনঃসন্নিবেশ যা একটি অ-চূড়ান্ত কারণে ফ্লাশ হয়েছে (৪০ সে/চক্রে ≈ ৭ মিনিট), তারপর বহিষ্করণ |
+| মেমপুল গ্রেস | `MAX_GRACE_ATTEMPTS = 10` একটি tx-এর পুনঃসন্নিবেশ যা একটি অ-চূড়ান্ত কারণে ফ্লাশ হয়েছে (ডিফল্ট ২ সে প্রোডাকশন টিকে ≈ ২০ সে), তারপর বহিষ্করণ |
 | ফর্ক পার্কিং | `PARKED_CAP = 2048` প্রতিযোগী ব্লক |
 | জমাকৃত চেকপয়েন্ট | `MAX_PENDING_CHECKPOINTS = 256` (বহিষ্করণ: ক্ষুদ্রতম ডেটা হ্যাশ) |
 | একইসাথে DHT ওয়েটার | `MAX_DHT_WAITERS` (256); DHT লুকআপ 30 সে-তে সীমাবদ্ধ (`DHT_LOOKUP_TIMEOUT`) |
@@ -936,6 +981,11 @@ TXT free text (spaces normalized)
 | DHT রেকর্ড | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | স্থায়ী DHT ক্যাশ (ডিস্ক) | দ্বৈত LRU বাউন্ড: `DHT_CACHE_MAX_ENTRIES` (১০০,০০০ এন্ট্রি) এবং `DHT_CACHE_MAX_BYTES` (2 GiB) — যেটি আগে লাগে সেটি কী ক্রমে বহিষ্কার করে; ব্লকের একই লেনদেনে GC বহিষ্করণ (চেইন GC দ্বারা নিহত একটি ডোমেইন কখনো একটি এতিম এন্ট্রি রেখে যায় না) |
 | DHT নেগেটিভ ক্যাশ | `DHT_NEGATIVE_TTL_SECS` (30 s), FIFO ক্যাপ `DHT_NEGATIVE_CAP` (4,096) |
+| req-res অনুরোধ টাইমআউট | প্রতি অনুরোধে ১০ সে, ৬৪ সমান্তরাল স্ট্রিম (রিলে পাশ) |
+| Kademlia কোয়েরি টাইমআউট | ১০ সে |
+| নিষ্ক্রিয় সংযোগ টাইমআউট | ৩০০ সে |
+| Metrics এন্ডপয়েন্ট | ৬৪ সমান্তরাল স্ক্রেপ; হেডার রিডে ৫ সে ডেডলাইন |
+| অ্যাড্রেস বুক (RAM) | পারসিস্টেড ক্যাপের ২×-এ সন্নিবেশ গার্ড (পারসিস্টেড ক্যাপ: ২,০০০ এন্ট্রি) |
 | RAM-এ চেইন | জেনেসিস + টিপ উইন্ডো (ইতিহাস স্টোর থেকে সেবা পায়) |
 
 অ্যান্টি-লুপ নিয়ম (H2): একটি লেনদেন শুধুমাত্র

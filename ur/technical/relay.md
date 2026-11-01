@@ -18,7 +18,7 @@
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -65,8 +65,6 @@ storage) ہم وقتی اور خالص رہتا ہے۔
 1. **واضح seeds** (`--bootstrap`، مکمل multiaddrs) — ہمیشہ
    ترجیح؛ غیر خالی فہرست دینا باقی سب کی جگہ لے لیتا ہے
    (REPLACES)۔
-   `--no-builtin-seeds` ایمبیڈڈ seeds خالی کرتا ہے 100% نجی
-   تعیناتیوں کے لیے۔
 2. **ایمبیڈڈ seeds** (`builtin_seeds(network)` در
    `scone-network/src/config.rs`) — ہر سرکاری بائنری
    ریلیز پر منجمد، فی نیٹ ورک۔ غیر کنفیگر شدہ ریلے نیٹ ورک میں
@@ -99,8 +97,8 @@ UPnP **بطور ڈیفالٹ بند** رہتا ہے
 رضامندی کے بغیر کسی روٹر سے نہیں بولتی۔ **mDNS دریافت ہٹا
 دی گئی** (remove-mdns-discovery، 2026-10-22): peering صرف
 واضح bootstrap، بلٹ ان seeds اور Kademlia سے آتا ہے — پرانا
-flag `--mdns`/`SCONE_MDNS` بلا اثر قبول کیا جاتا ہے
-(اسکرپٹ مطابقت، `--rpc` جیسی ہی معاملت)۔
+`--mdns`/`SCONE_MDNS` فلیگ **ہٹا دیا گیا ہے**: آج انہیں
+دینا clap خرابی ہے (ایسا کوئی آرگیومنٹ موجود نہیں)۔
 
 ### مقامی ٹوپولوجی بہتری (ہمیشہ آن)
 
@@ -181,10 +179,12 @@ scone relay --topology-profile tiny
 ہوتے ہیں (`only_global_ips = false`): ایک LAN میش اپنی LAN
 پہنچ جانچتی ہے۔
 
-قابلِ رسائی ریلے سرکٹ ریلے v2 **hop** فعال کرتا ہے (یہ NATed
+ہر ریلے سرکٹ ریلے v2 **hop** چلاتا ہے (یہ NATed
 پیرز کے لیے ٹریفک ریلے کر سکتا ہے) اور **DCUtR** (ہول پنچنگ:
 سرکٹ کے ذریعے جڑے دو نوڈ براہِ راست کنکشن کی کوشش کرتے ہیں اور
-ریلے آزاد کرتے ہیں)۔ NATed فیصلہ ہونے والا ریلے پہلے معروف
+ریلے آزاد کرتے ہیں)
+**غیر مشروط طور پر**؛ صرف NATed جانب کا تحفظ کا درخواست فیصلے
+سے بندھا ہے: NATed فیصلہ ہونے والا ریلے پہلے جڑے ہوئے
 قابلِ رسائی پیر سے تحفظ مانگتا ہے اور اس کے ذریعے سنتا ہے (پتہ
 `/p2p/<relay>/p2p-circuit`)۔
 
@@ -246,8 +246,9 @@ scone relay --topology-profile tiny
    [پیر دریافت](#پیر-دریافت)): واضح `--bootstrap`
    (آخر `/p2p/<peer-id>` پر ختم ہو) ورنہ نیٹ ورک کے ایمبیڈڈ
    seeds ورنہ سیکھی ڈائریکٹری (`peers.json`)؛
-5. ہر multiaddr ڈائل کریں اور Kademlia ٹیبل میں رجسٹر کریں
-   (مردہ ڈائل نظر انداز — باقی نیٹ ورک بناتے ہیں)۔
+5. ہر seed multiaddr سوارم اور Kademlia
+   ٹیبل دونوں میں رجسٹر کریں (خود ڈائل Kademlia کے خودکار
+   bootstrap کے ذریعے ہوتے ہیں؛ مردہ پیر سادہ جواب نہیں دیتا)۔
 
 ### ٹرانزیکشن وصول کرنا (P2P یا CLI جمع کروانا)
 
@@ -272,6 +273,13 @@ scone relay --topology-profile tiny
    دستخط کنندہ؛ `AssignDomain` → TLD مالک + آزاد نام؛
    `RenewTld` → معروف ذاتی TLD + مالک، مقررہ مدت دوبارہ اخذ، مہلت کھڑکی پری چیک؛ `RenewDomain` → معروف ڈومین + مالک، تجدید PoW پری چیک
    (موجودہ میعاد سے بندھا) اگلی اونچائی پر؛
+   `TransferDomain` → معروف ڈومین + مالک؛ `SetRecordDelegates`،
+   `SetTldOperator`، `SetDomainOperator` → مالک + CAS
+   `state_binding` = موجودہ generation؛ pow-to-owner خاندان
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) → نام/ثبوت شکل پری چیکس (کوئی signer نہیں،
+   کوئی دستخط نہیں)؛ `Slash`/`Heartbeat` → گذار (push وقت پر
+   مکمل تصدیق)؛
 4. mempool داخلہ (مقررہ گنجائش، `TxId` سے ڈی ڈپ —
    پول میں موجود tx دوبارہ جمع کرنا no-op)؛
 5. پیرز کو نشریات (بھیجنے والے کے سوا)۔
@@ -369,8 +377,12 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
 - **فائنلٹی کیچ اپ**: جس ریلے کا بیس خالی ہو (نئے نوڈ کا
    بوٹ) ہر tick پر پیر سے `GetCheckpoints` مانگتا ہے جب تک
    بیس بحال نہ ہو جائے؛
+- **proof-of-service ہارٹ بیٹ**: ہر epoch حد پر ریلے اپنی
+  `Heartbeat` ٹرانزیکشن خود خارج کرتا ہے (اینکر کلید سے دستخط
+  شدہ، فی epoch زیادہ سے زیادہ ایک، صرف جب تک شناخت کے پاس زندہ
+  سیٹ ہو) عام mempool پاتھ کے ذریعے؛
 - اینکر کلید کے بغیر ریلے **غیر فعال** رہتا ہے: جمع کرتا،
-   فائنل کرتا، ریلے کرتا ہے، مگر کبھی دستخط نہیں؛
+  فائنل کرتا، ریلے کرتا ہے، مگر کبھی دستخط نہیں؛
 - `GetCheckpoints` → `checkpoint_window()` ونڈو دی جاتی ہے؛
 - کوئی بھی لوپ خرابی لاگ اور نگل لی جاتی ہے — کبھی مہلک نہیں؛
 - اسٹیٹس (`GetStatus`) `checkpoints` اور `finalized_epoch` ظاہر
@@ -381,9 +393,11 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
 اسی اونچائی پر بہن بلاک، یا جس بلاک کا والد موجودہ
 ٹِپ نہیں (`ParentNotTip`/`UnknownParent`)، کبھی کھویا نہیں
 جاتا: یہ **پارک** کر دیا جاتا ہے (محدود میپ، `PARKED_CAP = 2048`
-بلاکس، ہر ایک ~KiB — محدود بدترین RAM؛ مکمل پارکنگ نئے آنے
-والوں کو خاموشی سے نظر انداز کرتی ہے)۔ `accept_block` کو پہلے
-ہی پیش کی گئی ہیشز ڈی ڈپلیکیٹ ہوتی ہیں (`seen_blocks`): دوبارہ
+بلاکس، ہر ایک ~KiB — محدود بدترین RAM؛ مکمل پارکنگ سب سے کم
+`(height, hash)` اندراج بے دخل کر کے تازہ بلاک داخل کرتی ہے —
+کبھی نیوکمر نہیں)۔ `accept_block` کو پہلے
+ہی پیش کی گئی ہیشز ڈی ڈپلیکیٹ ہوتی ہیں (`seen_blocks` — 32,000
+اندراجات کی محدود FIFO): دوبارہ
 گوسپ شدہ ہارنے والا بلاک دوبارہ جانچا نہیں جاتا۔
 
 ہر `Produce` ٹک پر، `reconsider_parked`:
@@ -400,6 +414,14 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
 لیے بھول جانے کے
 (کیاوس-30 کی دریافت: دو بہن بلاکس 15 ms کے فاصلے پر)۔
 
+**گہری فورک جامگی کھوج کار**: بغیر کیننیکل پیش رفت کے 40 مسلسل
+پیداوار ٹکس جبکہ نوڈ بند ہو (پارکنگ غیر خالی یا برانچ اپنانا
+`BlockPruned` پرنڈ-ونڈو خرابی پر جا رہا ہو) `recover_deep_fork`
+متحرک کرتے ہیں: RAM چین اور پارکنگ ری سیٹ، چین اسٹور سے دوبارہ
+بوٹ ہوتا ہے، اور ریلے پیرز سے دوبارہ سنک کرتا ہے — RAM ونڈو سے
+لمبی تقسیم کا ایماندار آخری سہارا (لاگ شدہ، خود شفا یاب؛ اس کے
+بغیر جاما ہوا نوڈ دستی ری سٹارٹ تک دماغی تقسیم میں رہتا ہے)۔
+
 **ری آرگ استقامت**: دوسری برانچ اپنانا یک طرفہ اپینڈ سے نہیں
 گزر سکتا (`NonMonotonicHeight`)۔ ریلے
 `rewind_to_height(فورک نقطہ)` پھر `persist_state_snapshot`
@@ -415,8 +437,23 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
 `Block` جو متوقع اونچائی بالکل مکمل کرے اگلی
 اونچائی کی درخواست متحرک کرتا ہے، تھکاؤ (`Pong` = کچھ نہیں) یا
 `MAX_SYNC_ROUNDS` (10,000) بیچز تک — جھوٹے پیر کے خلاف بھی
-مطلق حد۔ موصول بلاکس مکمل تصدیق سے گزرتے ہیں: معاندار
+مطلق حد۔ **یتیم سے
+متحرک پیچھے کھنچائی**: `UnknownParent` پر پارک ہونے والا موصول
+بلاک (اس کا والد مقامی طور پر نامعلوم — مثلاً ایک فورک جو ہماری
+منقطعی کے دوران بڑھی) اسی پیر کو فوری
+`GetBlocks(start_height = block.height − 1)` بھیجتا ہے؛ غائب
+فورک سیگمنٹ مادہ میں آتا ہے اور پارک شدہ بلاک بعد کی
+`reconsider_parked` نکاسی پر جڑ جاتا ہے۔ محدود: فی یتیم ایک
+کھنچائی، دوبارہ پیشی پر `seen_blocks` ڈی ڈپ۔ موصول بلاکس مکمل
+تصدیق سے گزرتے ہیں: معاندار
 پیر کچھ بھی غلط قبول نہیں کروا سکتا۔
+
+ہر پیداوار ٹک ایک وقفی دوبارہ جانچ بھی چلاتا ہے
+(`recheck_sync`): ہر جڑا ہوا پیر جو پہلے ہی مکمل سنک ہو چکا ہے
+ایک محدود `GetBlocks(مقامی اونچائی + 1)` پاتا ہے (فی پیر فی ٹک
+ایک درخواست؛ کچھ نیا نہ ہو تو جواب فوری `Pong` ہے)۔ یہی
+تقسیم شدہ جزائر کو شفا دیتا ہے: مکمل سنک ہو چکا پیر بعد میں
+پیدا ہونے والے بلاکس کے بارے میں اب بھی سیکھتا ہے۔
 
 ### ریکارڈ DHT
 
@@ -437,6 +474,16 @@ redb commit) `tokio::task::block_in_place` سے گزرتے ہیں (سنک
   (`domain_info`) پھر نئے DHT سوال کے بغیر خدمت دیتی ہے۔
 - Kademlia سرور موڈ میں چلتا ہے، کوئی ریکارڈ TTL نہیں (چین
   درستگی کی حاکم ہے، وقت نہیں)۔
+- ریکارڈ گوسپ پلومنگ (محدود، اینٹی اسٹارم):
+  (a) ہر پیداوار ٹک مقامی پائیدار کیش کا ایک صفحہ جڑے پیرز کو
+  گوسپ کرتا ہے (256 ریکارڈز، ٹکس پر کرسر واک — فی ٹک محدود RAM،
+  کیش سائز جو بھی ہو کئی ٹکس پر مکمل کوریج)؛
+  (b) موصول `Record` پیغام دوسرے پیرز کو دوبارہ گوسپ ہوتا ہے
+  صرف اُس وقت جب وہ مقامی کیش کے لیے نیا یا مختلف ہو (ورنہ ہر
+  وصول کنندہ ہمیشہ کے لیے دوبارہ آگے بھیجتا رہے گا)؛
+  (c) اشاعت **12 سے زیادہ الگ NS nameservers**
+  (`MAX_NS_PER_DOMAIN`، تمام شکلیں — hostname، v4،
+  v6) والا ریکارڈ مسترد کرتی ہے۔
 
 ### ریکارڈ تصدیق ("چین ہی اختیار ہے" قاعدہ)
 
@@ -476,15 +523,18 @@ exposition — کوئی نیا انحصار نہیں) ایک مخصوص کام �
 مؤثر بائنڈ stdout پر اعلان ہوتا ہے (مشین پڑھنے کے قابل
 معاہدہ، `p2p:` کی طرح): سنتے ہی ایک `metrics: <addr>` لائن۔
 
-**19 کاؤنٹرز** (`counter`، یک طرفہ بڑھتے — ہاٹ پاتھز:
+**27 کاؤنٹر سیریز** (`counter`، یک طرفہ بڑھتے — ہاٹ پاتھز:
 مشترکہ `Arc<Metrics>` پر `fetch_add(Relaxed)`، کبھی
-کنسنسس ان پٹ نہیں):
+کنسنسس ان پٹ نہیں)، بعلاوہ دو لیبل شدہ geo سیریز (سادہ
+کاؤنٹرز سے پہلے رینڈر، فی لیبل ایک لائن — ایک ہی نام، الگ لیبل
+سیٹس؛ صرف غیر خالی ہونے پر خارج)۔
 
 | گروہ | سیریز |
 |---|---|
 | چین | `scone_blocks_applied_total`، `scone_blocks_rejected_total`، `scone_checkpoints_signed_total`، `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`، `scone_txs_rejected_total`، `scone_txs_evicted_grace_total`، `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`، `scone_dns_cache_hits_total`، `scone_dns_cache_misses_total`، `scone_dns_local_chain_total`، `scone_dns_dht_answers_total`، `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`، `scone_txs_duplicate_total`، `scone_txs_rejected_total`، `scone_txs_evicted_grace_total`، `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`، `scone_dns_cache_hits_total`، `scone_dns_cache_misses_total`، `scone_dns_local_chain_total`، `scone_dns_dht_answers_total`، `scone_dns_rejected_unverified_total`، `scone_dns_geo_answers_total` |
+| Geo (لیبل شدہ) | `scone_dns_geo_by_continent_total{continent}` (UN M49 کوڈ)، `scone_dns_geo_by_country_total{country}` (ISO 3166-1 کوڈ) |
 | DHT | `scone_dht_pulls_issued_total`، `scone_dht_negative_hits_total`، `scone_dht_negative_expired_total`، `scone_dht_negative_capped_total`، `scone_dht_cache_evictions_total` |
 | پیر نیٹ ورک | `scone_peer_connections_established_total`، `scone_peer_connections_closed_total`، `scone_peer_connections_incoming_total`، `scone_peer_dial_failures_total`، `scone_peer_blocks_received_total`، `scone_peer_transactions_received_total` |
 
@@ -524,8 +574,8 @@ axum پل) p2p پروٹوکول **براہِ راست** بولتی ہے —
 - ایپلیکیشن انکار → `Message::Error(msg)` (کلائنٹ
   تک پڑھنے قابل پیغام پہنچتا ہے، EOF نہیں)۔
 
-کلائنٹ ایک کم سے کم libp2p سوارم لاتی ہے (request-response +
-identify)، 30 s کال ٹائم آؤٹ (20 s راؤنڈ ٹرپ)۔ ڈیفالٹ `--peer`:
+کلائنٹ ایک کم سے کم libp2p سوارم لاتی ہے (صرف request-response
+— کوئی identify نہیں)، 30 s کال ٹائم آؤٹ (20 s راؤنڈ ٹرپ)۔ ڈیفالٹ `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (مقامی dev نوڈ؛
 حقیقی پیر id کے ساتھ مکمل multiaddr ریلے
 stdout پر `p2p:` لائن کے ذریعے اعلان کرتا ہے)۔
@@ -554,17 +604,20 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 # --peer defaults to the local relay (SCONE_PEER env overrides);
 # --identity defaults to the single keystore identity when there
-# is exactly one. Removed (stubs suggest replacements): show,
-# submit, lookup, owned.
+# is exactly one. Removed: show, submit, lookup, owned — no stubs;
+# clap rejects these names with its generic "unrecognized
+# subcommand" error plus a closest-name suggestion.
 ```
 
 ہر کنٹرول کمانڈ ریلے کے multiaddr (`--peer`، ڈیفالٹ مقامی نوڈ —
 RPC→p2p یکساں کاری، اب
 کوئی JSON TCP چینل نہیں) سے براہِ راست QUIC بولتی ہے۔ ریلے غائب →
-صاف پیغام "p2p node unreachable — is a relay running?"، غیر صفر
-ایگزیٹ۔ `--rpc`
-فلیگ رکھا گیا ہے مگر **متروک اور نظر انداز** (RPC سرور ہٹا دیا
-گیا؛ صرف اسکرپٹ ہم آہنگی)۔
+غیر صفر ایگزیٹ بمع پڑھنے قابل پیغام: جب `--peer`/`SCONE_PEER` دیا گیا ہو،
+"p2p node unreachable — is a relay running? (...)"؛ مقامی ریلے
+ڈیفالٹ پر، "no local relay found — start one (`scone relay`) or
+point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)". پرانا `--rpc` فلیگ **ہٹا دیا گیا ہے**:
+آج اسے دینا clap خرابی ہے (ایسا کوئی آرگیومنٹ موجود نہیں)۔
 
 ### ماحول کنفیگریشن (`.env`)
 
@@ -587,16 +640,12 @@ explicit CLI flag  >  .env variable  >  built-in default
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (ڈیفالٹ)، `mainnet`، `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | ڈیٹا ڈائریکٹری (ڈیفالٹ `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | P2P سننے کا multiaddr (ڈیفالٹ: تمام انٹرفیس، عارضی پورٹ) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds، **دہرایا جانے والا** (فی قیمت ایک لائن — dotenvy جمع کرتا ہے)؛ builtin seeds کی جگہ لیتا ہے |
+| `SCONE_LISTEN` | `--listen` | P2P سننے کا multiaddr (ڈیفالٹ: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds — کئی کے لیے **CLI فلیگ دہرائیں** (`--bootstrap A --bootstrap B`)؛ `.env` میں فی متغیر ایک قیمت (dotenvy پہلی موجودگی رکھتا ہے، جمع نہیں کرتا)؛ builtin seeds کی جگہ لیتا ہے |
 | `SCONE_GENESIS` | `--genesis` | جنسیس فائل (بانی نوڈز) |
-| `SCONE_MDNS` | `--mdns` | (متروک — mDNS دریافت ہٹا دی گئی؛ قبول، نظر انداز) |
 | `SCONE_UPNP` | `--upnp` | UPnP پورٹ میپنگ (`true` = فعال) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS سرور بائنڈ پتہ |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | ریکرسو فال بیکس، **دہرایا جانے والا** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS کیش اندراج کیپ |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS کیش میموری کیپ (مثلاً `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | بیک وقت DNS سوال کیپ |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | ریکرسو فال بیکس — کئی کے لیے **CLI فلیگ دہرائیں** (`--dns-upstream A --dns-upstream B`)؛ `.env` میں فی متغیر ایک قیمت |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | میٹرکس اینڈ پوائنٹ bearer ٹوکن |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | ٹوپولوجی پروفائل (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`؛ ڈیفالٹ `default`) |
@@ -741,10 +790,15 @@ TXT free text (spaces normalized)
 |---|---|
 | P2P فریم | پارسنگ سے پہلے `MAX_MESSAGE_LEN` (1 MiB) |
 | Mempool | 4096 tx (اس سے آگے ٹائپ شدہ انکار)؛ فی ڈومین `MAX_PENDING_PER_DOMAIN = 4` زیر التوا txs |
-| Mempool مہلت | `MAX_GRACE_ATTEMPTS = 10` کسی غیر حتمی وجہ سے flush شدہ tx کی دوبارہ داخلے (40 s/سائیکل پر ≈ 7 منٹ)، پھر بے دخلی |
+| Mempool مہلت | `MAX_GRACE_ATTEMPTS = 10` کسی غیر حتمی وجہ سے flush شدہ tx کی دوبارہ داخلے (ڈیفالٹ 2 s پیداوار ٹک پر ≈ 20 s)، پھر بے دخلی |
 | فورک پارکنگ | `PARKED_CAP = 2048` مقابل بلاکس |
 | جمع شدہ چیک پوائنٹس | `MAX_PENDING_CHECKPOINTS = 256` (بے دخلی: سب سے چھوٹی ڈیٹا ہیش) |
 | بیک وقت DHT منتظر | `MAX_DHT_WAITERS` (256)؛ DHT تلاش 30 s تک محدود (`DHT_LOOKUP_TIMEOUT`) |
+| req-res درخواست ٹائم آؤٹ | فی درخواست 10 s، 64 بیک وقت سٹریمز (ریلے جانب) |
+| Kademlia سوال ٹائم آؤٹ | 10 s |
+| بے کار کنکشن ٹائم آؤٹ | 300 s |
+| Metrics اینڈ پوائنٹ | 64 بیک وقت scrapes؛ ہیڈر پڑھائی پر 5 s ڈیڈ لائن |
+| ایڈریس بک (RAM) | پائیدار کیپ کے 2× پر داخلہ محافظ (پائیدار کیپ: 2,000 اندراجات) |
 | فی سنک جواب بلاکس | فی راؤنڈ ٹرپ 1؛ فی پیر ≤ 10,000 بیچز (`MAX_SYNC_ROUNDS`)؛ درخواست پر پروٹوکول حد `MAX_BLOCKS_PER_REQUEST = 128` |
 | DHT ریکارڈ | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | پائیدار DHT کیش (ڈسک) | دوہری LRU حد: `DHT_CACHE_MAX_ENTRIES` (100,000 اندراجات) اور `DHT_CACHE_MAX_BYTES` (2 GiB) — جو پہلے لگے وہ کلید ترتیب سے بے دخل؛ GC بے دخلی بلاک کی اسی ٹرانزیکشن میں (چین GC کے مارے ہوئے ڈومین کبھی یتیم اندراج نہیں چھوڑتی) |

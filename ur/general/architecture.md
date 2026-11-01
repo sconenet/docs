@@ -72,16 +72,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### فیصلہ: `scone-core` کا `scone-crypto` پر انحصار
@@ -94,6 +96,9 @@ scone           ← binary / application
   (بمطابق کلید کی تخلیق کے لیے OS RNG)، صفر core اقسام،
   کوئی نیٹ ورک/فائل سسٹم/async انحصار نہیں → کوئی سرکلٹی ممکن نہیں؛
 - `scone-core` اسے صرف ہیشنگ کے لیے استعمال کرتا ہے؛
+- `scone-core` سیدھے طور پر `argon2` (رجسٹریشن PoW) اور
+  `idna` (بین الاقوامی نام) پر بھی منحصر ہے — خالص
+  انحصارات، تہہ بندی برقرار؛
 - Ed25519 دستخط اور کلیدیں `scone-crypto` میں رہتی ہیں اور
   بائٹس پر کام کرتی ہیں (کیننیکل پے لوڈز جو `scone-protocol` بنتا ہے)۔
 
@@ -107,8 +112,7 @@ tokio/async، نیٹ ورک، فائلیں، OS، DNS سرور، بلاکچین 
 
 **scone-crypto** — خفیہ نگاری کے پریمیٹو۔ آج: `hash256`
 (BLAKE3)، Ed25519 دستخط اور کلیدیں (`SigningKey`،
-`PublicKey`، `Signature`، سخت بیچ تصدیق)، ریکارڈ
-گروپس کا AEAD لفافہ (XChaCha20-Poly1305)۔ منصوبے میں: Merkle درخت۔
+`PublicKey`، `Signature`، سخت بیچ تصدیق)۔ منصوبے میں: Merkle درخت۔
 قاعدہ: کوئی گھریلو الگورتھم نہیں، صرف آڈٹ شدہ انحصارات۔
 
 **scone-protocol** — پروٹوکول کا بائنری فارمیٹ: ٹرانزیکشنز، DNS
@@ -146,7 +150,7 @@ mempool، محدود بلاک سنک (128 بلاکس/درخواست)، `SignedDn
 ایمبیڈڈ GeoIP ٹیبل، ریکرسو فال بیک)، اینکرز کا
 چیک پوائنٹ/ہارٹ بیٹ لوپ (CLI ریلے سے براہِ راست p2p QUIC بولتی
 ہے، اب کوئی مقامی RPC نہیں)۔ پہنچ اور دریافت: AutoNAT
-v2 (قابلِ رسائی/NATed فیصلہ)، سرکٹ ریلے v2 + DCUtR برائے NATed
+v1 (قابلِ رسائی/NATed فیصلہ)، سرکٹ ریلے v2 + DCUtR برائے NATed
 نوڈز اور UPnP (روٹر کی جانب سے QUIC پورٹ میپنگ، آپٹ اِن)۔ `.env` فائل کے
 ذریعے کنفیگریشن (دیکھیں `.env.example`)۔
 حوالہ: `/docs/en/technical/relay.md`۔
@@ -205,11 +209,13 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-دو نوڈ پروفائلز:
+نوڈ پروفائلز (منصوبے میں — آج ایسا کوئی آپریٹر فلیگ موجود نہیں:
+ہر موجودہ نوڈ تمام بلاکس برقرار رکھتا ہے، اور مذکورہ بالا آپٹ اِن
+اسنیپ شاٹ درآمد ہی ری ٹینشن کا واحد کنٹرول ذریعہ ہے):
 
-- **آرکائیو نوڈ** (آپریٹر فلیگ): تمام تاریخی بلاکس رکھتا ہے،
+- **آرکائیو نوڈ** (منصوبہ): تمام تاریخی بلاکس رکھتا ہے،
   انہیں نیٹ ورک کو پیش کرتا ہے، موجودہ پاتھز سے شروع ہوتا ہے؛
-- **فُل اسٹیٹ نوڈ**: H پر مکمل اسٹیٹ اور سفکس رکھتا ہے،
+- **فُل اسٹیٹ نوڈ** (منصوبہ): H پر مکمل اسٹیٹ اور سفکس رکھتا ہے،
   لیکن H سے نیچے تاریخ نہیں — یہ مستقبل کے بلاکس کی تصدیق کرتا ہے اور
   اسٹیٹ پیش کرتا ہے، تاریخ پیش نہیں کرتا۔
 

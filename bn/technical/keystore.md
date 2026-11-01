@@ -15,7 +15,7 @@
 ## ওভারভিউ
 
 - **KDF**: Argon2id (v0x13), ডিফল্ট প্যারামিটার `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (`argon2` ক্রেটের ডিফল্ট)।
+  `t_cost` = 3, `p_cost` = 1 (scone-keystore ডিফল্ট)।
 - **এনক্রিপশন**: XChaCha20-Poly1305 (AEAD), KDF থেকে ডেরিভড ৩২-বাইট
   কী, প্রতি ফাইলে ২৪-বাইট র‍্যান্ডম নন্স।
 - **এনক্রিপ্টেড কনটেন্ট**: ঠিক Ed25519 seed (৩২ বাইট); Poly1305
@@ -96,23 +96,31 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1-এ কোনো অ্যাসোসিয়েটেড ডেটা (AAD) নেই। প্রতি ফাইলে র‍্যান্ডম
+উভয় ভার্সনেই কোনো অ্যাসোসিয়েটেড ডেটা (AAD) নেই। প্রতি ফাইলে র‍্যান্ডম
 ২৪-বাইট নন্স নন্স পুনঃব্যবহারের ঝুঁকি নগণ্য করে (কী-ফাইল শুধুমাত্র
 একবার লেখা হয়)।
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — কোর ফাংশন
 
 | ফাংশন | ভূমিকা |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | একটি কী জেনারেট করে, এনক্রিপ্টেড কী-ফাইল লেখে (প্যারেন্ট ডিরেক্টরি তৈরি করে); বিদ্যমান ফাইল **ওভাররাইট করতে অস্বীকার করে** (`Error::KeyfileExists`); কী মেমরিতে ফেরত দেয় |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | একই, কিন্তু স্পষ্টভাবে একটি বিদ্যমান কী-ফাইল প্রতিস্থাপন করে |
 | `open(path, passphrase) -> SigningKey` | ডিক্রিপ্ট করে এবং সাইনিং কী ফেরত দেয় |
-| `list(dir) -> Vec<KeyEntry>` | একটি ডিরেক্টরির `*.sconekey` ফাইল তালিকাভুক্ত করে (নাম অনুযায়ী সাজানো); অনুপস্থিত ডিরেক্টরি = খালি তালিকা |
+| `list(dir) -> Vec<KeyEntry>` | একটি ডিরেক্টরির `*.sconekey` ফাইল তালিকাভুক্ত করে (এক্সটেনশন ম্যাচ কেস-ইনসেনসিটিভ, নাম অনুযায়ী সাজানো); অনুপস্থিত ডিরেক্টরি = খালি তালিকা |
+
+বাক্যাংশ/লেবেল ভ্যারিয়েন্টগুলো (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) একই
+সিলিং মোড়ে রাখে — একটি পাবলিক লেবেল বা কলার-সরবরাহকৃত BIP39
+বাক্যাংশসহ; এগুলো উপরের কোর টেবিলের বাইরে থাকে।
 
 `GeneratedKey.signing_key` drop-এ `ed25519-dalek` দ্বারা
-জিরোাইজ হয় (ডিফল্ট `zeroize` ফিচার)। ডেরিভড AEAD কী, seed,
-এবং ডিক্রিপ্টেড প্লেইনটেক্সট `zeroize::Zeroizing`-এ মোড়ানো:
-Drop `?` দ্বারা প্রচারিত ত্রুটিসহ সব প্রস্থান পাথ কভার করে।
+জিরোাইজ হয় (ডিফল্ট `zeroize` ফিচার)। ডেরিভড AEAD কী
+এবং ডিক্রিপ্টেড প্লেইনটেক্সট `zeroize::Zeroizing`-এ মোড়ানো —
+Drop `?` দ্বারা প্রচারিত ত্রুটিসহ সব প্রস্থান পাথ কভার করে। সিল
+পাথে seed কপিটি ক্ষণস্থায়ী: একটি সাধারণ স্ট্যাক অ্যারে যা
+সিলিং কলের শেষে স্কোপের বাইরে চলে যায়।
 
 ## ফাইল পারমিশন
 
@@ -126,6 +134,7 @@ Unix-এ কী-ফাইল পারমিশন `0600` দিয়ে তৈ
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -142,6 +151,9 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   শব্দ)** ঠিক একবার প্রদর্শন করে — সদ্য ২৫৬-বিট এনট্রপি, শব্দগুলো
   একাই একই কী পুনরুৎপাদন করে (`scone identity restore`); সেগুলো
   কোথাও সংরক্ষিত হয় না।
+- রিলে অ্যাঙ্কর অটো-পরিচয় (`identity restore` নয়): অটো-জেনারেটেড
+  অ্যাঙ্কর পাসফ্রেজ `0600` হিসেবে লেখা হয় এবং লেখা ব্যর্থ হলে
+  রিপোর্ট করা হয়, কখনো চুপচাপ গিলে ফেলা হয় না।
 - `identity generate` বিদ্যমান কী-ফাইল **ওভাররাইট করতে অস্বীকার
   করে**; `--force` স্পষ্টভাবে প্রতিস্থাপন করে (নতুন salt/nonce, নতুন
   কী, নতুন বাক্যাংশ)।

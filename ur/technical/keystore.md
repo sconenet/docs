@@ -15,7 +15,7 @@
 ## جائزہ
 
 - **KDF**: Argon2id (v0x13)، ڈیفالٹ پیرامیٹرز `m_cost` = 64 MiB،
-  `t_cost` = 3، `p_cost` = 1 (`argon2` crate کے ڈیفالٹس)۔
+  `t_cost` = 3، `p_cost` = 1 (scone-keystore کے ڈیفالٹس)۔
 - **خفیہ کاری**: XChaCha20-Poly1305 (AEAD)، KDF سے اخذ شدہ 32 بائٹ
   کلید، فی فائل 24 بائٹ بے ترتیب nonce۔
 - **خفیہ شدہ مواد**: بالکل Ed25519 seed (32 بائٹس)؛
@@ -97,24 +97,32 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1 میں کوئی منسلک ڈیٹا (AAD) نہیں۔ فی فائل بے ترتیب 24 بائٹ
+دونوں ورژنز میں کوئی منسلک ڈیٹا (AAD) نہیں۔ فی فائل بے ترتیب 24 بائٹ
 nonce، nonce دوبارہ استعمال کا خطرہ معمولی کر دیتا ہے (کلیدی
 فائلیں صرف ایک بار لکھی جاتی ہیں)۔
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — بنیادی فنکشنز
 
 | فنکشن | کردار |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | کلید پیدا کرتا ہے، خفیہ شدہ کلیدی فائل لکھتا ہے (پیرنٹ ڈائریکٹریز بناتا ہے)؛ موجودہ فائل کو **دوبارہ لکھنے سے انکار** (`Error::KeyfileExists`)؛ کلید میموری میں واپس کرتا ہے |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | وہی، مگر موجودہ کلیدی فائل کو واضح طور پر بدلتا ہے |
 | `open(path, passphrase) -> SigningKey` | ڈی کرپٹ کر کے دستخطی کلید واپس دیتا ہے |
-| `list(dir) -> Vec<KeyEntry>` | کسی ڈائریکٹری کی `*.sconekey` فائلیں فہرست کرتا ہے (نام سے ترتیب شدہ)؛ غائب ڈائریکٹری = خالی فہرست |
+| `list(dir) -> Vec<KeyEntry>` | کسی ڈائریکٹری کی `*.sconekey` فائلیں فہرست کرتا ہے (ایکسٹینشن کھیلی-حساس (case-insensitive) ممیزی، نام سے ترتیب شدہ)؛ غائب ڈائریکٹری = خالی فہرست |
+
+فریز/لیبل variants (`create_labeled`،
+`create_overwriting_labeled`، `create_with_phrase`،
+`create_with_phrase_overwriting`، `restore_from_phrase`) وہی
+سیلنگ عوامی لیبل یا کالر کے فراہم کردہ BIP39 جملے کے ساتھ
+لپٹے ہیں؛ یہ اوپر کی بنیادی جدول سے باہر ہیں۔
 
 `GeneratedKey.signing_key` گرنے پر `ed25519-dalek` کے ذریعے صفر
-ہو جاتی ہے (ڈیفالٹ `zeroize` فیچر)۔ اخذ شدہ AEAD کلید، seed،
-اور ڈی کرپٹ شدہ متن `zeroize::Zeroizing` میں لپٹے ہیں:
+ہو جاتی ہے (ڈیفالٹ `zeroize` فیچر)۔ اخذ شدہ AEAD کلید اور
+ڈی کرپٹ شدہ متن `zeroize::Zeroizing` میں لپٹے ہیں —
 Drop تمام اخراج پاتھز کو ڈھانکتا ہے، بشمول `?` کے ذریعے آگے
-بڑھنے والی خرابیوں کے۔
+بڑھنے والی خرابیوں کے۔ سیل پاتھ پر seed کاپی عارضی ہے: ایک
+سادہ اسٹیک array جو سیلنگ کال کے اختتام پر دائرہ کار سے نکل
+جاتا ہے۔
 
 ## فائل کی اجازتیں
 
@@ -128,6 +136,7 @@ Unix پر، کلیدی فائل اجازتوں `0600` کے ساتھ بنائی �
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -144,6 +153,14 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   الفاظ)** بالکل ایک بار دکھاتا ہے — تازہ 256 بٹ اینٹروپی، صرف
   الفاظ وہی کلید دوبارہ بناتے ہیں (`scone identity restore`)؛ یہ
   کہیں بھی محفوظ نہیں ہوتے۔
+- پاس فریز کبھی کمانڈ لائن آرگیومنٹ **نہیں** (`ps` اور شیل
+  ہسٹری میں نظر آتا): ماسکڈ پرامپٹ، `--phrase-file <file>` یا
+  `--phrase-env <VAR>`۔ یہ موجودہ کلیدی فائل کو **دوبارہ
+  لکھنے سے انکار** کرتا ہے ڈیفالٹ طور پر
+  (`--force` واضح طور پر بدلتا ہے)۔
+- ریلے اینکر آٹو شناخت (`identity restore` نہیں): آٹو پیدا
+  شدہ اینکر پاس فریز `0600` پر لکھی جاتی ہے اور لکھنے کی ناکامی
+  رپورٹ ہوتی ہے، کبھی نگلی نہیں جاتی۔
 - `identity generate` موجودہ کلیدی فائل کو **دوبارہ لکھنے سے
   انکار** کرتا ہے؛ `--force` واضح طور پر اسے بدلتا ہے (نیا
   salt/nonce، نئی کلید، نیا جملہ)۔

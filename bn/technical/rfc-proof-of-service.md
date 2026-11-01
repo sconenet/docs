@@ -50,7 +50,7 @@ Heartbeat {
 স্বাক্ষরিত বডি (ওয়্যার, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (স্বাক্ষরকারীর কী বডির শেষে
-আসে, প্রতিটি tx-র মতো) `‖ signature[64]`, অর্থাৎ ~২৩০ বাইট
+আসে, প্রতিটি tx-র মতো) `‖ signature[64]`, অর্থাৎ ~২০০–২১৫ বাইট
 এনকোডেড — **কোনো PoW নেই**: খরচ হলো একটানা উপস্থিতি (প্রতি
 এপোকে একটি হার্টবিট, মাসের পর মাস)।
 
@@ -304,5 +304,5 @@ committee"-এ):
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validation | done |
 | 2 | blockchain | sliding window (journaled), filtered pool, election, ~15 tests | done |
 | 3 | network | automatic emission, tx relay | done |
-| 4 | CLI | `tx build heartbeat`, `fresh operators` display in `scone status` | done |
+| 4 | CLI | automatic relay emission (§7); `fresh operators` display in `scone status`; offline builder removed (cli-simplify-v1) | done |
 | 5 | docs | this RFC consolidated into normative form, fr/en mirror | done |
