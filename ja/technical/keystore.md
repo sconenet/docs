@@ -8,7 +8,7 @@ Ed25519の秘密鍵(*シード*、32バイト)を、パスフレーズで暗号�
 
 ## 概要
 
-- **KDF**: Argon2id(v0x13)、デフォルトパラメータ `m_cost` = 64 MiB、`t_cost` = 3、`p_cost` = 1(`argon2` クレートのデフォルト)。
+- **KDF**: Argon2id(v0x13)、デフォルトパラメータ `m_cost` = 64 MiB、`t_cost` = 3、`p_cost` = 1(scone-keystore のデフォルト)。
 - **暗号化**: XChaCha20-Poly1305(AEAD)、KDFから導出された32バイトキー、ファイルごとの24バイトランダムnonce。
 - **暗号化対象**: ちょうどEd25519シード(32バイト)。Poly1305タグ(16バイト)は暗号文の接尾辞として保存されます(AEAD `encrypt` APIの標準出力)。
 
@@ -57,18 +57,20 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1に関連データ(AAD)はありません。ファイルごとにランダムな24バイトのnonceにより、nonce再利用のリスクは無視できます(キーファイルは一度しか書かれません)。
+どちらのバージョンにも関連データ(AAD)はありません。ファイルごとにランダムな24バイトのnonceにより、nonce再利用のリスクは無視できます(キーファイルは一度しか書かれません)。
 
-## API(`scone-keystore`)
+## API(`scone-keystore`)— コア関数
 
 | 関数 | 役割 |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | キーを生成し、暗号化されたキーファイルを書き込む(親ディレクトリを作成)。既存ファイルの上書きは**拒否**(`Error::KeyfileExists`)。キーをメモリ上で返す |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | 同じだが、既存のキーファイルを明示的に置き換える |
 | `open(path, passphrase) -> SigningKey` | 復号して署名キーを返す |
-| `list(dir) -> Vec<KeyEntry>` | ディレクトリ内の `*.sconekey` ファイルを一覧(名前順)。ディレクトリなしなら空リスト |
+| `list(dir) -> Vec<KeyEntry>` | ディレクトリ内の `*.sconekey` ファイルを一覧(拡張子の一致は大文字/小文字を区別しない、名前順)。ディレクトリなしなら空リスト |
 
-`GeneratedKey.signing_key` は `ed25519-dalek` によってドロップ時にゼロ化されます(デフォルトの `zeroize` 機能)。導出されたAEADキー、シード、復号された平文は `zeroize::Zeroizing` に包まれます。ドロップは、`?` で伝播するエラーを含むすべての出口パスをカバーします。
+フレーズ/ラベル版(`create_labeled`、`create_overwriting_labeled`、`create_with_phrase`、`create_with_phrase_overwriting`、`restore_from_phrase`)は、公開ラベルまたは呼び出し側が供給するBIP39フレーズ付きで同じ封印を包みます。上のコア表の外に位置します。
+
+`GeneratedKey.signing_key` は `ed25519-dalek` によってドロップ時にゼロ化されます(デフォルトの `zeroize` 機能)。導出されたAEADキーと復号された平文は `zeroize::Zeroizing` に包まれます — ドロップは、`?` で伝播するエラーを含むすべての出口パスをカバーします。封印パスではシードのコピーは一時的です: 封印呼び出しの終わりでスコープを出る通常のスタック配列です。
 
 ## ファイル権限
 
@@ -78,6 +80,7 @@ Unixでは、キーファイルはプロセスのumaskにかかわらず、権�
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -86,6 +89,8 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 - 識別情報名は厳格に検証されます: 空、`.`、`..`、`/`、`\\`、NUL、先頭のドット、`.sconekey` 接尾辞は拒否されます(名前はキーディレクトリ内のファイル名になります。パス要素がkeystoreを脱出することはできません)。
 - `--passphrase-env` がない場合、パスフレーズはターミナル上で**マスク入力**で要求されます(`rpassword`: エコーなし。`generate` では確認付きで2回)。
 - `identity generate` は **BIP39リカバリーフレーズ(24語)** をちょうど1回だけ表示します — 新鮮な256ビットエントロピー、語だけで同じキーを再生成できます(`scone identity restore`)。どこにも保存されません。
+- `identity restore` はフレーズを**プロセス引数として決して**読みません(`ps` やシェル履歴から見えてしまうため): マスク入力プロンプト、`--phrase-file <file>` または `--phrase-env <VAR>`。デフォルトで既存キーファイルの上書きを**拒否**します(`--force` が明示的に置き換えます)。
+- リレーアンカーの自動識別情報(`identity restore` ではない): 自動生成されたアンカーパスフレーズは `0600` で書かれ、書き込み失敗は報告されます。決して黙って飲み込まれません。
 - `identity generate` は既存キーファイルの上書きを**拒否**します。`--force` が明示的に置き換えます(新しいsalt/nonce、新しいキー、新しいフレーズ)。
 - `identity list` は、v2ファイルについて、パスフレーズ**なし**で公開鍵とラベルを表示します(公開メタデータ)。
 - `identity show` はv2キーファイルの公開メタデータを読み、パスフレーズ**なし**で、公開鍵、小文字16進の `OwnerId`(64文字、`DomainId` と同じ規約)、ラベル、作成日を表示します。v1ファイル(メタデータなし)は引き続きパスフレーズを要求します。

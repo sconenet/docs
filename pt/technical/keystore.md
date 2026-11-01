@@ -15,7 +15,7 @@ em memória após o uso.
 ## Visão geral
 
 - **KDF**: Argon2id (v0x13), parâmetros padrão `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (padrões da crate `argon2`).
+  `t_cost` = 3, `p_cost` = 1 (padrões do scone-keystore).
 - **Criptografia**: XChaCha20-Poly1305 (AEAD), chave de 32 bytes derivada
   do KDF, nonce aleatório de 24 bytes por arquivo.
 - **Conteúdo criptografado**: exatamente a seed Ed25519 (32 bytes); a
@@ -95,24 +95,31 @@ Depois:
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-Sem dados associados (AAD) na v1. O nonce de 24 bytes, aleatório por
-arquivo, torna o risco de reuso de nonce desprezível (arquivos de chaves
-são escritos apenas uma vez).
+Sem dados associados (AAD) em nenhuma das versões. O nonce de 24
+bytes, aleatório por arquivo, torna o risco de reuso de nonce
+desprezível (arquivos de chaves são escritos apenas uma vez).
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — funções centrais
 
 | Função | Papel |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | Gera uma chave, escreve o keyfile criptografado (cria diretórios pais); **recusa sobrescrever** um arquivo existente (`Error::KeyfileExists`); retorna a chave em memória |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | O mesmo, mas substitui explicitamente um keyfile existente |
 | `open(path, passphrase) -> SigningKey` | Descriptografa e retorna a chave de assinatura |
-| `list(dir) -> Vec<KeyEntry>` | Lista os arquivos `*.sconekey` num diretório (ordenados por nome); diretório ausente = lista vazia |
+| `list(dir) -> Vec<KeyEntry>` | Lista os arquivos `*.sconekey` num diretório (correspondência de extensão sem distinção de maiúsculas/minúsculas, ordenados por nome); diretório ausente = lista vazia |
+
+As variantes com frase/label (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) envolvem a
+mesma selagem com um label público ou uma frase BIP39 fornecida
+pelo chamador; elas ficam fora da tabela central acima.
 
 `GeneratedKey.signing_key` é zerado no drop por `ed25519-dalek`
-(feature `zeroize` padrão). A chave AEAD derivada, a seed e o
-texto claro descriptografado são envoltos em `zeroize::Zeroizing`:
-o Drop cobre todos os caminhos de saída, incluindo erros propagados por
-`?`.
+(feature `zeroize` padrão). A chave AEAD derivada e o texto claro
+descriptografado são envoltos em `zeroize::Zeroizing` — o Drop
+cobre todos os caminhos de saída, incluindo erros propagados por
+`?`. No caminho de selagem a cópia da seed é transitória: um array
+simples de pilha que sai de escopo ao final da chamada de selagem.
 
 ## Permissões de arquivo
 
@@ -126,6 +133,7 @@ concorrentes não podem silenciosamente sobrescrever-se.
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -142,6 +150,14 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   palavras)** exatamente uma vez — entropia fresca de 256 bits, as
   palavras sozinhas regeneram a mesma chave (`scone identity restore`);
   elas nunca são armazenadas em lugar nenhum.
+- `identity restore` lê a frase **nunca como argumento de
+  processo** (visível via `ps` e histórico do shell): prompt
+  mascarado, `--phrase-file <arquivo>` ou `--phrase-env <VAR>`. Ela
+  **recusa sobrescrever** um keyfile existente por padrão
+  (`--force` o substitui explicitamente).
+- Identidade âncora automática do relay (não `identity restore`):
+  a passphrase da âncora gerada automaticamente é escrita `0600` e
+  uma falha de escrita é relatada, nunca engolida.
 - `identity generate` **recusa sobrescrever** um keyfile
   existente; `--force` o substitui explicitamente (novo salt/nonce, nova
   chave, nova frase).

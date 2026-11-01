@@ -19,7 +19,7 @@ JSON hilang).
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  port ephemeral    │  ├─ identify  (penemuan alamat)        │
+  port tetap 4001   │  ├─ identify  (penemuan alamat)        │
   secara default)◄──┤  ├─ ping      (kehidupan)              │
                     │  ├─ kad       (DHT record)             │
                     │  └─ reqres    (pesan scone-prot.)      │
@@ -66,8 +66,7 @@ Tiga mekanisme pelengkap, dalam urutan prioritas ini:
 
 1. **Seed eksplisit** (`--bootstrap`, multiaddr penuh) — selalu
    berprioritas; memberikan daftar tak-kosong MENGGANTIKAN
-   segala hal lain. `--no-builtin-seeds` mengosongkan seed
-   tertanam untuk deployment 100% privat.
+   segala hal lain.
 2. **Seed tertanam** (`builtin_seeds(network)` di
    `scone-network/src/config.rs`) — dibekukan pada tiap rilis
    biner resmi, per jaringan. Relay tak terkonfigurasi bergabung
@@ -100,8 +99,8 @@ di `config.rs`): deployment publik tidak berbicara dengan
 router tanpa persetujuan. **Penemuan mDNS telah dihapus**
 (remove-mdns-discovery, 2026-10-22): peering datang secara
 eksklusif dari bootstrap eksplisit, seed bawaan dan Kademlia —
-flag lama `--mdns`/`SCONE_MDNS` masih diterima tanpa efek
-(kompatibilitas skrip, perlakuan sama seperti `--rpc`).
+flag lama `--mdns`/`SCONE_MDNS` DIHAPUS: meneruskannya adalah
+error clap hari ini (argumen semacam itu tidak ada).
 
 ### Optimasi topologi lokal (selalu aktif)
 
@@ -182,12 +181,13 @@ dalam `NodeStatus` (field `nat_reachable`, varint wire 0/1/2) —
 CLI menampilkannya (`scone status`). Alamat privat dihitung
 (`only_global_ips = false`): mesh LAN menguji jangkauan LAN-nya.
 
-Relay yang dapat dijangkau mengaktifkan circuit-relay v2 **hop**
-(ia bisa me-relay lalu lintas bagi peer ter-NAT) dan **DCUtR**
+Setiap relay menjalankan circuit-relay v2 **hop** (ia bisa
+me-relay lalu lintas bagi peer ter-NAT) dan **DCUtR**
 (hole-punching: dua node terhubung via circuit mencoba koneksi
-langsung dan melepaskan relay). Relay yang divonis ter-NAT
-otomatis meminta reservasi dari peer terjangkau pertama yang
-dikenal dan mendengarkan melaluinya (alamat
+langsung dan melepaskan relay) TANPA SYARAT; hanya permintaan
+reservasi sisi ter-NAT yang digerbangi vonis: relay yang divonis
+ter-NAT otomatis meminta reservasi dari peer terjangkau pertama
+yang TERHUBUNG dan mendengarkan melaluinya (alamat
 `/p2p/<relay>/p2p-circuit`).
 
 Aturan produksi: node ter-NAT yang di-relay sebaiknya tidak
@@ -253,8 +253,9 @@ blok in flight per peer.
    `--bootstrap` eksplisit (harus berakhir `/p2p/<peer-id>`)
    ATAU seed tertanam jaringan ATAU direktori terpelajari
    (`peers.json`);
-5. dial tiap multiaddr dan daftarkan dalam tabel Kademlia
-   (dial mati diabaikan — yang lain membentuk jaringan).
+5. daftarkan tiap multiaddr seed dalam swarm DAN tabel
+   Kademlia (dial-nya sendiri dilakukan oleh bootstrap otomatis
+   Kademlia; peer mati cukup tidak pernah dijawab).
 
 ### Menerima transaksi (pengiriman P2P atau CLI `submit tx`)
 
@@ -281,6 +282,13 @@ blok in flight per peer.
    pre-check jendela masa tenggang; `RenewDomain` → domain
    dikenal + owner, pre-check PoW perpanjangan (terikat pada
    kedaluwarsa saat ini) pada tinggi berikutnya;
+   `TransferDomain` → domain dikenal + owner; `SetRecordDelegates`,
+   `SetTldOperator`, `SetDomainOperator` → owner + CAS
+   `state_binding` = generasi saat ini; keluarga pow-to-owner
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) → pre-check bentuk nama/bukti (tanpa
+   penandatangan, tanpa tanda tangan); `Slash`/`Heartbeat` →
+   pass-through (divalidasi penuh saat push);
 4. penyisipan mempool (kapasitas tetap, dedup per `TxId` —
    mengirim ulang tx yang sudah di pool adalah no-op);
 5. broadcast ke peer (kecuali pengirim).
@@ -379,6 +387,10 @@ tercapai melalui biner, clap selalu menimpanya):
 - **catch-up finalitas**: relay yang basisnya kosong (boot node
   baru) meminta `GetCheckpoints` ke sebuah peer pada setiap tick
   sampai basisnya pulih;
+- **heartbeat proof-of-service**: pada tiap batas epoch relay
+  memancarkan otomatis transaksi `Heartbeat`-nya (bertanda tangan
+  kunci anchor, paling banyak satu per epoch, hanya selama
+  identitas memegang kursi hidup) via jalur mempool normal;
 - relay tanpa kunci anchor tetap **pasif**: ia mengakumulasi,
   memfinalisasi, dan me-relay, tetapi tidak pernah
   menandatangani;
@@ -393,8 +405,11 @@ Blok saudari pada tinggi yang sama, atau blok yang induknya
 bukan tip saat ini (`ParentNotTip`/`UnknownParent`), TIDAK
 PERNAH hilang: ia **diparkir** (map berbatas, `PARKED_CAP =
 2048` blok, ~KiB masing-masing — RAM kasus-terburuk berbatas;
-parking penuh diam-diam mengabaikan pendatang). Hash yang sudah
-ditawarkan ke `accept_block` di-dedupe (`seen_blocks`): blok
+parking penuh MENGUSIR entri `(height, hash)` terendah dan
+menyisipkan blok segar — tidak pernah
+pendatangnya yang ditolak). Hash yang sudah
+ditawarkan ke `accept_block` di-dedupe (`seen_blocks` — FIFO
+berbatas 32.000 entri): blok
 yang kalah dan di-gossip ulang tidak dievaluasi ulang.
 
 Pada SETIAP tick `Produce`, `reconsider_parked`:
@@ -409,6 +424,15 @@ Ini melepas node yang mengadopsi sisi yang kalah dari fork
 tinggi-sama: blok pemenang, ditawarkan sekali lalu ditolak,
 dievaluasi ulang berkala alih-alih dilupakan selamanya (temuan
 chaos-30: dua blok saudari 15 ms berselang).
+
+**Detektor stall deep-fork**: 40 tick produksi beruntun tanpa
+kemajuan kanonik sementara node terblokir (parking tak kosong
+atau adopsi cabang mengenai error jendela-terpangkas
+`BlockPruned`) memicu `recover_deep_fork`: chain RAM dan parking
+di-reset, chain me-boot ulang dari store, dan relay me-resync
+dari peer — upaya terakhir yang jujur bagi partisi yang lebih
+panjang dari jendela RAM (dicatat log, pulih sendiri; tanpanya
+node yang macet tetap split-brain sampai restart manual).
 
 **Persistensi reorg**: mengadopsi cabang lain tidak bisa lewat
 append monotonik (`NonMonotonicHeight`). Relay menerapkan
@@ -425,9 +449,25 @@ Pada setiap koneksi ke peer, relay meminta
 diterima yang tepat melengkapi tinggi yang diharapkan memicu
 permintaan tinggi berikutnya, sampai habis (`Pong` = tidak ada
 lagi) atau `MAX_SYNC_ROUNDS` (10.000) batch — batas absolut
-bahkan melawan peer yang berbohong. Blok yang diterima melewati
+bahkan melawan peer yang berbohong. **Pull mundur pemicu-orphan**:
+blok yang diterima dan terparkir pada `UnknownParent` (induknya
+tidak dikenal lokal — mis. fork yang tumbuh saat kita terputus)
+memicu `GetBlocks(start_height = block.height − 1)` segera ke
+peer YANG SAMA; segmen fork yang hilang termaterialisasi dan
+blok terparkir tersambung pada pengurasan `reconsider_parked`
+berikutnya. Berbatas: satu pull per orphan,
+terdeduplikasi oleh `seen_blocks` pada penawaran ulang. Blok
+yang diterima melewati
 validasi penuh: peer berbahaya tidak bisa membuat apa pun yang
 tidak valid diterima.
+
+Setiap tick produksi juga menjalankan pemeriksaan ulang
+periodik (`recheck_sync`): tiap peer terhubung yang sudah
+kejar-kejaran mendapat satu `GetBlocks(tinggi lokal + 1)`
+berbatas (satu permintaan per peer per tick; balasannya `Pong`
+segera saat tidak ada yang baru). Inilah yang menyembuhkan
+pulau partisi: peer yang selesai mengejar tetap tahu tentang
+blok yang diproduksi setelahnya.
 
 ### Record DHT
 
@@ -449,6 +489,17 @@ tidak valid diterima.
   (`domain_info`) lalu melayaninya tanpa kueri DHT baru.
 - Kademlia berjalan dalam mode server, tanpa TTL record (chain
   yang mengatur validitas, bukan waktu).
+- Perpipaan gossip record (berbatas, anti-badai):
+  (a) tiap tick produksi meng-gossip SATU HALAMAN cache
+  persisten lokal ke peer terhubung (256 record, walk kursor
+  lintas tick — RAM per tick berbatas, cakupan penuh dalam
+  beberapa tick apa pun ukuran cache);
+  (b) pesan `Record` yang diterima di-gossip ulang ke peer lain
+  hanya saat ia BARU atau BERBEDA dari cache lokal (jika tidak,
+  setiap penerima akan meneruskan ulang selamanya);
+  (c) publikasi menolak record dengan lebih dari **12 nameserver
+  NS berbeda** (`MAX_NS_PER_DOMAIN`, semua bentuk — hostname,
+  v4, v6).
 
 ### Verifikasi record (aturan "chain adalah otoritas")
 
@@ -489,15 +540,18 @@ Bind efektif diumumkan di stdout (kontrak
 dapat-dibaca-mesin, seperti `p2p:`): baris `metrics: <addr>`
 begitu mendengarkan.
 
-**19 penghitung** (`counter`, monotonik — hot path:
+**27 seri penghitung** (`counter`, monotonik — hot path:
 `fetch_add(Relaxed)` pada `Arc<Metrics>` bersama, tidak pernah
-masukan konsensus):
+masukan konsensus), plus dua seri geo berlabel (dirender sebelum
+penghitung polos, satu baris per label — nama sama, himpunan
+label berbeda; dipancarkan hanya setelah tak kosong):
 
 | Grup | Seri |
 |---|---|
 | Chain | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (berlabel) | `scone_dns_geo_by_continent_total{continent}` (kode UN M49), `scone_dns_geo_by_country_total{country}` (kode ISO 3166-1) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Jaringan peer | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -538,8 +592,9 @@ Pesan kendali yang dilayani relay:
 - penolakan aplikasi → `Message::Error(msg)` (mencapai klien
   sebagai pesan terbaca, bukan EOF).
 
-Klien membangkitkan swarm libp2p minimal (request-response +
-identify), timeout panggilan 30 dtk (20 dtk putaran). Default
+Klien membangkitkan swarm libp2p minimal (request-response
+SAJA — tanpa identify), timeout panggilan 30 dtk (20 dtk
+putaran). Default
 `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (node dev
 lokal; multiaddr penuh dengan peer id nyata diumumkan relay di
@@ -569,16 +624,20 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 # --peer default ke relay lokal (env SCONE_PEER menimpa);
 # --identity default ke identitas tunggal keystore saat tepat
-# satu. Dihapus (stub menyarankan pengganti): show,
-# submit, lookup, owned.
+# satu. Dihapus (tanpa stub — clap menolak dengan saran nama
+# terdekat): show, submit, lookup, owned.
 ```
 
 Setiap perintah kendali berbicara QUIC langsung ke multiaddr
 relay (`--peer`, default node lokal — unifikasi RPC→p2p, tanpa
-kanal TCP JSON lagi). Relay absen → pesan jelas "p2p node
-unreachable — is a relay running?", keluar non-nol. Flag `--rpc`
-dipertahankan tetapi **usang dan diabaikan** (server RPC
-dihapus; kompatibilitas skrip saja).
+kanal TCP JSON lagi). Relay absen → keluar non-nol dengan pesan
+terbaca: saat `--peer`/`SCONE_PEER` diberikan, "p2p node
+unreachable — is a relay running? (...)"; pada default
+relay-lokal, "no local relay found — start one (`scone relay`)
+or point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID`
+(or set `SCONE_PEER`)". Flag lama `--rpc` DIHAPUS:
+meneruskannya adalah error clap hari ini (argumen semacam itu
+tidak ada).
 
 ### Konfigurasi lingkungan (`.env`)
 
@@ -601,16 +660,12 @@ setiap variabel (salin ke `.env` dan sesuaikan; `.env`
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (default), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | direktori data (default `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | multiaddr listen P2P (default: semua antarmuka, port ephemeral) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap, **dapat diulang** (satu baris per nilai — dotenvy mengakumulasi); menggantikan seed bawaan |
+| `SCONE_LISTEN` | `--listen` | multiaddr listen P2P (default: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | seed bootstrap — **ulangi flag CLI** untuk beberapa (`--bootstrap A --bootstrap B`); dalam `.env`, SATU nilai per variabel (dotenvy menyimpan kemunculan PERTAMA, tidak mengakumulasi); menggantikan seed bawaan |
 | `SCONE_GENESIS` | `--genesis` | berkas genesis (node pendiri) |
-| `SCONE_MDNS` | `--mdns` | (usang — penemuan mDNS dihapus; diterima, diabaikan) |
 | `SCONE_UPNP` | `--upnp` | pemetaan port UPnP (`true` = aktif) |
 | `SCONE_DNS_ADDR` | `--dns` | alamat bind server DNS UDP |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback rekursif, **dapat diulang** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | tutup entri cache DNS |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | tutup memori cache DNS (mis. `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | tutup kueri DNS bersamaan |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | fallback rekursif — **ulangi flag CLI** untuk beberapa (`--dns-upstream A --dns-upstream B`); satu nilai per variabel dalam `.env` |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | token bearer endpoint metrik |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | profil topologi (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; default `default`) |
@@ -757,7 +812,7 @@ memproduksi `genesis.bin`. Aturan normatif:
 |---|---|
 | Frame P2P | `MAX_MESSAGE_LEN` (1 MiB) sebelum parsing |
 | Mempool | 4096 tx (penolakan bertipe melampaui); `MAX_PENDING_PER_DOMAIN = 4` tx tertunda per domain |
-| Grace mempool | `MAX_GRACE_ATTEMPTS = 10` penyisipan-ulang tx yang di-flush karena alasan non-definitif (≈ 7 menit pada 40 dtk/siklus), lalu pengusiran |
+| Grace mempool | `MAX_GRACE_ATTEMPTS = 10` penyisipan-ulang tx yang di-flush karena alasan non-definitif (≈ 20 dtk pada tick produksi default 2 dtk), lalu pengusiran |
 | Parking fork | `PARKED_CAP = 2048` blok bersaing |
 | Checkpoint terakumulasi | `MAX_PENDING_CHECKPOINTS = 256` (pengusiran: hash data terkecil) |
 | Penunggu DHT simultan | `MAX_DHT_WAITERS` (256); pencarian DHT berbatas 30 dtk (`DHT_LOOKUP_TIMEOUT`) |
@@ -765,6 +820,11 @@ memproduksi `genesis.bin`. Aturan normatif:
 | Record DHT | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | Cache DHT persisten (disk) | batas ganda LRU: `DHT_CACHE_MAX_ENTRIES` (100.000 entri) DAN `DHT_CACHE_MAX_BYTES` (2 GiB) — mana yang lebih dulu tercapai mengusir per urutan kunci; pengusiran GC dalam transaksi yang SAMA dengan blok (domain yang dibunuh GC chain tidak pernah meninggalkan entri yatim) |
 | Cache negatif DHT | `DHT_NEGATIVE_TTL_SECS` (30 dtk), tutup FIFO `DHT_NEGATIVE_CAP` (4.096) |
+| Timeout permintaan req-res | 10 dtk per permintaan, 64 stream konkuren (sisi relay) |
+| Timeout kueri Kademlia | 10 dtk |
+| Timeout koneksi idle | 300 dtk |
+| Endpoint metrik | 64 scrape konkuren; tenggat 5 dtk pada pembacaan header |
+| Buku alamat (RAM) | penjaga penyisipan pada 2× tutup terpersist (tutup terpersist: 2.000 entri) |
 | Chain di RAM | genesis + jendela tip (riwayat dilayani dari store) |
 
 Aturan anti-loop (H2): transaksi hanya disiarkan ulang jika

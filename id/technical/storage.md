@@ -35,11 +35,22 @@ relay M4 mendatang):
   `COUNT(*)`;
 - `iterate_domains(after, max) -> DomainPage` — paginasi
   berbasis kursor (batch 100 secara default), urutan byte
-  menaik `DomainId`;
+  menaik `DomainId`; kursor `None` berarti walk selesai
+  (kehabisan tabel alami);
 - `put_tld_state` / `tld_state` / `tld_count` / `iterate_tlds` —
   kontrak sama untuk registri TLD (`tld_count` terpelihara,
   kursor berbatas) (M7d);
+- `put_states(...)` — penulisan ulang atomik tabel state hidup:
+  upsert DAN penghapusan domain/TLD + penghitung terpelihara,
+  dalam SATU transaksi (satu-satunya pemanggil: persistensi
+  reorg);
+- `put_owner_keys` / `clear_owner_keys` / `iterate_owner_keys` —
+  peta owner→kunci yang dipelajari (resolusi kumpulan PoS),
+  dipersist di tabel `owner_keys`;
 - `put_dht_cache` / `dht_cache` — byte `SignedDnsRecord` opaque;
+- `dht_cache_page(after, max)` — walk berhalaman cache DHT
+  dalam urutan `DomainId` menaik (kursor `None` = walk
+  selesai);
 - `resolve_name(canonical)` / `resolve_tld(tld)` — indeks
   persisten Nama→Id (P0.2), pencarian titik O(1), tanpa iterasi
   atas domain (default `None` = backend tanpa indeks, pemanggil
@@ -75,6 +86,7 @@ Aturan:
 | `domains` | `DomainId` (32 B, urutan byte) | `DomainStateBytes` (bawah) |
 | `tlds` | `TldId` (32 B, urutan byte) | `TldStateBytes` (bawah, M7d) |
 | `dht_cache` | `DomainId` (32 B) | byte `SignedDnsRecord` (opaque) |
+| `owner_keys` (kumpulan PoS) | id owner (32 B, urutan byte) | kunci publik Ed25519 (32 B) — peta owner→kunci yang dipelajari, dicerminkan setelah setiap blok |
 | `names_v3` (P0.2) | kunci indeks (32 B, urutan byte) | id target (32 B) |
 | `name_reverse_v3` (P0.2) | id target (32 B, urutan byte) | `tag(1) ‖ nama kanonik` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -99,6 +111,7 @@ Kunci `meta`:
 | `tip_height` | `u64 BE` (membuat `tip()` O(1)) |
 | `domain_count` | `u64 BE` (penghitung terpelihara) |
 | `tld_count` | `u64 BE` (penghitung terpelihara, M7d) |
+| `finality_v1` (PoS) | blob: `varint(window.len) ‖ checkpoint jendela ‖ checkpoint basis ‖ varint(pool.len) ‖ kunci kumpulan (32 B masing-masing, terurut, terdeduplikasi) ‖ seed(32) ‖ block_ts(8 BE)` — finalitas terpersist (jendela checkpoint + basis beku), ditulis loop anchor relay, dipulihkan di setiap `load_chain` (pemadanan jendela↔basis + pemeriksaan kurva saat muat); absen di store pra-2026-10-21 (finalitas dibangun ulang dari nol); tidak ada dalam daftar cadangan `meta_set` (ditulis hanya oleh jalur persist node sendiri) |
 
 Header `hash ‖ height` dari `blocks_by_height` membuat tiap
 indeks mandiri (dapat diverifikasi tanpa membaca blok); kedua
@@ -114,16 +127,27 @@ bertinggi 1. Hash genesis selalu diturunkan ulang
 
 ## Format enkode `DomainStateBytes` (M8b)
 
-65 atau 97 byte menurut tag versi di depan, integer lebar-tetap
+Basis 97 atau 65 byte plus akhiran record-delegate opsional (65
+sampai 194 byte keseluruhan), integer lebar-tetap
 big-endian (kanonik, dapat dibandingkan byte-demi-byte):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash ada   → tepat 97 byte
-tag = 0x02 : record_hash absen → tepat 65 byte
+tag = 0x01 : record_hash ada   → basis 97 byte
+tag = 0x02 : record_hash absen → basis 65 byte
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); kunci-kuncinya
+                 menaik ketat (urutan `BTreeSet` kanonik).
+                 Himpunan kosong menghilangkan akhiran seluruhnya —
+                 basisnya lalu identik byte-demi-byte dengan
+                 format pra-delegasi.
 ```
+
+Amplop panjangnya 65..=194 byte (basis 97 byte + byte count +
+3 × kunci 32 byte = 194 maksimal).
 
 `mutations` adalah penghitung mutasi monoton namespace (generasi
 anti-replay CAS — lihat `transactions.md`, Penghitung
@@ -143,10 +167,15 @@ replay: `load_chain_replay`.)
 - `sequence`: sequence `UpdateDomain` terakhir yang diterapkan
   (0 tepat setelah `RegisterDomain`);
 - `record_hash`: komitmen on-chain saat ini dari himpunan record
-  DNS (`None` selama belum ada `UpdateDomain` yang diterapkan).
+  DNS (`None` selama belum ada `UpdateDomain` yang diterapkan);
+- `record_delegates`: kunci-kunci delegasi yang dikelola owner
+  yang boleh menandatangani `UpdateDomain` (paling banyak 3;
+  aturan penerapan di `transactions.md`).
 
 Dekode **ketat** (`DomainStateBytes::decode`): tag tak dikenal,
-panjang salah, atau byte berlebih → `StorageError::Corrupted`,
+panjang salah, byte berlebih, delegate count di atas 3, kunci
+delegasi tidak menaik ketat, atau kunci delegasi bukan titik
+kurva Ed25519 → `StorageError::Corrupted`,
 tidak pernah panic.
 
 ## Format enkode `TldStateBytes` (opsi owner)
@@ -185,8 +214,10 @@ regenerasi via replay adalah jalur migrasi).
 Tag hanya ada untuk evolusi format: tata letak mendatang
 menaikkan tag dan pembaca lama gagal dengan `Corrupted`
 alih-alih menebak. Dekode **ketat** (`TldStateBytes::decode`):
-tag tak dikenal, panjang salah, byte berlebih, atau flag
-non-kanonik → `StorageError::Corrupted`, tidak pernah panic.
+tag tak dikenal, panjang salah, byte berlebih, flag
+non-kanonik, atau entri terbuka yang `until`-nya nol (tanda
+korupsi encoder legacy) →
+`StorageError::Corrupted`, tidak pernah panic.
 
 ## Jaminan atomicitas
 
@@ -210,10 +241,13 @@ non-kanonik → `StorageError::Corrupted`, tidak pernah panic.
    (`removed_tlds`) keluar dari store dalam transaksi yang sama,
    penghitung diturunkan — restart tidak pernah bisa membangkitkan
    registrasi kedaluwarsa;
-8. delta **indeks nama** P0.2 (upsert dan penghapusan, lihat
+8. setiap upsert lantai umur TLD **dan** lantai TLD yang
+   dihapus (`tld_floors_v1`, dibawa `StateDelta.tld_floors`) —
+   jadwal kematian GC bertahan melewati restart;
+9. delta **indeks nama** P0.2 (upsert dan penghapusan, lihat
    bawah) — jaminan sama: crash tidak pernah meninggalkan entri
    indeks menunjuk domain yang hilang;
-9. `tip` dan `tip_height`.
+10. `tip` dan `tip_height`.
 
 redb mengkomit gaya-WAL: crash di tengah tulisan meninggalkan
 state koheren **sebelumnya**. **Blok yang ditulis tanpa
@@ -249,7 +283,8 @@ dan berfungsi sebagai jalur kendali/perbaikan.
   secara kanonik, membaca state akhir domain yang tersentuh DAN
   TLD yang diklaim dari state RAM (sudah diperbarui oleh
   `push_block`), append atomik.
-- `load_chain(store)`: **tanpa replay** — membaca tip + blok tip
+- `load_chain(store, network)` (`NetworkParams`): **tanpa
+  replay** — membaca tip + blok tip
   (baca blok O(1)), memulihkan state domain dalam halaman 100
   (`DOMAIN_PAGE`) **dan registri TLD dalam halaman 100**
   (`TLD_PAGE`, M7d — menutup jendela restart: tanpanya, node
@@ -257,7 +292,10 @@ dan berfungsi sebagai jalur kendali/perbaikan.
   setiap `RegisterDomain` di bawah TLD itu dengan `UnknownTld`,
   padahal disknya memegang state lengkap). Chain RAM hanya
   menyimpan genesis + tip; blok historis tetap di store dan
-  dilayani darinya. Sejak M8, `load_chain` lalu membangun ulang
+  dilayani darinya. Store KOSONG mem-boot genesis jaringan yang
+  diminta; store yang memegang chain jaringan BERBEDA gagal —
+  `Corrupted` pada jalur full-state, `Unusable` (→ replay) pada
+  jalur snapshot. Sejak M8, `load_chain` lalu membangun ulang
   **indeks anti-replay TXID** (lihat bawah).
 - `load_chain_replay(store)`: me-replay semua blok tersimpan
   satu per satu (tidak pernah semua di RAM) dengan validasi
@@ -275,7 +313,8 @@ dan berfungsi sebagai jalur kendali/perbaikan.
 - `touched_domains(block)`: id domain yang diubah oleh transaksi
   blok, ter-dedupe, urutan blok.
 - `touched_tlds(block)`: id TLD yang dimutasi oleh blok
-  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`),
+  (`RegisterTld`, `TransferTld`, `RevokeTld`, `SetTldOpen`,
+  `RegisterTldPow`),
   ter-dedupe, urutan blok (M8b).
 - `store_block_with_removals(...)`: varian `store_block` yang
   juga menerima domain yang dihapus oleh GC blok (M8b) untuk
@@ -302,12 +341,22 @@ minoritas-lengket, relay + store):
 
 1. `rewind_to_height(fork_height)` — SATU transaksi redb
    menghapus blok di atas titik fork dan mengembalikan
-   `tip`/`tip_height` (indeks nama dan state hidup diperbaiki
+   `tip`/`tip_height` (tabel state hidup diperbaiki
    pada langkah berikutnya);
 2. `persist_state_snapshot(store, chain)` — menulis ulang tabel
-   hidup (`domains`, `tlds`, indeks nama, lantai TLD) dari
-   ekspor state RAM pasca-reorg: tabel hidup TIDAK PERNAH
-   menggambarkan cabang yang KALAH saat boot;
+   hidup `domains`/`tlds` (+ penghitung terpelihara mereka, via
+   `NodeStore::put_states`, satu transaksi atomik) dari
+   ekspor state RAM pasca-reorg, lalu menulis ulang kunci owner
+   yang dipelajari (hapus-lalu-tulis — rollback membatalkan
+   pembelajaran kunci, sehingga upsert saja akan mempertahankan
+   hantu cabang yang kalah). Indeks nama
+   (`names_v3`/`name_reverse_v3`) dan lantai TLD hidup
+   (`tld_floors_v1`) TIDAK ditulis ulang oleh langkah ini.
+   **Keterbatasan yang diketahui (tindak-lanjut kode tertunda)**:
+   setelah reorg, entri name-index hantu dan baris lantai usang
+   cabang yang kalah bisa tersisa sampai delta akhiran yang
+   di-append ulang menimpanya atau pembangunan ulang
+   (`rebuild_name_index`, replay) berjalan;
 3. re-append monotonik akhiran yang diadopsi (delta biasa).
 
 Kegagalan persistensi pada jalur ini dicatat dan didegradasi
@@ -336,10 +385,11 @@ hanya akhiran di atas snapshot.
   ditulis. Crash tepat setelahnya tidak pernah bisa
   meninggalkan snapshot "di atas" chain yang terpersist.
 - **Atomik**: pembekuan (hapus + salin tabel `domains`/`tlds` ke
-  `snapshot_v1_*`, tulis `snapshot_v1_meta`) terjadi dalam
-  transaksi redb yang SAMA dengan append blok pemicu — crash
-  meninggalkan entah snapshot lama utuh, entah yang baru lengkap
-  dengan bloknya (WAL redb).
+  `snapshot_v1_*`, salin `tld_floors_v1` hidup ke
+  `snapshot_v1_floors`, dan tulis `snapshot_v1_meta`) terjadi
+  dalam transaksi redb yang SAMA dengan append blok pemicu —
+  crash meninggalkan entah snapshot lama utuh, entah yang baru
+  lengkap dengan bloknya (WAL redb).
 - **Slot tunggal**: setiap snapshot MENGGANTIKAN yang sebelumnya
   (tabel dikosongkan lalu disalin ulang) — tanpa akumulasi,
   tanpa pemangkasan yang harus dikelola, jejak disk dibatasi
@@ -359,14 +409,22 @@ hanya akhiran di atas snapshot.
    tersimpan di `H` sama dengan `tip_hash` snapshot (**jangkar**
    — snapshot asing terhadap chain terpersist, yang diubah, atau
    dari berkas lain terdeteksi di sini), state beku dipulihkan
-   dalam halaman 100 lalu hanya blok `H+1..=tip` yang di-replay
+   dalam halaman 100 — bersama kunci owner terpersist (kunci
+   tidak valid → `Unusable`) dan lantai beku
+   (`snapshot_v1_floors`; tiap `restore_tld_floor` menjadwalkan
+   ulang kematian TLD terbuka) — lalu hanya blok `H+1..=tip`
+   yang di-replay
    (validasi penuh, identik dengan blok hidup).
 3. Tip yang dicapai replay harus sama dengan tip tersimpan.
-4. **Setiap kegagalan pada jalur ini (snapshot hilang, tinggi
-   tak terpakai, jangkar tidak valid, byte tak terdekode, replay
-   gagal) didegradasi diam-diam ke pemuatan penuh pra-M6b**
-   (membaca tabel hidup, tanpa replay) — snapshot buruk tidak
-   pernah menggagalkan boot. Kompatibilitas mundur adalah kasus
+4. **Snapshot yang ada tetapi tak terpakai (jangkar tidak valid,
+   entri beku tak terdekode, replay akhiran gagal, tinggi di
+   atas tip) tidak pernah menggagalkan boot: alasannya dicatat
+   sebagai warning dan pemuatan jatuh ke replay penuh
+   nol-kepercayaan (`load_chain_replay`)** — log blok adalah
+   otoritasnya. Hanya baris `snapshot_v1_meta` yang TAK DAPAT
+   DIBACA (error backend) yang didegradasi ke pemuatan
+   full-state biasa. Fallbacknya tidak pernah diam-diam.
+   Kompatibilitas mundur adalah kasus
    khusus "tanpa snapshot": store yang ditulis sebelum M6b
    (tanpa tabel `snapshot_v1_*`) termuat identik,
    `snapshot_meta()` bernilai `None`.
@@ -408,7 +466,7 @@ Properti:
   berlaku) — persis seperti sebelumnya.
 - **Snapshot TIDAK membekukan indeks**: replay akhiran snapshot
   merekonstruksi entri di atas H, rescan M8 menambah bagian
-  jendela DI BAWAH H (kontrak sama dengan owner_keys/grace:
+  jendela DI BAWAH H (kontrak sama dengan jendela grace:
   dibangun ulang, tidak pernah dipersist).
 - **Biaya**: ≤ 256 baca blok titik saat boot, O(jendela) —
   independen dari umur chain.
@@ -512,10 +570,14 @@ perbaikan, bukan jalur boot.
 ### Apa yang TIDAK dikomitmenkan snapshot
 
 State RAM `ChainState` membawa struktur internal yang tidak
-dikomitmenkan konsensus (kunci owner, jendela masa tenggang).
-Mereka TIDAK dibekukan: replay akhiran membangun ulang dengan
+dikomitmenkan konsensus. Jendela grace TIDAK dibekukan dan tidak
+pernah dipersist: replay akhiran membangun ulang dengan
 menerapkan transaksi (deterministik, konten sama dengan replay
-penuh untuk jendela yang relevan). Indeks anti-replay TXID
+penuh untuk jendela yang relevan). Kunci owner DIPERSIST —
+dicerminkan ke tabel hidup `owner_keys` setelah setiap blok
+(`put_owner_keys`) dan dipulihkan oleh kedua jalur boot —
+tetapi snapshot juga tidak menyematkannya: restorasi membaca
+tabel terpersist. Indeks anti-replay TXID
 mengikuti kontrak yang sama (M8, lihat bagian sebelumnya):
 dibangun ulang saat boot, tidak pernah dibekukan. Kesetaraan
 bit-eksak dengan `load_chain_replay` diverifikasi oleh test
@@ -547,11 +609,18 @@ PENGHITUNGAN ULANG:
 3. **akar SMT dihitung ulang dari entri yang diimpor ==
    `checkpoint.data.state_root`** — PEMERIKSAAN kriptografis:
    seluruh state (domain + TLD) dilipat ulang ke SMT segar
-   (`snapshot_verify::recompute_state_root`, leaf
-   `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1` persis seperti jalur
-   hidup) dan akarnya harus sama dengan yang ditandatangani
-   komite. Snapshot palsu, terpotong, atau tidak lengkap ditolak
-   SEBELUM TULISAN APA PUN;
+   (`snapshot_verify::recompute_state_root`) dan akarnya harus
+   sama dengan yang ditandatangani
+   komite. Leaf-nya persis milik jalur hidup (`finality.rs`):
+   `SCONE-LEAF-DOM-V4` = tag ‖ id ‖
+   owner ‖ sequence(8 BE) ‖ registered_at(8 BE) ‖ valid_until(8 BE)
+   ‖ mutations(8 BE) ‖ record-hash-atau-nol(32) ‖ count delegasi
+   (1) ‖ kunci delegasi terurut, dan `SCONE-LEAF-TLD-V4` = tag
+   ‖ id ‖ owner (nol untuk TLD terbuka) ‖ until(8 BE) ‖ byte
+   varian (0x01 privat — diikuti mutations(8 BE) — atau 0x00
+   terbuka), lalu `state_root = blake3("SCONE-STATE-SMT-V1" ‖
+   smt_root)`. Snapshot palsu, terpotong, atau tidak lengkap
+   ditolak SEBELUM TULISAN APA PUN;
 4. **konsistensi struktural**: `height`/`tip_hash`/`state_root`
    manifest == milik checkpoint; id meningkat ketat (tanpa
    duplikat); indeks halaman sekuensial; batas DoS
@@ -575,12 +644,17 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 lantai TLD) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B atau TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — amplop penuh
+           sadar-delegasi) atau TldStateBytes 10/50 B —
            format penyimpanan kanonik yang ada, dipakai ulang; kind
            0x03 (lantai umur TLD terbuka, opsi owner) punya
            format khusus TANPA prefiks panjang:
            id(32) ‖ floor(8 BE), ukuran tetap)
 ```
+
+Derivasi hash: hash halaman = `blake3("SCONE-SNAP-PAGE-HASH" ‖
+enkode halaman penuh)`; hash manifest (dibawa penanda P0.4) =
+`blake3("SCONE-SNAP-MAN-HASH" ‖ enkode manifest penuh)`.
 
 Urutan halaman: semua entri domain (id menaik), lalu semua entri
 TLD (id menaik), lalu lantai umur TLD DIBEKUKAN pada tinggi
@@ -615,7 +689,10 @@ eksplisit: tunggu interval/checkpoint berikutnya).
 Memverifikasi segalanya (lihat atas), lalu menulis dalam SATU
 transaksi redb: tabel hidup `domains`/`tlds` + penghitung +
 `tip = (H, hash checkpoint)`, tabel beku `snapshot_v1_*`
-berjangkar pada blok yang sama, dan penanda cadangan
+berjangkar pada blok yang sama, lantai umur TLD — ditulis ke
+DUA tempat, tabel hidup `tld_floors_v1` DAN beku
+`snapshot_v1_floors` (boot menjadwalkan ulang kematian TLD
+terbuka) — dan penanda cadangan
 `meta["verified_snapshot_v1"]` (`height ‖ tip_hash ‖
 manifest_hash`). Target: hanya store kosong (jika tidak
 `SnapshotUnavailable`).
@@ -725,7 +802,9 @@ atau dialokasikan:
   tiap entri sudah dibatasi 64 KiB oleh `MAX_DHT_CACHE_ENTRY`),
   batas mana yang lebih dulu tercapai mengusir per urutan kunci.
   Penghitung (entri + byte) dipelihara saat tulis — tanpa
-  pemindaian untuk menghitung; pembangunan ulang eksak hanya
+  pemindaian untuk menghitung; pengusiran GC baris DHT domain
+  mati TIDAK menurunkannya (lebih-hitung konservatif: cache
+  mengusir sedikit lebih awal); pembangunan ulang eksak hanya
   saat buka (satu-satunya pemindaian penuh, saat boot). Aksesor
   `dht_cache_entries`/`dht_cache_bytes`, batas dapat disetel via
   `set_dht_cache_bounds` (test:
@@ -761,8 +840,8 @@ bukan `load_chain`.
 ## Konkurensi
 
 redb 4.x mengizinkan **satu objek `Database` per berkas dan per
-proses** (double `open` simultan gagal dengan
-`DatabaseAlreadyOpen`). Model yang didukung: `RedbStore` yang
+proses** (double `open` simultan muncul sebagai
+`StorageError::Database("…already open…")`). Model yang didukung: `RedbStore` yang
 diklon (`Arc<Database>`) dibagi lintas utas — penulis
 diserialisasi oleh `&mut self` + kunci internal redb, pembaca
 bersamaan (transaksi baca snapshot). Setelah semua handle
@@ -792,7 +871,8 @@ Cakupan:
   dari snapshot = replay penuh bit-eksak (state_root + SMT,
   state logis lengkap, tip); snapshot yang diubah (tip_hash
   rusak, state tak terdekode, tinggi > tip, meta salah panjang)
-  → fallback diam ke pemuatan penuh, chain akhir sama; akhiran
+  → fallback dicatat log ke replay nol-kepercayaan
+  (`load_chain_replay`), chain akhir sama; akhiran
   yang di-replay < interval; penggantian snapshot (tanpa
   akumulasi) saat melintasi interval; store pra-M6b tanpa tabel
   snapshot termuat identik;

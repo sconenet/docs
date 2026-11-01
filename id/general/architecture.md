@@ -72,16 +72,18 @@ scone-core       ← tipe protokol (bergantung pada scone-crypto)
 scone-protocol  ← format biner wire/blockchain
     ▲
 scone-blockchain← logika blockchain, state kanonik (di memori)
-    ▲               └ scone-topology (engine murni, tanpa jaringan/fs/
-                     async; diberi makan oleh scone-network) — scone-genesis
-                     (biner alat genesis mainnet sekali jalan)
+    ▲
 scone-storage   ← persistensi lokal: backend redb + snapshot terverifikasi
     ▲
 scone-network   ← relay p2p: libp2p/QUIC, mempool, sinkronisasi, DHT, DNS
     ▲
-scone-keystore  ← keyfile `.sconekey` terenkripsi (bergantung pada scone-crypto)
-    ▲
 scone           ← biner / aplikasi
+
+scone-keystore  ← keyfile `.sconekey` terenkripsi (bergantung hanya
+                     pada scone-crypto); dikonsumsi oleh scone-network
+scone-topology  ← engine mesh murni, tanpa jaringan/fs/async; diberi
+                     makan oleh scone-network, yang menerapkan keputusannya
+scone-genesis   ← biner alat genesis mainnet sekali jalan
 ```
 
 ### Keputusan: `scone-core` bergantung pada `scone-crypto`
@@ -95,6 +97,9 @@ tidak boleh mencemari core. Resolusinya:
   tanpa dependensi jaringan/filesystem/async → tidak mungkin terjadi
   siklus;
 - `scone-core` menggunakannya hanya untuk hashing;
+- `scone-core` juga bergantung langsung pada `argon2` (PoW
+  registrasi) dan `idna` (nama internasional) — dependensi murni,
+  pelapisan tetap dijaga;
 - Tanda tangan dan kunci Ed25519 berada di `scone-crypto` dan bekerja
   atas byte (payload kanonik yang dihasilkan oleh `scone-protocol`).
 
@@ -108,10 +113,9 @@ tokio/async, jaringan, berkas, OS, server DNS, logika blockchain.
 
 **scone-crypto** — primitif kriptografis. Hari ini: `hash256`
 (BLAKE3), tanda tangan dan kunci Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, verifikasi batch ketat), amplop AEAD
-grup record (XChaCha20-Poly1305). Direncanakan: pohon Merkle.
-Aturan: tidak ada algoritma buatan sendiri, hanya dependensi yang
-telah diaudit.
+`PublicKey`, `Signature`, verifikasi batch ketat). Direncanakan:
+pohon Merkle. Aturan: tidak ada algoritma buatan sendiri, hanya
+dependensi yang telah diaudit.
 
 **scone-protocol** — format biner protokol: enkode/dekode kanonik
 (varint LEB128 minimal, identifier 32-byte polos) atas transaksi,
@@ -150,7 +154,7 @@ Kademlia untuk `SignedDnsRecord`, server DNS UDP+TCP (GeoDNS selalu
 aktif — tabel GeoIP tertanam, fallback rekursif), loop
 checkpoint/heartbeat anchor (CLI berbicara p2p QUIC langsung ke
 relay, tanpa RPC lokal lagi). Jangkauan dan penemuan: AutoNAT
-v2 (vonis reachable/NATed), circuit-relay v2 + DCUtR untuk node
+v1 (vonis reachable/NATed), circuit-relay v2 + DCUtR untuk node
 ter-NAT dan UPnP (pemetaan port QUIC oleh router, opt-in).
 Konfigurasi via berkas `.env` (lihat `.env.example`).
 Referensi: `/docs/en/technical/relay.md`.
@@ -210,13 +214,15 @@ blok terbaru H+1..H+k (relay, tinggi meningkat)
 tersinkron — saat boot, replay HANYA akhiran di atas H
 ```
 
-Dua profil node:
+Profil node (DIRENCANAKAN — tidak ada flag operator seperti itu
+hari ini: setiap node saat ini menyimpan semua blok, dan impor
+snapshot opt-in di atas adalah satu-satunya kendali retensi):
 
-- **node arsip** (flag operator): menyimpan semua blok historis,
+- **node arsip** (direncanakan): menyimpan semua blok historis,
   melayaninya ke jaringan, mulai lewat jalur yang sudah ada;
-- **node full-state**: memegang state penuh pada H dan akhiran,
-  tetapi bukan riwayat di bawah H — ia memvalidasi blok mendatang dan
-  melayani state, ia tidak melayani riwayat.
+- **node full-state** (direncanakan): memegang state penuh pada H
+  dan akhiran, tetapi bukan riwayat di bawah H — ia memvalidasi
+  blok mendatang dan melayani state, ia tidak melayani riwayat.
 
 Jalur ini OPT-IN: mengimpor snapshot terverifikasi adalah tindakan
 operator eksplisit (`import_verified_snapshot`), tidak pernah

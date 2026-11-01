@@ -16,9 +16,12 @@
 - `block_at_height(h)` / `block_by_hash(hash)` — ポイント読み取り。
 - `tip() -> (height, hash)` — O(1)、`meta` から読み取り。
 - `put_domain_state` / `domain_state` / `domain_count` — **維持される**カウンタ(`meta["domain_count"]`)。決して `COUNT(*)` ではない。
-- `iterate_domains(after, max) -> DomainPage` — カーソルベースのページネーション(デフォルトで100件ずつ)。`DomainId` のバイト昇順。
+- `iterate_domains(after, max) -> DomainPage` — カーソルベースのページネーション(デフォルトで100件ずつ)。`DomainId` のバイト昇順。`None` カーソルは走査の完了を意味します(テーブルの自然な枯渇)。
 - `put_tld_state` / `tld_state` / `tld_count` / `iterate_tlds` — TLDレジストリに対する同じ契約(`tld_count` 維持、有界カーソル)(M7d)。
+- `put_states(...)` — 生存状態テーブルのアトミックな書き換え: ドメイン/TLDのアップサート**と**除去 + 維持されるカウンタを、1つのトランザクションで(唯一の呼び出し元: リオルグの永続化)。
+- `put_owner_keys` / `clear_owner_keys` / `iterate_owner_keys` — 学習された owner→key マップ(PoSプール解決)。`owner_keys` テーブルに永続化。
 - `put_dht_cache` / `dht_cache` — 不透明な `SignedDnsRecord` バイト。
+- `dht_cache_page(after, max)` — `DomainId` 昇順でのDHTキャッシュのページ化された走査(`None` カーソル = 走査完了)。
 - `resolve_name(canonical)` / `resolve_tld(tld)` — 永続的なName→Idインデックス(P0.2)、O(1)ポイントルックアップ、ドメインの反復なし(デフォルト `None` = インデックスなしのバックエンド。呼び出し側は `iterate_domains` またはチェーン状態にフォールバック)。
 - `tld_floors_all` / `snapshot_tld_floors_all` — オープンTLDの生存下限を読み取り(owner-option: 専用テーブル、稼働中の `tld_floors_v1` と凍結された `snapshot_v1_floors`)。
 - `rewind_to_height(h)` — リオルグ: hより上のブロックを除去し、1つのトランザクションで `tip`/`tip_height` をhに戻します(`persist_state_snapshot` の前段、下記参照)。
@@ -40,6 +43,7 @@
 | `domains` | `DomainId`(32 B、バイト順) | `DomainStateBytes`(下記) |
 | `tlds` | `TldId`(32 B、バイト順) | `TldStateBytes`(下記、M7d) |
 | `dht_cache` | `DomainId`(32 B) | `SignedDnsRecord` バイト(不透明) |
+| `owner_keys`(PoSプール) | owner id(32 B、バイト順) | Ed25519公開鍵(32 B)— 学習された owner→key マップ、各ブロックの後にミラー |
 | `names_v3`(P0.2) | インデックスキー(32 B、バイト順) | 対象id(32 B) |
 | `name_reverse_v3`(P0.2) | 対象id(32 B、バイト順) | `tag(1) ‖ canonical name` |
 | `meta` | `&[u8]` | `&[u8]` |
@@ -64,6 +68,7 @@
 | `tip_height` | `u64 BE`(`tip()` をO(1)にする) |
 | `domain_count` | `u64 BE`(維持されるカウンタ) |
 | `tld_count` | `u64 BE`(維持されるカウンタ、M7d) |
+| `finality_v1`(PoS) | blob: `varint(window.len) ‖ window checkpoints ‖ base checkpoint ‖ varint(pool.len) ‖ pool keys(32 B each, sorted, deduplicated) ‖ seed(32) ‖ block_ts(8 BE)` — 永続化されたファイナリティ(チェックポイントウィンドウ + 凍結ベース)。リレーのアンカーループが書き込み、すべての `load_chain` で復元(ロード時のウィンドウ↔ベースのペアリング + カーブ検査)。2026-10-21より前のストアには不在(ファイナリティはゼロから再構築)。`meta_set` の予約リストにはない(ノード自身の永続化パスのみが書き込み) |
 
 `blocks_by_height` の `hash ‖ height` ヘッダーにより、各インデックスは自己完結です(ブロックを読まずに検証可能)。両インデックスは同じトランザクションで更新されます。
 
@@ -74,15 +79,24 @@
 
 ## `DomainStateBytes` エンコーディング形式(M8b)
 
-先行バージョンタグに応じて65バイトまたは97バイト。固定幅ビッグエンディアン整数(正準、バイトごとに比較可能):
+97バイトまたは65バイトのベースに、オプションのレコードデリゲート接尾辞(全体で65〜194バイト)。固定幅ビッグエンディアン整数(正準、バイトごとに比較可能):
 
 ```text
 DomainStateBytes = tag ‖ owner(32) ‖ sequence(8 BE) ‖ registered_at(8 BE)
                    ‖ valid_until(8 BE) ‖ mutations(8 BE) [‖ record_hash(32)]
+                   [‖ delegate_count(1) ‖ delegate_keys(32 × count)]
 
-tag = 0x01 : record_hash present → exactly 97 bytes
-tag = 0x02 : record_hash absent  → exactly 65 bytes
+tag = 0x01 : record_hash present → base 97 bytes
+tag = 0x02 : record_hash absent  → base 65 bytes
+
+delegate_count : 0..=3 (`MAX_RECORD_DELEGATES`); the keys are
+                 strictly ascending (the canonical `BTreeSet`
+                 order). An empty set omits the suffix entirely —
+                 the base is then byte-identical to the
+                 pre-delegation format.
 ```
+
+長さの封筒は65..=194バイトです(97バイトのベース + カウントバイト + 3 × 32バイトのキー = 最大194)。
 
 `mutations` は名前空間の単調なミューテーションカウンターです(CASアンチリプレイ世代 — `transactions.md` の「ミューテーションカウンター」参照)。M8bのエンコーディング(57/89バイト、カウンターなし)は**不正**です: 厳格デコード → `Corrupted`(testnetリセット。カウンター前のストアはリプレイで再生成)。
 
@@ -93,8 +107,9 @@ M7のエンコーディング(41/73バイト、失効なし)は、M8b以降**不
 - `owner`: `OwnerId`(32 B)。
 - `sequence`: 最後に適用された `UpdateDomain` のシーケンス(`RegisterDomain` の直後は0)。
 - `record_hash`: DNSレコードセットの現在のオンチェーンコミットメント(`UpdateDomain` が適用されるまで `None`)。
+- `record_delegates`: `UpdateDomain` に署名することを許可された、所有者が管理するデリゲートキー(最大3。適用ルールは `transactions.md` 参照)。
 
-**厳格な**デコード(`DomainStateBytes::decode`): 未知のタグ、誤った長さ、過剰バイト → `StorageError::Corrupted`。決してパニックしません。
+**厳格な**デコード(`DomainStateBytes::decode`): 未知のタグ、誤った長さ、過剰バイト、3を超えるデリゲートカウント、厳密昇順でないデリゲートキー、またはEd25519曲線点でないデリゲートキー → `StorageError::Corrupted`。決してパニックしません。
 
 ## `TldStateBytes` エンコーディング形式(owner-option)
 
@@ -110,7 +125,7 @@ TldStateBytes = tag(0x04) ‖ flag(0x00|0x01) ‖ owner(32)? ‖ until(8)
 
 M7d(33バイト、タグ `0x01`)、M8b(34バイト、タグ `0x02`、ブール `open`)、レガシータグ `0x03`(`until` 埋め込み)、そしてカウンター前のタグ `0x04` レイアウト(42/2バイト、カウンターなし)のエンコーディングは**不正**です: 厳格デコード → `Corrupted`(mainnet前、リプレイによる再生成が移行パスです)。
 
-タグはフォーマット進化のためだけに存在します: 将来のレイアウトはタグを上げ、古いリーダーは推測する代わりに `Corrupted` で失敗します。**厳格な**デコード(`TldStateBytes::decode`): 未知のタグ、誤った長さ、過剰バイト、非正準フラグ → `StorageError::Corrupted`。決してパニックしません。
+タグはフォーマット進化のためだけに存在します: 将来のレイアウトはタグを上げ、古いリーダーは推測する代わりに `Corrupted` で失敗します。**厳格な**デコード(`TldStateBytes::decode`): 未知のタグ、誤った長さ、過剰バイト、非正準フラグ、または `until` がゼロのオープンエントリ(レガシーエンコーダーの破損署名)→ `StorageError::Corrupted`。決してパニックしません。
 
 ## アトミシティ保証
 
@@ -123,8 +138,9 @@ M7d(33バイト、タグ `0x01`)、M8b(34バイト、タグ `0x02`、ブール `
 5. すべてのTLDレジストリデルタ(`tlds`、M8b: クレーム、移転、オープン/クローズ)— **同じトランザクション内で**: TLD変更なしに書かれたブロックは構造的に不可能です。
 6. `tld_count` カウンタ(新規TLDのみ)。
 7. すべての**除去**(M8b): 決定論的GCによって失効したドメイン(`removed_domains`)と取り消されたTLD(`removed_tlds`)は同じトランザクションでストアを去り、カウンタは減算 — 再起動が失効した登録を蘇らせることは決してありません。
-8. P0.2の**名前インデックス**デルタ(アップサートと除去、下記参照)— 同じ保証: クラッシュが、存在しないドメインを指すインデックスエントリを残すことは決してありません。
-9. `tip` と `tip_height`。
+8. すべてのTLD生存下限のアップサート**および**除去されたTLDの下限(`tld_floors_v1`、`StateDelta.tld_floors` が運ぶ)— GCの死亡予定は再起動を生き延びます;
+9. P0.2の**名前インデックス**デルタ(アップサートと除去、下記参照)— 同じ保証: クラッシュが、存在しないドメインを指すインデックスエントリを残すことは決してありません。
+10. `tip` と `tip_height`。
 
 redbはWAL方式でコミットします: 書き込み途中のクラッシュは**以前の**一貫した状態を残します。**したがって、状態なしに書かれたブロックは構造的に不可能です** — これがこのマイルストーンの鍵となる不変条件です。
 
@@ -140,11 +156,11 @@ redbはWAL方式でコミットします: 書き込み途中のクラッシュ�
 役割分離: RAM内の[`ChainState`] = コンセンサス権威。ストア = 永続化。選ばれた戦略(文書化されているとおり、最も単純なもの): **すべてのブロックで状態を永続化** — `store_block` はブロック + **そのブロックがタッチした**ドメインの状態(デルタ)を書き込みます。フルリプレイは可能なまま、管理/修理パスとして機能します。
 
 - `store_block(store, chain, block, hash)`: ブロックを正準にエンコードし、タッチされたドメインとクレームされたTLDの最終状態をRAM状態から(`push_block` がすでに更新済み)読み取り、アトミック追加。
-- `load_chain(store)`: **リプレイなし** — チップ + チップブロックを読み取り(O(1)ブロック読み取り)、ドメイン状態を100件(`DOMAIN_PAGE`)のページで、**TLDレジストリを100件**(`TLD_PAGE`、M7d)のページで復元 — 再起動ウィンドウを閉じます: これがなければ、再起動したノードはクレームされたすべてのTLDを忘れ、そのTLDの下のすべての `RegisterDomain` を `UnknownTld` で拒否していました。ディスクが完全な状態を保持していたにもかかわらず。RAMチェーンはジェネシス + チップのみを保持します。履歴ブロックはストアに留まり、そこから提供されます。M8以降、`load_chain` は続いて**TXIDアンチリプレイインデックス**を再構築します(下記参照)。
+- `load_chain(store, network)`(`NetworkParams`): **リプレイなし** — チップ + チップブロックを読み取り(O(1)ブロック読み取り)、ドメイン状態を100件(`DOMAIN_PAGE`)のページで、**TLDレジストリを100件**(`TLD_PAGE`、M7d)のページで復元 — 再起動ウィンドウを閉じます: これがなければ、再起動したノードはクレームされたすべてのTLDを忘れ、そのTLDの下のすべての `RegisterDomain` を `UnknownTld` で拒否していました。ディスクが完全な状態を保持していたにもかかわらず。RAMチェーンはジェネシス + チップのみを保持します。履歴ブロックはストアに留まり、そこから提供されます。**空の**ストアは、要求されたネットワークのジェネシスで起動します。**別の**ネットワークのチェーンを保持するストアは失敗します — フル状態パスでは `Corrupted`、スナップショットパスでは `Unusable`(→ リプレイ)。M8以降、`load_chain` は続いて**TXIDアンチリプレイインデックス**を再構築します(下記参照)。
 - `load_chain_replay(store)`: 保存されたすべてのブロックを完全検証付きで1つずつリプレイします(決してすべてをRAMに載せない)。結果のチップは保存されたチップと等しくなければならない。さもなければ `Corrupted`。
 - `rebuild_replay_index_from_store(store, chain, tip_height)`(M8): 最後の `min(REPLAY_WINDOW_BLOCKS, tip_height)` 永続ブロックを再スキャンし(一度にRAMに載せるブロックは1つ)、すべてのTxIdを**元の包含高さ**でチェーンのインデックスに再挿入します。パブリックAPI `Blockchain::rebuild_replay_index` 経由(プライベートフィールドへのアクセスなし)。チップの下のブロック欠落やウィンドウ内のデコード不能 → `Corrupted`(それらのバイトはすでにチェーン構築に使われました: ここでの失敗はストアの損傷を示します)。
 - `touched_domains(block)`: ブロックのトランザクションによって変更されたドメインのID、重複除去、ブロック順。
-- `touched_tlds(block)`: ブロックが変異させたTLDのID(`RegisterTld`、`TransferTld`、`RevokeTld`、`SetTldOpen`)、重複除去、ブロック順(M8b)。
+- `touched_tlds(block)`: ブロックが変異させたTLDのID(`RegisterTld`、`TransferTld`、`RevokeTld`、`SetTldOpen`、`RegisterTldPow`)、重複除去、ブロック順(M8b)。
 - `store_block_with_removals(...)`: ブロックのGCによって除去されたドメインのリストも受け取る `store_block` の変種(M8b。上記のアトミック書き込みのため)。リレーはこのリストを `Blockchain::push_block_with_gc` から供給します(適用結果が `gc_removed_domains` を公開)。**DHTキャッシュのGC追い出し**: 除去されたドメインの `dht_cache` エントリは、ブロックと同じトランザクション内で削除されます(追加デルタは `dht_cache` テーブルを運ぶ)— DHTレコードが、それが仕えたドメインより長生きすることは決してなく、失効エントリが永遠に蓄積することは決してありません(テスト: `gc_evicts_the_dht_cache_entry`)。
 
 リレー(M4)は次を使います: 起動時に `load_chain`、次に受理された各ブロックに対して `push_block`(RAM)、続いて `store_block`(ディスク)。
@@ -153,8 +169,8 @@ redbはWAL方式でコミットします: 書き込み途中のクラッシュ�
 
 リオルグ(より強いシスターブランチへの切り替え)は、単調追加を通っては行けません — 勝った接尾辞の書き込みは `NonMonotonicHeight` で失敗します。専用パス(sticky-minority修正、リレー + ストア):
 
-1. `rewind_to_height(fork_height)` — 1つのredbトランザクションが、フォーク点より上のブロックを除去し、`tip`/`tip_height` を戻します(名前インデックスと稼働状態は次のステップで修正されます)。
-2. `persist_state_snapshot(store, chain)` — リオルグ後のRAM状態エクスポートから、稼働テーブル(`domains`、`tlds`、名前インデックス、TLD下限)を書き換えます: 稼働テーブルが、起動時に**負けた**ブランチを記述することは決してありません。
+1. `rewind_to_height(fork_height)` — 1つのredbトランザクションが、フォーク点より上のブロックを除去し、`tip`/`tip_height` を戻します(稼働状態テーブルは次のステップで修正されます)。
+2. `persist_state_snapshot(store, chain)` — リオルグ後のRAM状態エクスポートから、稼働 `domains`/`tlds` テーブル(+ 維持されるカウンタ。`NodeStore::put_states` 経由、1つのアトミックトランザクション)を書き換え、次に学習されたオーナーキーを書き換えます(クリアしてから書き込み — ロールバックはキーを忘れるため、アップサートだけでは負けブランチの幻が残ってしまいます)。名前インデックス(`names_v3`/`name_reverse_v3`)と稼働TLD下限(`tld_floors_v1`)はこのステップでは書き換えられ**ません**。**既知の制限(コードフォローアップ保留)**: リオルグの後、負けブランチのゴースト名前インデックスエントリと陳腐な下限行は、再追加された接尾辞自身のデルタが上書きするか、再構築(`rebuild_name_index`、リプレイ)が実行されるまで残ることがあります。
 3. 採用された接尾辞の単調な再追加(通常のデルタ)。
 
 このパスでの永続化の失敗はログに記録され、劣化します(ストアは起動時にリプレイで治癒)— 決して致命的ではありません。
@@ -167,7 +183,7 @@ redbはWAL方式でコミットします: 書き込み途中のクラッシュ�
 
 - **間隔**: `SNAPSHOT_INTERVAL = 64`(`scone-storage` の公開定数)。トリガーはブロック `k·SNAPSHOT_INTERVAL + 1` の追加です: そのトランザクションは、**そのブロックを適用する前の**稼働テーブルの状態、すなわちブロック `k·SNAPSHOT_INTERVAL` の後の正準状態を凍結します。
 - **決してチップではない**: したがってスナップショットは、書き込まれた瞬間、最も近くても `tip − 1` にあり、常にチップより厳密に下です。直後のクラッシュが、永続化されたチェーンより「上の」スナップショットを残すことは決してありません。
-- **アトミック**: 凍結(`domains`/`tlds` テーブルの `snapshot_v1_*` へのクリア + コピー、`snapshot_v1_meta` の書き込み)は、トリガーブロックの追加と**同じ**redbトランザクション内で行われます — クラッシュは、古いスナップショットをそのまま残すか、新しいものをブロックとともに完全に残すかのどちらかです(redb WAL)。
+- **アトミック**: 凍結(`domains`/`tlds` テーブルの `snapshot_v1_*` へのクリア + コピー、稼働 `tld_floors_v1` の `snapshot_v1_floors` へのコピー、`snapshot_v1_meta` の書き込み)は、トリガーブロックの追加と**同じ**redbトランザクション内で行われます — クラッシュは、古いスナップショットをそのまま残すか、新しいものをブロックとともに完全に残すかのどちらかです(redb WAL)。
 - **単一スロット**: すべてのスナップショットは前のものを置き換えます(テーブルを空にして再コピー)— 蓄積なし、管理すべき刈り取りなし、ディスクフットプリントは状態の約2倍で有界。
 - 凍結された状態の形式は、厳密に `DomainStateBytes`/`TldStateBytes` のものです(再利用、新しいエンコーディングなし)。新しい形式なのは `snapshot_v1_meta` 行だけです
 (`height(8 BE) ‖ tip_hash(32)`、厳格デコード: その他の長さ → `Corrupted`)。
@@ -175,9 +191,9 @@ redbはWAL方式でコミットします: 書き込み途中のクラッシュ�
 ### 起動時の読み取り(`load_chain`)
 
 1. チップは常にどおり検証されます(チップブロックのヘッダーから再計算されたハッシュ vs `meta["tip"]`)。
-2. `snapshot_meta()` が存在し、その高さ `H` が `0 < H < tip_height` を満たし、Hに保存されたブロックの**再計算された**ハッシュがスナップショットの `tip_hash` と等しければ(**アンカー** — 永続化されたチェーンに無関係なスナップショット、改変されたもの、別ファイルからのものはここで検出される)、凍結状態が100件のページで復元され、次にブロック `H+1..=tip` だけがリプレイされます(完全検証、生存ブロックと同一)。
+2. `snapshot_meta()` が存在し、その高さ `H` が `0 < H < tip_height` を満たし、Hに保存されたブロックの**再計算された**ハッシュがスナップショットの `tip_hash` と等しければ(**アンカー** — 永続化されたチェーンに無関係なスナップショット、改変されたもの、別ファイルからのものはここで検出される)、凍結状態が100件のページで復元されます — 永続化されたオーナーキー(無効なキー → `Unusable`)と凍結された下限(`snapshot_v1_floors`; 各 `restore_tld_floor` がオープンTLDの死亡を再エンキュー)とともに — 次にブロック `H+1..=tip` だけがリプレイされます(完全検証、生存ブロックと同一)。
 3. リプレイが到達したチップは、保存されたチップと等しくなければなりません。
-4. **このパスでのあらゆる失敗(スナップショット欠落、使用不能な高さ、無効なアンカー、デコード不能バイト、リプレイ失敗)は、黙ってM6b前のフルロードに劣化します**(稼働テーブルの読み取り、リプレイなし)— 悪いスナップショットが起動を失敗させることは決してありません。後方互換性は「スナップショットなし」という特殊ケースです: M6b前に書かれたストア(`snapshot_v1_*` テーブルなし)は同一にロードされ、`snapshot_meta()` は `None` です。
+4. **存在するが使用不能なスナップショット(無効なアンカー、デコード不能な凍結エントリ、失敗した接尾辞リプレイ、チップより上の高さ)は、起動を決して失敗させません: 理由は警告としてログに記録され、ロードは完全なゼロトラストリプレイ(`load_chain_replay`)にフォールバックします** — ブロックログが権威です。`snapshot_v1_meta` 行が**読めない**場合(バックエンドエラー)だけが、プレーンなフル状態ロードに劣化します。フォールバックは決して黙っていません。後方互換性は「スナップショットなし」という特殊ケースです: M6b前に書かれたストア(`snapshot_v1_*` テーブルなし)は同一にロードされ、`snapshot_meta()` は `None` です。
 
 リプレイされる接尾辞は `SNAPSHOT_INTERVAL` で有界です(トリガー時点で最大64ブロック + それ以降にマイニングされたブロック): 起動は、Hが最近であることが保証されたO(tip − H)です。
 
@@ -191,7 +207,7 @@ M8はこのウィンドウを閉じます: 復元後(フルパスまたはスナ
 
 - **生存ノードと同一の決定**: 同じエントリ、同じ刈り取りルール(`h > tip − 256`)— 再起動するノードと止まらないノードは、同じリプレイを拒否します(テスト済み: 正確なインデックスカウントと、刈り取られた生存インデックスとの等価)。
 - **刈り取りの意味論は変更なし**: ウィンドウより古いトランザクションは、インデックスには引き続き受理されます(そして該当すればその後、状態ルールで失敗します)— 以前とまったく同じです。
-- **スナップショットはインデックスを凍結しない**: スナップショットの接尾辞リプレイがHより上のエントリを再構築し、M8の再スキャンがHより下のウィンドウ部分を追加します(owner_keys/graceと同じ契約: 再構築され、決して永続化されない)。
+- **スナップショットはインデックスを凍結しない**: スナップショットの接尾辞リプレイがHより上のエントリを再構築し、M8の再スキャンがHより下のウィンドウ部分を追加します(graceウィンドウと同じ契約: 再構築され、決して永続化されない)。
 - **コスト**: 起動時に ≤ 256のポイントブロック読み取り、O(ウィンドウ)— チェーンの年齢から独立。
 - ウィンドウ**内の**ブロックの欠落やデコード不能は、`Corrupted` で起動を失敗させます(それらのバイトはすでにチェーン構築に使われました)。ウィンドウ外では、履歴ブロックには触れません。
 
@@ -241,7 +257,7 @@ name_reverse_v3 key  = target id (32 B)
 
 ### スナップショットがコミットしないもの
 
-RAM状態 `ChainState` は、コンセンサスによってコミットされない内部構造(所有者キー、猶予ウィンドウ)を運びます。それらは凍結され**ません**: 接尾辞リプレイが、トランザクションを適用することでそれらを再構築します(決定論的、該当ウィンドウについてフルリプレイと同じ内容)。TXIDアンチリプレイインデックスも同じ契約に従います(M8、前節参照): 起動時に再構築、決して凍結されない。`load_chain_replay` とのビット完全な等価は、正準状態(state_root + SMT)についてテストで検証されます。
+RAM状態 `ChainState` は、コンセンサスによってコミットされない内部構造を運びます。猶予ウィンドウは凍結され**ず**、決して永続化されません: 接尾辞リプレイが、トランザクションを適用することでそれらを再構築します(決定論的、該当ウィンドウについてフルリプレイと同じ内容)。オーナーキーは永続化**されます** — 毎ブロックの後に稼働 `owner_keys` テーブルへミラーされ(`put_owner_keys`)、両方の起動パスで復元されます — しかしスナップショットはそれらを埋め込みもしません: 復元は永続化されたテーブルを読みます。TXIDアンチリプレイインデックスも同じ契約に従います(M8、前節参照): 起動時に再構築、決して凍結されない。`load_chain_replay` とのビット完全な等価は、正準状態(state_root + SMT)についてテストで検証されます。
 
 ## 検証済み状態スナップショット — チャンク + マニフェスト + 暗号検証(P0.3)
 
@@ -253,7 +269,7 @@ RAM状態 `ChainState` は、コンセンサスによってコミットされな
 
 1. **すべてのページのハッシュ**: `blake3("SCONE-SNAP-PAGE-HASH" ‖ 完全なページエンコーディング)` が、マニフェストが通知するハッシュと等しくなければならない(1バイトの偽装 → 拒否)。
 2. **エントリの合計 == マニフェストのカウンタ**(ページの欠落や誤ったカウンタ → 拒否)。
-3. **インポートされたエントリから再計算されたSMTルート == `checkpoint.data.state_root`** — THE 暗号学的検査: 状態全体(ドメイン + TLD)が真新しいSMTに再フォールドされ(`snapshot_verify::recompute_state_root`、リーフは `SCONE-LEAF-DOM-V1`/`SCONE-LEAF-TLD-V1`、稼働パスとまったく同じ)、ルートは委員会が署名したものと等しくなければなりません。偽装、切り詰め、不完全なスナップショットは、いかなる書き込みの前に拒否されます。
+3. **インポートされたエントリから再計算されたSMTルート == `checkpoint.data.state_root`** — THE 暗号学的検査: 状態全体(ドメイン + TLD)が真新しいSMTに再フォールドされ(`snapshot_verify::recompute_state_root`)、ルートは委員会が署名したものと等しくなければなりません。リーフは稼働パス(`finality.rs`)のものと**正確に**同じです: `SCONE-LEAF-DOM-V4` = tag ‖ id ‖ owner ‖ sequence(8 BE) ‖ registered_at(8 BE) ‖ valid_until(8 BE) ‖ mutations(8 BE) ‖ record_hash-or-zero(32) ‖ delegate count(1) ‖ sorted delegate keys、そして `SCONE-LEAF-TLD-V4` = tag ‖ id ‖ owner(オープンTLDはゼロ) ‖ until(8 BE) ‖ variant byte(0x01 プライベート — mutations(8 BE) が続く — または 0x00 オープン)、そして `state_root = blake3("SCONE-STATE-SMT-V1" ‖ smt_root)`。偽装、切り詰め、不完全なスナップショットは、いかなる書き込みの前に拒否されます。
 4. **構造的一貫性**: マニフェストの `height`/`tip_hash`/`state_root` == チェックポイントのもの。厳密増加するID(重複なし)。連続するページインデックス。DoS境界(≤ 10,000エントリ/ページ、≤ 2^20ページ、合計バジェット)。
 
 検証失敗 → `StorageError::SnapshotRejected`。ストアは厳密に不変のままです(すべてが書き込みトランザクションの前に検証されます)。
@@ -272,12 +288,15 @@ page    = "SCONE-SNAP-PAGE-V1"
 
 entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
           ‖ [len(2) ‖ state | floor(8 BE)]
-          (state = DomainStateBytes 57/89 B or TldStateBytes 2/34 B —
+          (state = DomainStateBytes (65..=194 B — the full
+           delegate-aware envelope) or TldStateBytes 10/50 B —
            the existing canonical storage formats, reused; kind
            0x03 (lifetime floor of an open TLD, owner-option) has
            a dedicated format WITHOUT a length prefix:
            id(32) ‖ floor(8 BE), fixed size)
 ```
+
+ハッシュ導出: ページハッシュ = `blake3("SCONE-SNAP-PAGE-HASH" ‖ 完全なページエンコーディング)`。マニフェストハッシュ(P0.4マーカーが運ぶ)= `blake3("SCONE-SNAP-MAN-HASH" ‖ 完全なマニフェストエンコーディング)`。
 
 ページ順: すべてのドメインエントリ(ID増加)、次にすべてのTLDエントリ(ID増加)、次にスナップショット高さで凍結されたTLD生存下限(`snapshot_tld_floors_all` — 稼働テーブルではなく)— ストアのカーソルページネーションの順序。すべてのページは `(index, height, チェックポイントのstate_root, entries)` を運びます: 単独のページは、それがどのスナップショットに属するかを知っています。エクスポート時のページは256エントリ
 (`VERIFIED_SNAPSHOT_PAGE_ENTRIES`)。インポート時のDoS境界。TLD下限(`tld_floors_v1`)はポータブル形式の一部です: 種別0x03がそれらを運び、インポートはそれらが厳密増加であり、スナップショットに存在するTLDを対象とすることを要求します — さもなければ、インポーターはエクスポーターが殺すものを決して殺さないでしょう(黙った分岐、拒否)。
@@ -288,7 +307,7 @@ entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
 
 ### インポート(`import_verified_snapshot(store, checkpoint, manifest, pages)`)
 
-すべてを検証し(上記参照)、次に1つのredbトランザクションで書き込みます: 稼働テーブル `domains`/`tlds` + カウンタ + `tip = (H, チェックポイントハッシュ)`、同じブロックにアンカーされた凍結テーブル `snapshot_v1_*`、そして予約済みマーカー `meta["verified_snapshot_v1"]`(`height ‖ tip_hash ‖ manifest_hash`)。対象: 空のストアのみ(さもなければ `SnapshotUnavailable`)。
+すべてを検証し(上記参照)、次に1つのredbトランザクションで書き込みます: 稼働テーブル `domains`/`tlds` + カウンタ + `tip = (H, チェックポイントハッシュ)`、同じブロックにアンカーされた凍結テーブル `snapshot_v1_*`、TLD生存下限 — 稼働 `tld_floors_v1` テーブル**と**凍結 `snapshot_v1_floors` の**両方**に書き込み(起動時にオープンTLDの死亡を再予定)— そして予約済みマーカー `meta["verified_snapshot_v1"]`(`height ‖ tip_hash ‖ manifest_hash`)。対象: 空のストアのみ(さもなければ `SnapshotUnavailable`)。
 
 ### 検証コスト(文書化)
 
@@ -335,7 +354,7 @@ synced — boot replays ONLY the suffix above H
 - **`MAX_DHT_CACHE_ENTRY`(64 KiB)**: より大きなDHTレコードは、`put_dht_cache` によっていかなる書き込みトランザクションの前に拒否されます → `StorageError::TooLarge`(何も書き込まれない)。
 - **`MAX_DOMAIN_PAGE`(10,000)**: `iterate_domains` は要求されたページを内部的に `min(max, 10_000)` に制限します — 過剰な `max` が10,000を超える状態をRAMに物質化することは決してありません。`iterate_tlds` も同じ境界(`MAX_TLD_PAGE`、M7d)。
 - **予約済み `meta` キー**: `meta_set` は `tip`、`tip_height`、`format_version`、`domain_count`、`tld_count`、そして `verified_snapshot_v1`(P0.3)を `StorageError::ReservedKey` で拒否します — ストアの内部会計を上書きすれば、黙って破損させるでしょう。
-- **二重に有界なDHTキャッシュ(LRU)**: `DHT_CACHE_MAX_ENTRIES`(10万エントリ)かつ `DHT_CACHE_MAX_BYTES`(2 GiB — 敵対的ケースのガード。各エントリはすでに `MAX_DHT_CACHE_ENTRY` で64 KiBに上限)。最初に達した境界がキー順で追い出します。カウンタ(エントリ + バイト)は書き込み時に維持されます — カウントのためのスキャンは決してなし。正確な再構築は、オープン時のみ(唯一のフルスキャン、起動時)。アクセサ `dht_cache_entries`/`dht_cache_bytes`、`set_dht_cache_bounds` による調整可能な境界(テスト: `dht_cache_respects_the_double_bound`)。
+- **二重に有界なDHTキャッシュ(LRU)**: `DHT_CACHE_MAX_ENTRIES`(10万エントリ)かつ `DHT_CACHE_MAX_BYTES`(2 GiB — 敵対的ケースのガード。各エントリはすでに `MAX_DHT_CACHE_ENTRY` で64 KiBに上限)。最初に達した境界がキー順で追い出します。カウンタ(エントリ + バイト)は書き込み時に維持されます — カウントのためのスキャンは決してなし。死んだドメインのDHT行のGC追い出しは、それらを減算し**ません**(保守的な過大カウント: キャッシュはわずかに早く追い出します)。正確な再構築は、オープン時のみ(唯一のフルスキャン、起動時)。アクセサ `dht_cache_entries`/`dht_cache_bytes`、`set_dht_cache_bounds` による調整可能な境界(テスト: `dht_cache_respects_the_double_bound`)。
 
 ## 信頼モデル
 
@@ -348,7 +367,7 @@ synced — boot replays ONLY the suffix above H
 
 ## 並行性
 
-redb 4.xは、ファイルごと・プロセスごとに**単一の `Database` オブジェクト**を許可します(同時二重 `open` は `DatabaseAlreadyOpen` で失敗)。サポートされるモデル: クローンされた `RedbStore`(`Arc<Database>`)をスレッド間で共有 — 書き込み者は `&mut self` + redbの内部ロックで逐次化され、読み取りは並行(スナップショット読み取りトランザクション)。すべてのハンドルが完全にドロップされた後、ファイルは再オープンできます。
+redb 4.xは、ファイルごと・プロセスごとに**単一の `Database` オブジェクト**を許可します(同時二重 `open` は `StorageError::Database("…already open…")` として表面化)。サポートされるモデル: クローンされた `RedbStore`(`Arc<Database>`)をスレッド間で共有 — 書き込み者は `&mut self` + redbの内部ロックで逐次化され、読み取りは並行(スナップショット読み取りトランザクション)。すべてのハンドルが完全にドロップされた後、ファイルは再オープンできます。
 
 ## テスト(`tests/redb_store.rs` + `#[cfg(test)]` モジュール)
 
@@ -362,7 +381,7 @@ redb 4.xは、ファイルごと・プロセスごとに**単一の `Database` �
 - DHTキャッシュ往復 + 上書き。
 - 並行性: クローンされたハンドルで2スレッドからの読み取り。
 - 破損データベース: 切り詰め / ゴミファイル → 型付きエラー、パニックなし(`catch_unwind`)。
-- M6b: 間隔で書かれたスナップショット、チップより厳密に下。スナップショットからの起動 = 完全なビット完全リプレイ(state_root + SMT、完全な論理状態、チップ)。改変されたスナップショット(破損したtip_hash、デコード不能な状態、height > tip、誤長メタ)→ フルロードへの黙ったフォールバック、同じ最終チェーン。リプレイされた接尾辞 < 間隔。間隔を跨ぐときのスナップショット置換(蓄積なし)。スナップショットテーブルなしのM6b前ストアは同一にロード。
+- M6b: 間隔で書かれたスナップショット、チップより厳密に下。スナップショットからの起動 = 完全なビット完全リプレイ(state_root + SMT、完全な論理状態、チップ)。改変されたスナップショット(破損したtip_hash、デコード不能な状態、height > tip、誤長メタ)→ ゼロトラストリプレイ(`load_chain_replay`)へのログ記録付きフォールバック、同じ最終チェーン。リプレイされた接尾辞 < 間隔。間隔を跨ぐときのスナップショット置換(蓄積なし)。スナップショットテーブルなしのM6b前ストアは同一にロード。
 - M8: 起動時に再構築されるアンチリプレイインデックス — 復元後、ウィンドウ内で再包含されたtxは拒否(`TxReplay`)。ウィンドウより古いtxは受理(刈り取り変更なし、状態ルールが決定)。ウィンドウより短いストアと長いストアの両方で、正確なカウント == 生存インデックス(== `load_chain_replay`)。スナップショット起動: Hより下のウィンドウ部分は再スキャンで、Hより上は接尾辞リプレイで再構築。
 - P0.2: 名前インデックス — 120ドメインについて `resolve_name == DomainId::from_name`(稼働中、再起動後、ワイプ + 再構築後)。クレームされたTLDについて `resolve_tld`。失効ドメインのGCがエントリを除去(ゴーストなし)、再構築の前後。ドメイン/TLD名前空間の厳格な分離。失敗した追加はインデックスエントリを残さない。インデックスキーは文書化されたBLAKE3導出。
 - P0.3/P0.4(`tests/verified_snapshot.rs`): エクスポート → インポート → 起動 == フルリプレイ(状態、チップ、ビット完全な `state_root_smt`。インポートされた状態はチップではなく、ファイナライズされたブロックのもの)。1バイトで偽装されたページ → いかなる書き込みの前の拒否(ストアは厳密に不変)。ページ欠落 → 拒否。誤った `state_root`(マニフェスト ↔ チェックポイント、続いて再計算ルート ≠ 署名ルート)→ 拒否。誤ったカウンタ/高さ/不整合チップ/重複ID → 拒否。インポートは空のストアを要求。エクスポートはチェックポイントの高さの永続スナップショットを要求。アンカー契約(`append_bootstrap_anchor`: 必須マーカー、一貫性、冪等)。厳格な直列化形式(過剰バイト、タグ、DoS境界)。Hでのスナップショット、続いてブロックH+1..H+k参加 → フルノードと同一のチェーン(状態/チップ/ルート)、Hより下の履歴なしの起動、アンチリプレイインデックス = H以上のtxちょうど。

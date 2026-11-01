@@ -8,8 +8,8 @@ Komite epoch N+1 diundi dari seed
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 atas **kumpulan kelayakan yang dibekukan pada blok yang
 difinalisasi oleh checkpoint N**. `signing_hash` adalah hash
-**konten** checkpoint (epoch, tinggi, blok, prev, akar state —
-himpunan tanda tangan dikecualikan): seed adalah fungsi murni
+**konten** checkpoint (epoch, tinggi, recovery, blok, prev, akar
+state — himpunan tanda tangan dikecualikan): seed adalah fungsi murni
 dari APA yang difinalisasi, bukan dari SUBKUMPULAN kuorum mana
 yang menandatanganinya — dua view yang memegang subkumpulan
 berbeda (keduanya valid) dari checkpoint yang sama memilih komite

@@ -12,7 +12,7 @@
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -46,13 +46,13 @@
 
 3つの相補的メカニズムが、この優先順位で働きます:
 
-1. **明示的シード**(`--bootstrap`、完全なmultiaddr)— 常に最優先。空でないリストの提供は他のすべてを置き換えます。`--no-builtin-seeds` は、100%プライベートなデプロイのために組み込みシードを空にします。
+1. **明示的シード**(`--bootstrap`、完全なmultiaddr)— 常に最優先。空でないリストの提供は他のすべてを置き換えます。
 2. **組み込みシード**(`scone-network/src/config.rs` の `builtin_seeds(network)`)— 各公式バイナリリリースで凍結、ネットワークごと。未設定のリレーは単独でネットワークに参加します。(公開testnetがデプロイされるまで、testnetでは空。)
 3. **学習済みディレクトリ**(`<data-dir>/peers.json`)— `identify` で学習したすべてのアドレスを保持(最終_seen。上限**2000エントリ** — 接続ではなくアドレスで、最大時でもRAM約400 KiB — そして**90日の年齢切断**: 90日以上前に最後に見られたエントリは、書き込み時に破棄され、ロード時に無視されます。2000スロットを、起動時のダイヤルタイムアウト以外の貢献しかない回転前の化石ではなく、もっともらしいピアで満たし続けます)。保存は生成ティックで約1回/分。シードもブートストラップもない起動時、ディレクトリが再構成されます: リレーは設定なしでいつものピアを見つけます。これはキャッシュです: ファイルの欠落・破損 = 空のディレクトリ。決してエラーではありません。
 4. **UPnP**(`--upnp`、オプトイン)— ホームルーターによるQUICリッスンポートのマッピング: ノードは、サーキットリレーなしに外から到達可能になります。`NewExternalAddr` で、外部アドレスがスワームの実際の外部アドレスとして登録されます(`add_external_address` — identify/autonatに見え、トランスポートリレーの候補)。IGDゲートウェイなし(`GatewayNotFound`)または非ルーティング可能なゲートウェイ(`NonRoutableGateway`): 通常の情報ログのみで、マッピングはスキップ — ホームLANでは正常なケースです。期限切れのマッピング(更新失敗)は警告です。
 
 UPnPは**デフォルトで無効**のままです(`config.rs` の `enable_upnp` = `false`): 公開デプロイは同意なしにどのルーターとも話しません。**mDNS発見は削除されました**
-(remove-mdns-discovery、2026-10-22): ピアリングは、明示的なブートストラップ、組み込みシード、Kademlia のみから来ます — レガシーな `--mdns`/`SCONE_MDNS` フラグは効果なしで引き続き受け付けられます(スクリプト互換性、`--rpc` と同じ扱い)。
+(remove-mdns-discovery、2026-10-22): ピアリングは、明示的なブートストラップ、組み込みシード、Kademlia のみから来ます — レガシーな `--mdns`/`SCONE_MDNS` フラグは**削除されました**: 今日それらを渡すとclapエラーになります(そのような引数は存在しません)。
 
 ### ローカルトポロジー最適化(常時有効)
 
@@ -101,7 +101,7 @@ scone relay --topology-profile tiny
 
 すべてのリレーがAutoNAT(クライアント + サーバー)を実行します: ノードはピアに自分への逆ダイヤルを試みてもらい、判定(`reachable`: yes = 外から到達可能、no = NATの背後、unknown = 未テスト)は5分ごとに更新され、`NodeStatus` に公開されます(フィールド `nat_reachable`、ワイヤー可変長整数 0/1/2)— CLIが表示します(`scone status`)。プライベートアドレスもカウントされます(`only_global_ips = false`): LANメッシュはLAN到達可能性をテストします。
 
-到達可能なリレーは、circuit-relay v2 **hop**(NAT化ピアのためにトラフィックをリレーできる)と **DCUtR**(ホールパンチング: サーキット経由で接続された2ノードが直接接続を試み、リレーを解放)を有効にします。NAT化と判定されたリレーは、最初に知られている到達可能なピアに予約を自動要求し、それを通じてリッスンします(アドレス `/p2p/<relay>/p2p-circuit`)。
+すべてのリレーが、circuit-relay v2 **hop**(NAT化ピアのためにトラフィックをリレーできる)と **DCUtR**(ホールパンチング: サーキット経由で接続された2ノードが直接接続を試み、リレーを解放)を**無条件に**実行します。判定でゲートされるのはNAT化側の予約要求のみです: NAT化と判定されたリレーは、**接続済みの**到達可能な最初のピアに予約を自動要求し、それを通じてリッスンします(アドレス `/p2p/<relay>/p2p-circuit`)。
 
 生成ルール: リレーされたNAT化ノードはブロック生成者になるべきではありません(レイテンシ/可用性の劣化)— PoSルール(シート = 生存ドメイン)はまだそれを禁じていません。公開testnet前に運用要件として文書化される予定です。
 
@@ -143,13 +143,13 @@ scone relay --topology-profile tiny
 2. `load_chain(store, network)`: O(1)チップ + ページ化されたドメイン状態(RAMウィンドウ: ジェネシス + チップ)。
 3. スワーム構築(セッションごとのephemeralなEd25519識別情報 — ネットワーク識別情報の永続化は未決定)。
 4. ブートリストの構成([ピア発見](#ピア発見)参照): 明示的な `--bootstrap`(`/p2p/<peer-id>` で終わらなければならない)。そうでなければネットワークの組み込みシード、そうでなければ学習済みディレクトリ(`peers.json`)。
-5. 各multiaddrにダイヤルし、Kademliaテーブルに登録(死んだダイヤルは無視 — 他がネットワークを構成します)。
+5. 各シードmultiaddrをスワームとKademliaテーブルの両方に登録(ダイヤル自体はKademliaの自動ブートストラップが行います。死んだピアは単に応答されないだけです)。
 
 ### トランザクションの受信(P2PまたはCLI `submit tx` による提出)
 
 1. 厳格な有界デコード(`MAX_MESSAGE_LEN`)。
 2. 完全な暗号学的検証(`validate_transaction`: 所有者/キー結合、正準ペイロードに対する `verify_strict`)。
-3. **アンチリプレイを最初に**(安価、状態非依存、決定的)、次に状態事前検査(`push_block` ルールの安価な鏡像 — 高価なPoWはプッシュ時にのみ検証されます): 再生された `RenewDomain` には嘘のPoWエラーではなく `TxReplay` が応答されます(そのプルーフは、最初の適用が超えた失効に紐付いています)。ネットワーク分離はステップ2で強制されます: 署名ペイロードはリレーのネットワークを注入し、他所で署名されたtxは `InvalidSignature` で失敗します(ワイヤー2026-09: `network` フィールドはもうなし)。`RegisterDomain` → 登録名のTLD(そうでなければ `UnknownTld`、D1/M7c)**かつオープン**(そうでなければ `TldClosed`、M8b)、次に名前が空き。`UpdateDomain` → 既知のドメイン、厳密なシーケンス `current + 1`、所有者。`RegisterTld` → 空きTLD。`TransferTld`/`RevokeTld`/`SetTldOpen` → 既知のTLD + 所有者署名者。`AssignDomain` → TLD所有者 + 空き名。`RenewTld` → 既知のプライベートTLD + 所有者、固定期間を再導出、猶予ウィンドウ事前検査。`RenewDomain` → 既知のドメイン + 所有者、次の高さでの更新PoW事前検査(現在の失効に紐付け)。
+3. **アンチリプレイを最初に**(安価、状態非依存、決定的)、次に状態事前検査(`push_block` ルールの安価な鏡像 — 高価なPoWはプッシュ時にのみ検証されます): 再生された `RenewDomain` には嘘のPoWエラーではなく `TxReplay` が応答されます(そのプルーフは、最初の適用が超えた失効に紐付いています)。ネットワーク分離はステップ2で強制されます: 署名ペイロードはリレーのネットワークを注入し、他所で署名されたtxは `InvalidSignature` で失敗します(ワイヤー2026-09: `network` フィールドはもうなし)。`RegisterDomain` → 登録名のTLD(そうでなければ `UnknownTld`、D1/M7c)**かつオープン**(そうでなければ `TldClosed`、M8b)、次に名前が空き。`UpdateDomain` → 既知のドメイン、厳密なシーケンス `current + 1`、所有者。`RegisterTld` → 空きTLD。`TransferTld`/`RevokeTld`/`SetTldOpen` → 既知のTLD + 所有者署名者。`AssignDomain` → TLD所有者 + 空き名。`RenewTld` → 既知のプライベートTLD + 所有者、固定期間を再導出、猶予ウィンドウ事前検査。`RenewDomain` → 既知のドメイン + 所有者、次の高さでの更新PoW事前検査(現在の失効に紐付け)。`TransferDomain` → 既知のドメイン + 所有者。`SetRecordDelegates`、`SetTldOperator`、`SetDomainOperator` → 所有者 + CAS `state_binding` = 現在の世代。pow-to-ownerファミリー(`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/`RenewDomainPow`)→ 名前/プルーフ形状の事前検査(署名者なし、署名なし)。`Slash`/`Heartbeat` → パススルー(プッシュ時に完全に検証)。
 4. メモリプール挿入(固定容量、TxIdで重複排除 — プール内のtxの再提出はno-op)。
 5. ピアへのブロードキャスト(送信者を除く)。
 
@@ -188,6 +188,7 @@ scone relay --topology-profile tiny
 - 受信した署名(`Message::Checkpoint`)は、`CheckpointData` ハッシュごとに蓄積されます(256エントリに有界)。同じデータに対して `quorum_for(委員会サイズ)` のメンバー署名が集まれば → `accept_checkpoint` + ファイナライズされたチェックポイントのブロードキャスト。
 - **ファイナリティ永続化**: チェックポイントウィンドウと凍結ベースは、ファイナライズのたびにストアに書き込まれ、起動時に再読み込みされます。チェックポイントはゴシップ状態です(ブロックによって運ばれることは決してありません)— この永続化なしの再起動は空のベースから始まり、ピアから提供されたウィンドウを再びチェーンすることは決してできませんでした(ネットワークのウィンドウより下のエポックアンカーは失われています)。
 - **ファイナリティ キャッチアップ**: ベースが空のリレー(新規ノードの起動)は、ベースが復元されるまで、毎ティック peer に `GetCheckpoints` を要求します。
+- **proof-of-serviceハートビート**: 各エポック境界で、リレーは自分の `Heartbeat` トランザクションを自動送出します(アンカーキー署名、エポックごとに最大1回、識別情報が生存シートを保持している間のみ)。通常のメモリプールパス経由。
 - アンカーキーのないリレーは**受動的**のままです: 蓄積し、ファイナライズし、リレーしますが、決して署名しません。
 - `GetCheckpoints` → `checkpoint_window()` ウィンドウが提供されます。
 - ループのエラーはすべてログに記録されて飲み込まれます — 決して致命的ではありません。
@@ -195,7 +196,7 @@ scone relay --topology-profile tiny
 
 ### フォークパーキングとリオルグ(sticky-minority修正)
 
-同じ高さのシスターブロック、または親が現在のチップでないブロック(`ParentNotTip`/`UnknownParent`)は、決して失われません: それは**パーキング**されます(有界マップ、`PARKED_CAP = 2048`ブロック、各約KiB — 有界な最悪ケースRAM。満杯のパーキングは新規を黙って無視)。すでに `accept_block` に提供されたハッシュは重複除去されます(`seen_blocks`): 再ゴシップされた負けブロックは再評価されません。
+同じ高さのシスターブロック、または親が現在のチップでないブロック(`ParentNotTip`/`UnknownParent`)は、決して失われません: それは**パーキング**されます(有界マップ、`PARKED_CAP = 2048`ブロック、各約KiB — 有界な最悪ケースRAM。満杯のパーキングは、最小の `(height, hash)` のエントリを**追い出して**新しいブロックを挿入します — 新規が捨てられることは決してありません)。すでに `accept_block` に提供されたハッシュは重複除去されます(`seen_blocks` — 32,000エントリの有界FIFO): 再ゴシップされた負けブロックは再評価されません。
 
 すべての `Produce` ティックで、`reconsider_parked`:
 
@@ -204,17 +205,25 @@ scone relay --topology-profile tiny
 
 これは、等しい高さのフォークの敗者側を採用してしまったノードの固着を解きます: 一度提供されてから拒否された勝者ブロックが、永遠に忘れられるのではなく、周期的に再評価されます(chaos-30の発見: 15 ms違いの2つのシスターブロック)。
 
+**深いフォークの停滞検出器**: ノードがブロックされている間(パーキングが非空、またはブランチ採用が `BlockPruned` のプルーンウィンドウエラーに命中)、正準な進捗なしに40回連続で生成ティックが経過すると、`recover_deep_fork` が発火します: RAMチェーンとパーキングがリセットされ、チェーンはストアから再起動し、リレーはピアから再同期します — RAMウィンドウより長いパーティションに対する正直な最後の手段です(ログ記録され、自己回復。なければ、停滞したノードは手動再起動まで分離状態のままです)。
+
 **リオルグの永続化**: 別のブランチの採用は、単調追加を通っては行けません(`NonMonotonicHeight`)。リレーは `rewind_to_height(フォーク点)` を適用し、次に `persist_state_snapshot`(チェーンのエクスポートからのライブ状態の書き換え)、次に勝った接尾辞の単調な再追加を行います(`storage.md` 参照)。永続化の失敗はログに記録され、劣化します(起動時にリプレイで治癒)— 決して致命的ではありません。
 
 ## 同期(追いかけ)
 
-各ピアへの接続時に、リレーは `GetBlocks(start = ローカル高さ + 1)` を要求します。期待される高さをちょうど完了する各受信 `Block` が、次の高さの要求をトリガーします。枯渇するまで(`Pong` = もうなし)、または `MAX_SYNC_ROUNDS`(10,000)バッチまで — 嘘つきピアに対しても絶対的な境界です。受信ブロックは完全検証を通ります: 悪意あるピアが、無効なものを受理させることはできません。
+各ピアへの接続時に、リレーは `GetBlocks(start = ローカル高さ + 1)` を要求します。期待される高さをちょうど完了する各受信 `Block` が、次の高さの要求をトリガーします。枯渇するまで(`Pong` = もうなし)、または `MAX_SYNC_ROUNDS`(10,000)バッチまで — 嘘つきピアに対しても絶対的な境界です。**孤児トリガーの後方プル**: `UnknownParent` でパーキングされた受信ブロック(親がローカルで未知 — 例: 切断している間に育ったフォーク)は、**同じ**ピアへの即時の `GetBlocks(start_height = block.height − 1)` をトリガーします。欠けたフォークセグメントが具現化し、パーキングされたブロックは後の `reconsider_parked` ドレインで接続されます。有界: 孤児ごとに1プル、再提供時は `seen_blocks` で重複排除。受信ブロックは完全検証を通ります: 悪意あるピアが、無効なものを受理させることはできません。
+
+すべての生成ティックは、周期的な再検査(`recheck_sync`)も実行します: すでに追いついた各接続ピアは、1回の有界な `GetBlocks(ローカル高さ + 1)` を受け取ります(ティックごとにピアごと1リクエスト。新しいものがなければ応答は即時の `Pong`)。これが、分断されたアイランドを癒すものです: 追いつきを終えたピアも、その後に生成されたブロックを知ります。
 
 ### レコードDHT
 
 - **put**(API/webフロー — CLIの16進チャネルは削除済み): 厳格な有界デコード(`MAX_DHT_CACHE_ENTRY`)、オンチェーン状態に対する検証(所有者、シーケンス、再計算された `record_hash` — 「レコード検証」参照)、次に `kad.put_record`(ローカル保存 + 最寄りピアへのレプリケーション、レプリケーション係数の `Quorum::Majority`)と永続redbキャッシュ。
 - **get**(`domain resolve`): `kad.get_record`。待機者は自分の `QueryId` と要求された `DomainId` に紐付きます — 応答は一致するクエリのみを解決し、レコードキーは要求されたドメインと厳密に等しくなければなりません(オンチェーン検証の**前に**検査)。結果は、返される前にチェーンに対して検証されます。同時リクエストの上限: `MAX_DHT_WAITERS`(256)。超過すれば即時エラー。検証に成功した解決は、永続キャッシュに書き込まれます(M5): ローカル読み取り(`domain_info`)は、新しいDHTクエリなしでそれを提供します。
 - Kademliaはサーバーモードで動作し、レコードTTLはありません(チェーンが時間ではなく有効性を統治します)。
+- レコードgossipの配管(有界、アンチストーム):
+  (a) すべての生成ティックが、ローカルの永続キャッシュの1**ページ**を接続ピアにゴシップします(256レコード、ティック間のカーソル走査 — ティックごとの有界RAM、キャッシュサイズにかかわらず数ティックで完全カバー);
+  (b) 受信した `Record` メッセージは、ローカルキャッシュに対して**新規または異なる**場合にのみ他のピアに再ゴシップされます(さもなければすべての受信者が永遠に再転送することになります);
+  (c) 公開は、**12を超える個別のNSネームサーバー**を持つレコードを拒否します(`MAX_NS_PER_DOMAIN`、すべての形式 — ホスト名、v4、v6)。
 
 ### レコード検証(「チェーンが権威」ルール)
 
@@ -238,13 +247,14 @@ scone relay --topology-profile tiny
 
 実効バインドはstdoutで通知されます(`p2p:` と同様の機械可読契約): リッスン開始と同時に `metrics: <addr>` 行。
 
-**19カウンタ**(`counter`、単調 — ホットパス: 共有 `Arc<Metrics>` 上の `fetch_add(Relaxed)`、決してコンセンサス入力ではない):
+**27のカウンター系列**(`counter`、単調 — ホットパス: 共有 `Arc<Metrics>` 上の `fetch_add(Relaxed)`、決してコンセンサス入力ではない)。加えて、ラベル付きの2つのgeo系列(プレーンカウンターの前に描画、ラベルごとに1行 — 同じ名前、異なるラベルセット。空でなくなったときにのみ出力):
 
 | グループ | 系列 |
 |---|---|
 | チェーン | `scone_blocks_applied_total`、`scone_blocks_rejected_total`、`scone_checkpoints_signed_total`、`scone_checkpoint_sigs_received_total` |
-| メモリプール | `scone_txs_admitted_total`、`scone_txs_rejected_total`、`scone_txs_evicted_grace_total`、`scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`、`scone_dns_cache_hits_total`、`scone_dns_cache_misses_total`、`scone_dns_local_chain_total`、`scone_dns_dht_answers_total`、`scone_dns_rejected_unverified_total` |
+| メモリプール | `scone_txs_admitted_total`、`scone_txs_duplicate_total`、`scone_txs_rejected_total`、`scone_txs_evicted_grace_total`、`scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`、`scone_dns_cache_hits_total`、`scone_dns_cache_misses_total`、`scone_dns_local_chain_total`、`scone_dns_dht_answers_total`、`scone_dns_rejected_unverified_total`、`scone_dns_geo_answers_total` |
+| Geo(ラベル付き) | `scone_dns_geo_by_continent_total{continent}`(UN M49コード)、`scone_dns_geo_by_country_total{country}`(ISO 3166-1コード) |
 | DHT | `scone_dht_pulls_issued_total`、`scone_dht_negative_hits_total`、`scone_dht_negative_expired_total`、`scone_dht_negative_capped_total`、`scone_dht_cache_evictions_total` |
 | ピアネットワーク | `scone_peer_connections_established_total`、`scone_peer_connections_closed_total`、`scone_peer_connections_incoming_total`、`scone_peer_dial_failures_total`、`scone_peer_blocks_received_total`、`scone_peer_transactions_received_total` |
 
@@ -265,7 +275,7 @@ JSON TCP RPCサーバーは**削除されました**: CLI(とレジストラのa
 - `GetRecord { domain_id }` / `Record (r)` — DHT解決と公開(CLI側の `scone domain resolve` と同様)。
 - アプリケーション拒否 → `Message::Error(msg)`(EOFではなく、読み取り可能なメッセージとしてクライアントに到達)。
 
-クライアントは最小限のlibp2pスワーム(request-response + identify)を立ち上げ、30秒の呼び出しタイムアウト(往復20秒)。デフォルトの `--peer`:
+クライアントは最小限のlibp2pスワーム(request-response **のみ** — identifyなし)を立ち上げ、30秒の呼び出しタイムアウト(往復20秒)。デフォルトの `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…`(ローカル開発ノード。実際のピアIDを含む完全なmultiaddrは、リレーが `p2p:` 行でstdoutに通知します)。
 
 内部 `RelayCommand` チャネルは、組み込みDNSサーフェスのために生き残ります(`ResolveLocal`、プロセス内の1往復、DHT待機者は決してなし — `dns.md` 参照)。
@@ -294,7 +304,7 @@ scone domain resolve NAME [--peer MULTIADDR]
 # submit, lookup, owned.
 ```
 
-すべての制御コマンドは、リレーのmultiaddrに直接QUICで話します(`--peer`、デフォルトはローカルノード — RPC→p2p統合、JSON TCPチャネルはもうなし)。リレー不在 → 明確なメッセージ「p2p node unreachable — is a relay running?」、非ゼロ終了。`--rpc` フラグは保持されますが、**廃止され無視されます**(RPCサーバーは削除済み。スクリプト互換性のみ)。
+すべての制御コマンドは、リレーのmultiaddrに直接QUICで話します(`--peer`、デフォルトはローカルノード — RPC→p2p統合、JSON TCPチャネルはもうなし)。リレー不在 → 読み取り可能なメッセージ付きの非ゼロ終了。`--peer`/`SCONE_PEER` が指定されているときは「p2p node unreachable — is a relay running? (...)」。ローカルリレーのデフォルトでは「no local relay found — start one (`scone relay`) or point at it: `scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID` (or set `SCONE_PEER`)」。レガシーな `--rpc` フラグは**削除されました**: 今日それを渡すとclapエラーになります(そのような引数は存在しません)。
 
 ### 環境設定(`.env`)
 
@@ -310,16 +320,12 @@ scone domain resolve NAME [--peer MULTIADDR]
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet`(デフォルト)、`mainnet`、`devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | データディレクトリ(デフォルト `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | P2Pリッスンmultiaddr(デフォルト: 全インターフェース、ephemeralポート) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | ブートストラップシード、**反復可能**(値ごとに1行 — dotenvyが蓄積)。組み込みシードを置き換えます |
+| `SCONE_LISTEN` | `--listen` | P2Pリッスンmultiaddr(デフォルト: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | ブートストラップシード — 複数は**CLIフラグを繰り返す**(`--bootstrap A --bootstrap B`)。`.env` では変数ごとに1つの値(dotenvyは最初の出現を保持、蓄積はしません)。組み込みシードを置き換えます |
 | `SCONE_GENESIS` | `--genesis` | ジェネシスファイル(創設者ノード) |
-| `SCONE_MDNS` | `--mdns` | (廃止 — mDNS発見は削除されました。受け付けられるが、無視されます) |
 | `SCONE_UPNP` | `--upnp` | UPnPポートマッピング(`true` = 有効) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNSサーバーのバインドアドレス |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 再帰フォールバック、**反復可能** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNSキャッシュエントリ上限 |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNSキャッシュメモリ上限(例: `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | 並行DNSクエリ上限 |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | 再帰フォールバック — 複数は**CLIフラグを繰り返す**(`--dns-upstream A --dns-upstream B`)。`.env` では変数ごとに1つの値 |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | メトリクスエンドポイントのベアラートークン |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | トポロジープロファイル(`tiny`/`small`/`default`/`high`/`very-high`/`devtest`。デフォルト `default`) |
@@ -384,7 +390,7 @@ TXT free text (spaces normalized)
 |---|---|
 | P2Pフレーム | パース前の `MAX_MESSAGE_LEN`(1 MiB) |
 | メモリプール | 4096 tx(超過は型付き拒否)。ドメインごとの保留tx `MAX_PENDING_PER_DOMAIN = 4` |
-| メモリプール猶予 | 非決定的な理由でフラッシュされたtxの再挿入 `MAX_GRACE_ATTEMPTS = 10` 回(40秒/サイクルで約7分)、その後追い出し |
+| メモリプール猶予 | 非決定的な理由でフラッシュされたtxの再挿入 `MAX_GRACE_ATTEMPTS = 10` 回(デフォルトの2秒生成ティックで約20秒)、その後追い出し |
 | フォークパーキング | `PARKED_CAP = 2048` 競合ブロック |
 | 蓄積チェックポイント | `MAX_PENDING_CHECKPOINTS = 256`(追い出し: 最小データハッシュ) |
 | 同時DHT待機者 | `MAX_DHT_WAITERS`(256)。DHTルックアップは30秒に有界(`DHT_LOOKUP_TIMEOUT`) |
@@ -392,6 +398,11 @@ TXT free text (spaces normalized)
 | DHTレコード | `MAX_DHT_CACHE_ENTRY`(64 KiB) |
 | 永続DHTキャッシュ(ディスク) | 二重LRU境界: `DHT_CACHE_MAX_ENTRIES`(10万エントリ)かつ `DHT_CACHE_MAX_BYTES`(2 GiB)— 最初に達した方がキー順で追い出し。GC追い出しはブロックと同じトランザクション内(チェーンGCに殺されたドメインが、孤児エントリを後に残すことは決してない) |
 | DHTネガティブキャッシュ | `DHT_NEGATIVE_TTL_SECS`(30秒)、FIFO上限 `DHT_NEGATIVE_CAP`(4,096) |
+| req-resリクエストタイムアウト | リクエストごとに10秒、64の同時ストリーム(リレー側) |
+| Kademliaクエリタイムアウト | 10秒 |
+| アイドル接続タイムアウト | 300秒 |
+| メトリクスエンドポイント | 64の同時スクレイプ。ヘッダー読み取りの5秒デッドライン |
+| アドレス帳(RAM) | 永続上限の2倍で挿入ガード(永続上限: 2,000エントリ) |
 | RAM内チェーン | ジェネシス + チップウィンドウ(履歴はストアから提供) |
 
 アンチループルール(H2): トランザクションは、メモリプールに**実際に挿入**された場合にのみ再ブロードキャストされます(初見)。重複(すでにプール内またはチェーン内)は決して再リレーされません。すでに正準なブロックは、`push_block` の前に検出され無視されます(再保存なし、再ブロードキャストなし)。

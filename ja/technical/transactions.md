@@ -3,7 +3,7 @@
 署名済みトランザクションフォーマットの**規範**参照文書。
 フィールド、正確なワイヤー順序、サイズ、署名対象ペイロード、検証ルールを規定し、Rustを読まずに独立した実装を可能にします。参照実装は [`scone-protocol`](../../../crates/scone-protocol)(エンコーディング)と [`scone-blockchain`](../../../crates/scone-blockchain)(検証)です。
 
-`PROTOCOL_VERSION` = **1**。フォーマットの集合は1つだけです: `0x01`(トランザクション内)以外のバージョンバイト、またはローカルバージョンと異なる値(ブロック内)は `UnsupportedVersion` で拒否されます。
+`PROTOCOL_VERSION` = **2**。フォーマットの集合は1つだけです: `0x01` 以外のトランザクション `version` バイトは `UnsupportedVersion` で拒否されます。`PROTOCOL_VERSION`(`2`)と異なるブロック `version` は、再解釈されずに拒否されます。
 
 ## 概要
 
@@ -53,8 +53,8 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` は構造を検査します: 同じエポック、異なる `signing_hash`、2つの異なる署名、正準ペイロードに対する報告者の署名。
-- 状態ルール(ジャーナル記録付き、リオルグで可逆): 告発された者の両方の署名が、同じエポックの2つの異なる署名ハッシュに対して検証されなければなりません。告発された者は適格プールにいなければなりません(そうでなければ `SlashOffenderNotInPool`)。続いて**追放** — キーはPoSプールから永続的に除去されます(状態内のブラックリスト)。
+- `validate()` は構造を検査します: 同じエポック**かつ**同じ `prev_checkpoint_hash`(矛盾のコンテキスト)、異なる `signing_hash`、2つの異なる署名、正準ペイロードに対する報告者の署名。
+- 状態ルール(ジャーナル記録付き、リオルグで可逆): 2つの証拠チェックポイントは2つの異なる署名ハッシュを運び、それぞれが**単一の**問題のキーの下で — 同じエポックで — `verify_strict` により検証されなければなりません。告発された者は適格プールにいなければなりません(そうでなければ `SlashOffenderNotInPool`)。続いて**追放** — キーはPoSプールから永続的に除去されます(状態内のブラックリスト)。
 - 最小限の制裁: 告発された者のドメイン/TLDは没収され**ません**(文書化されたM9の決定)。
 - 同じチェックポイントの2回 = 等価性違反ではなく(拒否)、異なるエポック = 拒否、偽造署名 = 拒否。
 
@@ -93,7 +93,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32生バイト | `public_key` の導出 |
 | `timestamp` | 可変長整数 | 順序情報(Unix、秒) |
 | `proof` | `bytes` ≤ 256 | 登録PoWペイロード([下記](#登録プルーフ・オブ・ワークpow)参照) |
-| `open` | `0x00\|0x01` | **オープン**誕生: TLDは直接 `TldState::Open` に着地(誰のものでもない、セルフサービス + PoW。`open_tld_pow_difficulty` レートでの単一PoW — プライベートより安い: 共有リソース、PoSシートも排他性もなし)。**プライベート**誕生: 履歴的動作(所有者、PoSシート、`tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | **オープン**誕生: TLDは直接 `TldState::Open` に着地(誰のものでもない、セルフサービス + PoW。生まれつきオープンの長さカーブレート `pow_length::open_tld_difficulty` での単一PoW — プライベートより安い: 共有リソース、PoSシートも排他性もなし)。**プライベート**誕生: 履歴的動作(所有者、PoSシート、プライベート長カーブ `pow_length::tld_difficulty`) |
 | `public_key` | 32生バイト | 署名者のEd25519公開鍵 |
 | `signature` | **ちょうど64バイト** | 署名対象ペイロードのEd25519署名 |
 
@@ -137,10 +137,10 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | フィールド | 型 | 制約 |
 |---|---|---|
-| `open` | 1バイト | **厳密に `0x00` または `0x01`**(正準形。その他の値 → デコードエラー。強制変換は決してしない) |
-| `open_proof` | `proof`(長さ可変長整数 + バイト) | **署名済み**フィールド。`open = 0x01`(オープン化)のとき必須かつ検証される(オープン化PoW、ネットワークの `open_tld_pow_difficulty`、チャレンジ `SCONE-TLD-OPEN-V1 ‖ tld_id`)。`open = 0x00`(クローズ化)のとき空(クローズ化は無料) |
+| `open` | 1バイト | **厳密に `0x01`**: クローズ化は存在しません — `open = 0x00` は型付きエラー `TldCloseUnsupported` で拒否されます(一方向のowner-option。`validate()` を実行するデコード時に拒否)。その他のバイトはデコードエラー、強制変換は決してしない |
+| `open_proof` | `proof`(長さ可変長整数 + バイト) | **署名済み**フィールド。必須かつ検証される(オープン化PoW、ネットワークのフラットな `open_tld_pow_difficulty`、チャレンジ `SCONE-TLD-OPEN-V1 ‖ tld_id`)。それ以外では決して参照されません — `open = 0x00` のトランザクションは決して受理されないため |
 
-**クローズされた**TLD = assign専用(ドメインはTLD所有者による `AssignDomain` でのみ生成)。**オープンな**TLD = 誰でも登録PoWを行い、空きドメインをクレームできます(`RegisterDomain`)。**オープン化**には追加のプルーフ・オブ・ワークがかかります(TLDクレームより軽い: mainnetで約3日対約1週間)。所有者が `SetTldOpen` で一度支払います — プルーフは署名済み `open_proof` フィールドを通り、署名後にすり替えることはできません。
+**クローズされた**TLD = assign専用(ドメインはTLD所有者による `AssignDomain` でのみ生成)。**オープンな**TLD = 誰でも登録PoWを行い、空きドメインをクレームできます(`RegisterDomain`)。**オープン化**には追加のプルーフ・オブ・ワークがかかります(TLDクレームより軽い: 8コアリファレンスマシン上で26ビット ≈ 8.5日、1文字のプライベートクレームの ≈ 34日と比較)。所有者が `SetTldOpen` で一度支払います — プルーフは署名済み `open_proof` フィールドを通り、署名後にすり替えることはできません。
 
 ### ASSIGN_DOMAIN (0xD4)
 
@@ -168,7 +168,7 @@ name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_ke
 
 更新のコストは、配下のTLDの性質に依存します(適用時にブロック状態に対して評価):
 
-- **オープンTLD**: 更新は**生成と同じPoW**を要します — 同じチャレンジ(`SCONE-DOMAIN-V1 ‖ canonical name`)、同じラベル長別・ネットワーク別難易度、同じエポック有効ウィンドウ。ドメインが無料で「回収」されることは決してありません: 生存のすべての期間は作業で支払われます。
+- **オープンTLD**: 更新は**生成と同じPoW**を要します — 同じラベル長別・ネットワーク別難易度、同じエポック有効ウィンドウですが、チャレンジは**現在の**失効に紐付けられます: `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`。失効の接尾辞により、更新のプリイメージは登録のもの、および過去すべての更新のものと異なります: マイニングされた1つのプルーフが正確に1期間を支払います。ドメインが無料で「回収」されることは決してありません: 生存のすべての期間は作業で支払われます。
 - **プライベートTLD**: 名前空間はTLD所有者のステーク(PoS)です。トランザクションは**TLD所有者**(またはその委任されたオペレーター)が署名しなければなりません — 署名こそが認可であり、`proof` フィールドは空でなければなりません(20個のゼロバイト)。TLD所有者は、自分の名前空間のドメインを自分のルールで更新します。
 
 ### RENEW_TLD (0x8F)
@@ -188,7 +188,7 @@ TLDの現在の**プライベート**所有者が署名します。適用ルー�
 - プライベートTLDにのみ適用(オープンTLDはそのドメインを通じて生きます — 型付き拒否 `TldIsOpen`)。
 - 期間中および失効後に続く**60日の猶予**を通じて有効。それを超えればTLDは死んでおり(GC)、拒否は `TldExpiredFrozen`。
 - **生成と同等のPoW**: チャレンジ `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)`(再利用防止の接尾辞が各PoWを1つの期間に紐付けます)。初期クレームと同じ長さ別難易度。
-- 更新は猶予期間中も凍結され**ません** — 期限切れの所有者にまだ残されている唯一の管理操作です。
+- 更新は猶予期間中も凍結され**ません** — そして他の所有者操作も同様です: 失効による凍結が命中するのは `AssignDomain` **だけ**です(`TldExpiredFrozen`)。`TransferTld`、`RevokeTld`、`SetTldOpen`、`SetTldOperator` は、失効した(猶予中の)プライベートTLDに引き続き適用できます。
 
 ## 委任権限ファミリー — カウンター紐付け(0xE2、0xA9、0x5E、0x66)
 
@@ -256,7 +256,7 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 
 #### 権限ルール — 所有者またはレコードデリゲート
 
-`owner` フィールドはドメインの**オンチェーン所有者**です(更新はその名前空間に対するものです)。`public_key` は**実際の署名者** — 所有者**または**ドメインのレコードデリゲートキーの1つ(KSK/ZSK-lite、`SetRecordDelegates` 参照)— です。他のすべての署名済みトランザクションと異なり、この型では所有者↔キーの導出は意図的に強制され**ません**(`validate_transaction` がこの型を免除します): 状態層の権限ルール — 署名者 ∈ {所有者} ∪ デリゲート、`sequence == current + 1` — が唯一の束縛です。署名は署名対象ペイロードを通じて `owner` フィールドを依然としてカバーするため、デリゲートは特定の名前空間「のために」署名することになります。注意点: 所有者→キーのマップは初出時に学習される(登録/割り当て)ため、デリゲートによる更新がそのマップを上書きすることは決してありません。
+`owner` フィールドはドメインの**オンチェーン所有者**です(更新はその名前空間に対するものです)。`public_key` は**実際の署名者** — 所有者**または**ドメインのレコードデリゲートキーの1つ(KSK/ZSK-lite、`SetRecordDelegates` 参照)— です。他のすべての署名済みトランザクションと異なり、この型では所有者↔キーの導出は意図的に強制され**ません**(`validate_transaction` がこの型を免除します): 状態層の権限ルール — 署名者 ∈ {所有者} ∪ デリゲート、`sequence == current + 1` — が唯一の束縛です。署名は署名対象ペイロードを通じて `owner` フィールドを依然としてカバーするため、デリゲートは特定の名前空間「のために」署名することになります。注意点: 所有者→キーのマップは初出時に学習される(登録、割り当て、および所有者idがまだ空席であるあらゆる所有者キー付き更新)ため、デリゲートによる更新がそのマップを上書きすることは決してありません。
 
 ### 厳格な境界
 
@@ -287,7 +287,7 @@ RENEWAL形式は、署名付きファミリーのアンチリユース接尾辞�
 
 - `REGISTER_TLD_POW`: name ‖ tld_id ‖ owner ‖ timestamp.v ‖ proof ‖ open(0x00|0x01) ‖ pubkey_dest — `owner` = hash(pubkey_dest)、再計算、決して信用しない(D4)。open = OPEN誕生(低めのレート)。private = 厳密な3期間、受益者がPoSシートになります;
 - `REGISTER_DOMAIN_POW`: name ‖ domain_id ‖ owner ‖ timestamp.v ‖ proof ‖ pubkey_dest — OPEN TLDのみ(プライベート → `TldClosed`: プライベート名前空間は所有者署名パスを保持);
-- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖ valid_until.v ‖ proof ‖ pubkey_dest。
+- `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖ valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW` はオープンTLDのみ(`RegisterDomainPow` と同様: プライベートTLDの下では `TldClosed`)。一方 `RENEW_TLD_POW` はプライベートTLDのみに留まります(そうでなければ `TldIsOpen`)。
 
 ### 適用ガード(D3)
 
@@ -356,7 +356,25 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+5つの追加は同じルールに従います — ヘッダー `disc ‖ version ‖ network`、次に末尾の署名を除いた正確なワイヤー本体(`SlashTx` では報告者の署名)。`Heartbeat` は署名者キーで終わります: 同一でなければならない `operator` フィールドの2つ目のコピーです(そうでなければ型付き拒否)。
 
 性質:
 
@@ -404,35 +422,39 @@ mainnet前の破壊的変更: 古いコンパクト形式(12バイト)は、後�
 nonce_le64 || epoch_le64 || difficulty_le32
 ```
 
-難易度とエポックはプルーフと共に運ばれますが、それらは**生成者の申告であり、したがって決して信頼されません**: 検証者は、難易度を登録種別の**プロトコル定数**と比較し(申告された難易度が定数と異なるペイロード — 低くても*高くても* — は拒否、`InvalidProof`)、エポックを適用ブロックのものと比較します(不一致なら `ProofEpochMismatch`)。続いてノンスが定数難易度で再検証され、ダイジェストはゼロから再計算されます。
+難易度とエポックはプルーフと共に運ばれますが、それらは**生成者の申告であり、したがって決して信頼されません**: 検証者は、難易度を、プルーフの種別に対してプロトコルが定める値と比較します — 登録は長さカーブ(下記の[難易度](#難易度長さベース曲線m8b--argon2id較正)参照)、譲渡と割り当てはフラットパラメータ(申告された難易度がそれと異なるペイロード — 低くても*高くても* — は拒否、`InvalidProof`)— そしてエポックを適用ブロックのものと比較します(不一致なら `ProofEpochMismatch`)。続いてノンスがその定められた難易度で再検証され、ダイジェストはゼロから再計算されます。
 
-### 難易度(**長さベース**曲線、M8b + 実測較正)
+### 難易度(**長さベース**曲線、M8b + Argon2id較正)
 
-難易度はフラットなパラメータではありません: ネットワークごとに、**生成されるラベルの長さ**の決定論的関数です(`scone-core::pow_length` — `RegisterTld` ならTLD、`RegisterDomain` なら左端ラベル):
+難易度はフラットなパラメータではありません: ネットワークごとの、**生成されるラベルの長さ**の決定論的関数です(`scone-core::pow_length` — `RegisterTld` ならTLD、`RegisterDomain` なら左端ラベル)。**2つの曲線**、オブジェクト種別ごとに1つ: TLDの傾きは浅く(1文字追加するごとにコストが約1.22で割られる)、ドメインの傾きは急です(1文字追加するごとに約1.40で割られる):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| ネットワーク | プライベートTLD(頂点/下限) | 生まれながらオープンのTLD / ドメイン(頂点/下限) |
-|---|---|---|
-| testnet | 8ビット / 2ビット | 6ビット / 2ビット |
-| mainnet | 42ビット / 30ビット | 40ビット / 30ビット |
-| devnet | 2ビット / 1ビット | 1ビット / 1ビット |
+各種別はそれぞれの頂点から始まり、それぞれの下限で終わります(`tld_difficulty`、`open_tld_difficulty`、`domain_difficulty` — 生まれつきオープンのTLDはプライベートの頂点より1ビット下のTLD曲線を支払い、ドメインは急な傾きの上を2ビット下から始まります):
 
-**生まれながらオープン**なTLD(`RegisterTld` で `open = 0x01`)は「オープン化」曲線を支払います(頂点 − 2、`domain_difficulty` と同様)。**既存のプライベートTLDのオープン化**(`SetTldOpen`)はフラット難易度のままです
-(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 22ビット /
-devnet 2ビット — txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済み)。
-Mainnetベンチマーク(プライベートTLD、約6 Mハッシュ/秒): 1文字 = 42ビット(≥ 7日)、5文字 = 40ビット(約2日)、19文字 = 35ビット(約1.6時間)、29文字以上 = 30ビット下限(約3分)。曲線は `scone-core::pow_length` にあります(定数 `MAINNET_APEX = 42`、`MAINNET_FLOOR = 30`、`TESTNET_APEX = 8`、`TESTNET_FLOOR = 2`、`DEVNET_APEX = 2`、`DEVNET_FLOOR = 1`)。フラットなパラメータ(`tld_pow_difficulty` など)は `scone-core::network::NetworkParams` に留まります。値の変更 = **そのネットワーク**のコンセンサス変更です。不変条件: devnetは完全な第3の `NetworkParams` であり、testnetはdevnet前の定数と厳密に同一のまま(Argon2idパラメータ、曲線、ウィンドウ)— devnetは、コード自体を超えて、他のネットワークと定数を共有しません。
+| ネットワーク | プライベートTLD(頂点 → 下限) | 生まれつきオープンのTLD(頂点 → 下限) | ドメイン(頂点 → 下限) |
+|---|---|---|---|
+| testnet | 8 → 2 ビット | 7 → 2 ビット | 6 → 1 ビット |
+| mainnet | 28 → 25 ビット | 27 → 25 ビット | 26 → 22 ビット |
+| devnet | 2 → 1 ビット | 1 → 1 ビット | 1 → 1 ビット |
 
-フラットな頂点の実測較正(2026年10月、`cargo run --release -p scone-core --example pow_bench` — 参照x86-64でシングルスループット約7.7 M H/s):
+Mainnetのはしご(Argon2id 64 MiB、t = 2、p = 1、コアあたり約11.4 H/s — 8コアリファレンスマシン上での期待値):
 
-| 種別(mainnet) | 難易度 | 平均実時間 |
-|---|---|---|
-| `RegisterTld` | 24ビット | 約7秒 |
-| `RegisterDomain` | 20ビット | 約54 ms |
+| 長さ | プライベートTLD | 生まれつきオープンのTLD | ドメイン |
+|---|---|---|---|
+| 1 | 28ビット ≈ 30日 | 27ビット | 26ビット |
+| 3 | 27ビット | 26ビット | 25ビット |
+| 7 | 26ビット | 25ビット | 23ビット |
+| 10以上 | 25ビット(下限) | 25ビット(下限) | 22ビット(下限) |
 
-約65秒/ブロックで: TLDクレームはシングルコアCPUの約0.1ブロック、ドメインはブロックの約1 ms — ユーザーには象徴的、大規模な産業化には高価(アンチスクワット)。ハードウェアの目標が低下したら再較正すること(モバイルARM: 約4〜8倍遅い)。
+25ビットの下限は、そのマシン上で約4.3日です。コアが多ければ速く、少なければ遅く — 支払われたPoWサービスが差を吸収します。
+
+**生まれながらオープン**なTLD(`RegisterTld` で `open = 0x01`)は、頂点 − 1 のTLD曲線を支払います(mainnet 27 → 25ビット — ドメインの頂点では**ありません**)。**既存のプライベートTLDのオープン化**(`SetTldOpen`)は別の、**フラットな**プルーフです(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 26ビット / devnet 2ビット — txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済み)。曲線は `scone-core::pow_length` にあります(定数 `MAINNET_APEX = 28`、`MAINNET_FLOOR = 25`、`TESTNET_APEX = 8`、`TESTNET_FLOOR = 2`、`DEVNET_APEX = 2`、`DEVNET_FLOOR = 1`)。`scone-core::network::NetworkParams` のフラットなパラメータは、フラットのまま残ったプルーフだけに使われます — 既存TLDのオープン化(`open_tld_pow_difficulty`、mainnet 26ビット)、譲渡(`transfer_pow_difficulty`、16)、割り当て(`assign_pow_difficulty`、16)— そしてCLI表示。かつてのフラットな登録の頂点(`RegisterTld` 24ビット / `RegisterDomain` 20ビット、BLAKE3時代の約7.7 M H/s較正)は、曲線以前の歴史的な値です。値の変更 = **そのネットワーク**のコンセンサス変更です。不変条件: devnetは完全な第3の `NetworkParams` であり、testnetはdevnet前の定数と厳密に同一のまま(Argon2idパラメータ、曲線、ウィンドウ)— devnetは、コード自体を超えて、他のネットワークと定数を共有しません。
 
 状態分岐(M8b、実装済み): `RegisterTld` は常にPoWを要求。`RegisterDomain` は**オープン**TLD上で要求(クローズパスはassign専用 — `AssignDomain`、TLD所有者が署名し、独自のフラットなアンチスパムプルーフを持ちます)。
 
@@ -467,11 +489,11 @@ Mainnetベンチマーク(プライベートTLD、約6 Mハッシュ/秒): 1文�
 
 `BlockBuilder`(`scone-blockchain`)は、トランザクションキューからブロックを組み立てます: 順序付きリストに対して `tx_root` を再計算、ヘッダーは親ハッシュにチェーン(`prev_hash`)、`version` = `PROTOCOL_VERSION`。コンセンサスペイロード(署名済み生成者ペイロード)とタイムスタンプは呼び出し側が提供します。既存の `Consensus` トレイトが、検証と対称に使われます。
 
-## 16進例(実際の再現可能ベクトル — M8b)
+## 16進例(例示的ベクトル — M8b)
 
 ### RegisterDomain `example.uip`、タイムスタンプ42、testnet
 
-署名対象ペイロード(ピン留めベクトル。歴史的には削除されたオフラインツールで生成 — 値は有効なベクトルのまま)。ここに `network` が現れるのは、これが署名対象ペイロード(その唯一の場所)だからです。署名済みワイヤートランザクション自体には含まれません:
+署名対象ペイロード(例示的ベクトル。歴史的には削除されたオフラインツールで生成 — 値は有効なベクトルのまま)。ここに `network` が現れるのは、これが署名対象ペイロード(その唯一の場所)だからです。署名済みワイヤートランザクション自体には含まれません:
 
 ```text
 53434f4e452d54582d5349472d5631       SCONE-TX-SIG-V1 prefix
@@ -483,13 +505,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`、タイムスタンプ42
 
-署名対象ペイロード(ピン留めベクトル)— `TldId` は `/docs/en/general/naming.md` でピン留めされた導出ベクトルです:
+署名対象ペイロード(例示的ベクトル)— `TldId` は `/docs/en/general/naming.md` でピン留めされた導出ベクトルです:
 
 ```text
 53434f4e452d54582d5349472d5631       SCONE-TX-SIG-V1 prefix
@@ -505,7 +528,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk
 ```
 
-(完全な値は、削除されたオフラインツールで再現可能でした。下のベクトルはピン留めされ有効なままです。PoWはネットワーク難易度で自動的にマイニングされます — ノンスは実行ごとに変わります。安定なのは network/name/id/owner/pk だけです。2026年9月のワイヤー変更以降、署名済みトランザクションの16進には、バイト `0d 73636f6e652d746573746e6574` はもはや含まれません: ネットワークは、署名対象ペイロード内でのみ転送されます。)
+(完全な値は、削除されたオフラインツールで再現可能でした。下のベクトルは例示的で有効なままです。PoWはネットワーク難易度で自動的にマイニングされます — ノンスは実行ごとに変わります。安定なのは network/name/id/owner/pk だけです。2026年9月のワイヤー変更以降、署名済みトランザクションの16進には、バイト `0d 73636f6e652d746573746e6574` はもはや含まれません: ネットワークは、署名対象ペイロード内でのみ転送されます。)
 
 ## 16進が今いる場所
 

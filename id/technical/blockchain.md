@@ -152,15 +152,15 @@ TLD (tiap karakter ekstra membagi biaya ~1,22), dan
 `log₂(1.40) ≈ 0.480` bit/karakter untuk domain — domain meluruh
 lebih cepat: nilainya ada pada TLD yang membawanya. TLD
 lahir-terbuka berada di apex privat − 1; domain di apex privat −
-2 (mainnet: TLD privat 25, TLD terbuka 24, domain 23). Benchmark
+2 (mainnet: TLD privat 28, TLD terbuka 27, domain 26). Benchmark
 mainnet (Argon2id memory-hard, ~11,4 H/s satu-utas): TLD privat
-1 karakter = 28 bit ≈ 30 hari, 9+ karakter = lantai 25-bit ≈ 3,8
+1 karakter = 28 bit ≈ 30 hari, 10+ karakter = lantai 25-bit ≈ 3,8
 hari; TLD terbuka 1 karakter = 27 bit ≈ 15 hari; domain 1
 karakter = 26 bit ≈ 3,8 hari, 9+ karakter = lantai 22-bit ≈
 11,5 jam. **Mesin referensi 8-inti** (kalibrasi ulang 2026-10 —
 CLI menambang multi-inti), ~11,4 H/s/inti. **Membuka** TLD privat
 yang ada (`SetTldOpen`) tetap pada kesulitan datar
-(`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet): tx
+(`open_tld_pow_difficulty`: 6 bit testnet / 26 bit mainnet): tx
 hanya membawa `tld_id`, namanya sudah membayar panjangnya saat
 penciptaan. **Dua bukti datar lagi** melengkapi keluarga ini
 (anti-spam tingkat konsensus, salt epoch dan jendela yang sama
@@ -184,7 +184,7 @@ lokal, tanpa jaringan):
 
 | Field | Nilai |
 |---|---|
-| `version` | `PROTOCOL_VERSION` (`1`) |
+| `version` | `PROTOCOL_VERSION` (`2`) |
 | `height` | `0` |
 | `prev_hash` | 32 byte nol (tanpa blok sebelumnya) |
 | `tx_root` | akar Merkle daftar kosong |
@@ -249,12 +249,16 @@ iterasi lokal cepat:
 ## State kanonik
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- enum (opsi owner): invarian terbuka/privat bersifat
-               -- struktural; tenggat kematian hidup di luar entri
-               -- (tabel tld_floors + jadwal kematian terjurnal)
+               -- struktural; masa hidup ada DI DALAM entri, hanya
+               -- jadwal kematian turunannya (masa + tenggang) yang
+               -- hidup di luarnya (tld_deaths/tld_floors + jadwal
+               -- kematian terjurnal)
 ChainState   = NetworkParams                  (jaringan terikat, M8b)
                + DomainId -> DomainState      (akses langsung, di memori)
                + TldId -> TldState            (registri TLD, M7b)
@@ -274,6 +278,20 @@ fetch-then-bind: transaksi yang dibangun atas generasi usang adalah
 penolakan bertipe (`StaleStateBinding`) yang tidak mengubah apa
 pun. Derivasi lengkap dan rasional: `transactions.md`, "Penghitung
 mutasi"; analisis keamanan: `security-model.md`.
+
+`record_delegates` (KSK/ZSK-lite): himpunan yang dikelola owner,
+paling banyak `MAX_RECORD_DELEGATES` = 3 kunci publik yang boleh
+menandatangani `UpdateDomain` untuk domain INI, di samping owner
+(mandiri selalu valid). Dipelihara oleh `SetRecordDelegates`
+(0x66, eksklusif owner — delegasi tidak pernah bisa mengedit
+himpunannya, bahkan untuk menambah atau menghapus dirinya
+sendiri; terikat-CAS ke penghitung mutasi seperti setiap operasi
+terjaga, yang dinaikkannya); himpunan dikosongkan pada
+`TransferDomain` (zona owner baru dimulai tanpa kunci operator
+asing) dan mati bersama domain — tanpa kedaluwarsa, masa hidup
+namalah yang membatasi setiap pemberian. Dikomitmenkan di daun
+domain (`SCONE-LEAF-DOM-V4`, akhiran delegasi setelah
+penghitung).
 
 * `registered_at` / `valid_until` (M8b): kedaluwarsa registrasi,
   dievaluasi terhadap **timestamp blok induk** (deterministik,
@@ -318,16 +336,24 @@ mainnet, dan sebaliknya).
   pada kesulitan label **berdasarkan panjang** (`pow_length`):
   kelahiran privat → `tld_difficulty` (apex jaringan),
   kelahiran terbuka (`open = 0x01`) → `open_tld_difficulty`
-  (apex − 2) — digest dihitung ulang dari nol
+  (apex − 1) — digest dihitung ulang dari nol
   (salt `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`,
   inti Argon2id), kesulitan yang dideklarasikan sendiri harus
   sama dengan kesulitan yang diharapkan, dan **epoch yang
-  dideklarasikan** bukti harus sama dengan `height/POW_WINDOW`
-  blok penerap (salt epoch melawan pre-mining — penolakan bertipe
+  dideklarasikan** bukti harus jatuh dalam jendela validitas
+  mundur blok penerap: bukti tetap valid selama
+  `declared_epoch ≤ block_epoch < declared_epoch + W`, dengan
+  `W = 1 << max(0, difficulty − 16)` epoch (`POW_WINDOW_REF_BITS`
+  = 16 — kesetaraan ketat satu epoch pada kesulitan ≤ 16,
+  jendela digandakan per bit ekstra di atasnya, dikalibrasi untuk
+  menutup waktu penambangan rata-rata; hanya mundur: bukti tidak
+  pernah bisa ditambang untuk masa depan — salt epoch melawan
+  pre-mining, penolakan bertipe
   `ProofEpochMismatch`, lihat `transactions.md`);
-- saat penerapan: `open = 0x01` → `{ Open }` (tanpa pemilik —
-  mandiri, kursi PoS dilepaskan, lantai kematian diletakkan pada
-  `now + grace`);
+- saat penerapan: `open = 0x01` → `{ Open { until } }` (tanpa
+  pemilik — mandiri; kunci itu tidak memberi kursi PoS dan tidak
+  ada yang dipelajari; lantai kematian diletakkan pada
+  `now + OPEN_TLD_FLOOR_SECS` — 1 tahun);
   `open = 0x00` → `{ Private { owner } }` — **tertutup secara
   default** (assign-only); pembukaan eksplisit via `SetTldOpen`.
 
@@ -356,7 +382,11 @@ sebagai blok keseluruhan (undo-log).
 **UPDATE (UpdateDomain)**:
 
 - domain harus ada (belum kedaluwarsa);
-- `tx.owner` harus owner saat ini;
+- `tx.owner` harus owner saat ini domain — dan PENANDATANGANNYA
+  boleh owner ATAU salah satu record delegate-nya (`tx.owner`
+  tetap owner domain bahkan saat delegasi menandatangani;
+  `RecordSignerUnauthorized` jika tidak — setiap varian lain
+  mempertahankan derivasi owner↔kunci ketat);
 - `tx.sequence` harus **tepat** `current_sequence + 1`
   (tanpa celah, tanpa replay);
 - saat penerapan: `sequence` maju, `record_hash` diganti.
@@ -366,7 +396,13 @@ sebagai blok keseluruhan (undo-log).
 - TLD harus ada dan **privat** (`UnknownTld` / `TldIsOpen` jika
   tidak — TLD terbuka milik tak seorang pun);
 - penandatangan harus owner saat ini (`NotTldOwner` jika tidak);
-- saat penerapan: `owner = new_owner` (identitas penerima
+- **PoW transfer wajib** (anti-churn, datar): tantangannya
+  terikat-state pada ikatan penghitung SAAT INI dari namespace
+  (`tld_binding(tld_id, valid_until, mutations)`) dan buktinya
+  menambang pada `transfer_pow_difficulty` datar (salt epoch
+  sama dengan registrasi);
+- saat penerapan: `owner = new_owner` dan penghitung mutasi
+  dinaikkan (+1) (identitas penerima
   opaque; pengikatan ke kunci yang bisa membelanjakannya
   dilakukan tx berikutnya). Tanpa sequence: transfer pertama yang
   diterapkan menang (urutan chain).
@@ -389,12 +425,13 @@ sebagai blok keseluruhan (undo-log).
 - penandatangan = owner saat ini (`NotTldOwner`);
 - **pembukaan = PoW wajib**: `pow::verify` pada tantangan
   `SCONE-TLD-OPEN-V1 || tld_id` pada `open_tld_pow_difficulty`
-  datar jaringan (6 bit testnet / 22 bit mainnet), salt epoch
+  datar jaringan (6 bit testnet / 26 bit mainnet), salt epoch
   termasuk (bukti bepergian dalam field `open_proof` tx yang
   bertanda tangan);
 - saat penerapan: `TldState::Open` — **owner terhapus** (tak
-  dapat dibatalkan, kursi PoS dilepaskan), lantai kematian
-  diletakkan pada `now + grace`.
+  dapat dibatalkan; kasus pelepasan kursi: kursi PoS owner lama
+  dilepaskan), lantai kematian diletakkan pada
+  `now + OPEN_TLD_FLOOR_SECS` (1 tahun).
 
 **ASSIGN_DOMAIN (0xD4)**:
 
@@ -402,15 +439,27 @@ sebagai blok keseluruhan (undo-log).
   (`TldIsOpen` jika tidak: TLD terbuka hanya mandiri),
   penandatangan = owner TLD (`NotTldOwner`);
 - domain harus bebas (aturan masa tenggang sama dengan REGISTER);
+- **PoW wajib** (anti-spam, datar): buktinya menambang tantangan
+  `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` pada
+  `assign_pow_difficulty` datar jaringan (16 bit mainnet / 4 bit
+  testnet / 1 bit devnet) — salt epoch dan jendela sama dengan
+  registrasi (datar memang disengaja: eksklusivitas namespace
+  sudah dibayar saat penciptaan TLD, tanpa pajak ganda
+  per-panjang);
 - saat penerapan: `{ owner: assignee, sequence: 0, record_hash:
   None, registered_at: now, valid_until: now + 1 tahun }`.
-  **Tanpa PoW**: owner namespacelah yang menanggung.
 
 **TRANSFER_DOMAIN (0xE2, M8c)**:
 
 - domain harus ada (`UnknownDomain` jika tidak), penandatangan =
   owner saat ini (`NotOwner`);
-- saat penerapan: `owner = new_owner` (kursi PoS mengikuti domain
+- **PoW transfer wajib** (anti-churn, datar): tantangannya
+  terikat-state pada ikatan penghitung SAAT INI dari namespace
+  (`domain_binding(domain_id, registered_at, mutations)`) dan
+  buktinya menambang pada `transfer_pow_difficulty` datar (salt
+  epoch sama dengan registrasi);
+- saat penerapan: `owner = new_owner` dan penghitung mutasi
+  dinaikkan (+1) (kursi PoS mengikuti domain
   dalam kumpulan owner, simetris dengan `TransferTld`). Tanpa
   sequence: transfer pertama yang diterapkan menang (urutan
   chain).
@@ -424,8 +473,8 @@ sebagai blok keseluruhan (undo-log).
     publik penandatangan
     (`effective_operator(tld_owner) == renew.public_key` —
     delegasi selalu dibaca DARI owner TLD, tidak pernah
-    sebaliknya). Field `proof` harus kosong (bukti tidak kosong =
-    tolak).
+    sebaliknya). Field `proof` harus kosong atau tepat 20
+    byte nol (bukti tidak kosong lainnya = tolak).
   - **TLD terbuka**: otorisasi **PoW** — penandatangan adalah
     owner domain saat ini (`NotOwner` jika tidak) dan buktinya
     menambang tantangan perpanjangan: kesulitan sama dengan
@@ -444,6 +493,45 @@ sebagai blok keseluruhan (undo-log).
   juga menunda lantai kematian TLD terbuka di bawahnya (tx
   membawa nama kanonik untuk itu).
 
+**Keluarga pow-to-owner (D2)**: `RegisterTldPow` (0x2A),
+`RenewTldPow` (0x57), `RegisterDomainPow` (0x84), `RenewDomainPow`
+(0xC3) tidak membawa penandatangan maupun tanda tangan — bukti
+yang ditambang ADALAH seluruh otorisasinya (hanya validasi
+struktural di lapisan transaksi; verifikasi tanda tangan
+dilewati). Setiap tantangan adalah `tag ‖ name ‖ kunci publik
+penerima manfaat ‖ panjang ‖ id jaringan` (`pow_challenge_to`):
+sebuah bukti hanya dapat dikonsumsi oleh kunci tujuannya di
+jaringannya (tanpa replay bukti curian, tanpa replay
+lintas-jaringan), dan penerima manfaat (`pubkey_dest`) adalah
+parameter, bukan penandatangan. Aturan saat penerapan:
+
+- `RegisterTldPow`: cermin REGISTER_TLD (nama bebas, non-ICANN;
+  kesulitan menurut panjang per jenis kelahiran; flag `open` dan
+  lantai hidup lahir-terbuka) tetapi mengkreditkan
+  `pubkey_dest`; kunci penerima manfaat dipelajari saat
+  kemunculan pertama (kelahiran privat — pemangku PoS);
+- `RenewTldPow` / `RenewDomainPow`: tantangan perpanjangan
+  menambahkan kedaluwarsa SAAT INI (big-endian 8 B) — satu bukti
+  yang ditambang membayar satu masa (anti-reuse) — dan TERKUNCI
+  ke owner on-chain saat ini: penerima manfaat harus sama
+  dengannya (`NotTldOwner` / `NotOwner`), perpanjangan tidak
+  pernah bisa berpindah tangan; masa tetap, seperti jalur
+  bertanda tangan;
+- `RegisterDomainPow` / `RenewDomainPow`: **hanya TLD terbuka**
+  (`TldClosed` di bawah TLD privat — dalam namespace privat,
+  penciptaan adalah penugasan dan perpanjangan tetap di jalur
+  tanda tangan owner).
+
+**Tipe transaksi lainnya**: `Slash` (0x15 — bukti ekuivokasi:
+kunci terdakwa keluar dari kumpulan kelayakan seumur hidup;
+terdakwa harus berada dalam kumpulan hidup saat penerapan,
+idempoten, domain/TLD tidak disita), `Heartbeat` (0x71 —
+anti-replay per-operator: timestamp meningkat ketat, satu
+heartbeat per operator per epoch), `SetTldOperator` (0xA9) /
+`SetDomainOperator` (0x5E — delegasi operator). Aturan
+penerapan lengkapnya dispesifikasikan di
+`/docs/en/technical/transactions.md`.
+
 **GC deterministik (M8b)**: sebelum menerapkan transaksi sebuah
 blok, chain mengevaluasi kedaluwarsa pada **timestamp blok
 induk**: setiap domain yang `valid_until ≤ now` dikeluarkan dari
@@ -458,8 +546,14 @@ independen dari domain.
 
 - **TLD privat**: klaim membuka **masa 3 tahun**
   (`TLD_TERM_SECS`). Perpanjangan (`RenewTld`, 0x8F) membayar
-  **PoW setara penciptaan** dan me-reset tepat 3 tahun (masa
-  tetap diturunkan ulang saat apply). Pada kedaluwarsa, **masa
+  **PoW setara penciptaan** (tantangan =
+  `tld_challenge(name) ‖ kedaluwarsa saat ini`, big-endian 8 B —
+  terikat pada tenggat saat ini, anti-reuse: satu bukti yang
+  ditambang membayar satu masa) dan me-reset tepat 3 tahun (masa
+  tetap diturunkan ulang saat apply); penghitung mutasi
+  dipertahankan. Perpanjangan hanya diizinkan selama
+  `now ≤ valid_until + 60 d` (`TldExpiredFrozen` setelahnya).
+  Pada kedaluwarsa, **masa
   tenggang 60 hari** (`TLD_GRACE_SECS`) terbuka: perpanjangan
   tetap mungkin, tetapi **setiap operasi manajemen lain
   dibekukan** — terutama `AssignDomain` (penolakan bertipe
@@ -542,6 +636,16 @@ diberikan peer tidak pernah diterima apa adanya:
 3. `version` == `PROTOCOL_VERSION` **secara eksak** (versi lain
    — lebih rendah atau lebih tinggi — ditolak, tidak
    diinterpretasikan ulang);
+3bis. **jendela waktu chain**: timestamp blok induk adalah
+   SATU-SATUNYA sumber waktu chain (GC kedaluwarsa, tenggat
+   `valid_until`) — blok harus memenuhi `parent_time ≤ timestamp
+   ≤ parent_time +
+   MAX_TIMESTAMP_DRIFT_SECS` (10 tahun; error bertipe
+   `InvalidTimestamp`). Tinggi 1, asal waktu chain, mengkomit
+   timestamp-nya apa adanya tetapi harus menyisakan ruang kepala
+   yang sama di bawah `u64::MAX`, sehingga tidak ada satu blok
+   pun yang pernah bisa membuka jendela GC yang meliputi seluruh
+   ruang waktu;
 4. jumlah transaksi ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` dihitung ulang atas transaksi dalam urutan blok;
 6. hook konsensus (`validate_header`, `validate_tx`);
@@ -561,12 +665,18 @@ diberikan peer tidak pernah diterima apa adanya:
    (`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`, berbatas); tanda
    tangan mencakup *hash tanda tangan produsen* = `BlockHash`
    header **dengan field `consensus` dikosongkan** (payload hidup
-   di field itu; menandatangani hash penuh akan melingkar);
-   produsen harus termasuk himpunan yang diotorisasi pada
-   `timestamp` blok (komite terpilih checkpoint, plus undian
-   pemulihan yang terbuka; bootstrap: owner domain hidup —
-   kumpulan kosong = produksi terbuka, jika tidak registrasi
-   pertama mustahil). Genesis (tinggi 0, payload kosong)
+   di field itu; menandatangani hash penuh akan melingkar); pada
+   rezim terfinalisasi produsen harus termasuk SELURUH KUMPULAN
+   BEKU (owner yang layak pada checkpoint terfinalisasi terakhir
+   — komite terpilih plus undian pemulihan hanya himpunan
+   PENANDATANGAN checkpoint, bukan filter produksi); sebelum
+   finalitas pertama dan di bawah `BOOTSTRAP_OPEN_MAX_HEIGHT`
+   (1000) pemeriksaan keanggotaan DILEWATI — tanda tangan
+   produsen valid mana pun memproduksi (komite bootstrap belum
+   fakta konsensus: dua view setip akan menghitung himpunan
+   berbeda dan membekukan chain); melampaui jendela itu tanpa
+   finalitas, validasi ketat terhadap kumpulan lokal.
+   Genesis (tinggi 0, payload kosong)
    struktural dan tidak pernah terkait. Error bertipe
    `InvalidProducer`;
 7. untuk setiap transaksi, berurutan: validasi **kriptografis**
@@ -627,10 +737,12 @@ blok yang bersaing:
   (hash tip terkecil dalam urutan leksikografis — dua node yang
   memegang blok yang sama selalu memilih pemenang yang sama,
   teruji);
-- **lantai finalitas**: cabang yang salah satu leluhurnya
-  bertentangan dengan checkpoint terfinalisasi (termasuk dalam
-  `prev_checkpoint_hash` checkpoint yang diterima) ditolak
-  (error bertipe
+- **lantai finalitas**: sebuah cabang ditolak kecuali ia memuat,
+  pada tinggi yang eksak, blok setiap checkpoint terfinalisasi
+  yang DIPERTAHANKAN (jendela yang dipertahankan adalah 64
+  checkpoint terakhir, `CHECKPOINT_KEEP` = 64; yang lebih lama
+  keluar dari pemeriksaan — bloknya mungkin sudah keluar dari
+  jendela RAM) (error bertipe
   `Consensus("branch contradicts a finalized checkpoint")`);
 - adopsi = replay dari genesis blok cabang pemenang (determinisme
   bit-eksak teruji: dua node yang menerima blok yang sama dalam
@@ -688,21 +800,25 @@ semuanya ke RAM. Empat bagian:
 ### Backend KV (`state_backend.rs`)
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
 - `Pkey` = 32 byte mentah `DomainId`/`TldId` — SATU ruang kunci
   terurut (prefiks derivasi terpisah), nilai = enkode
-  `SCONE-ENTRY-DOM-V1` (88 byte tetap) /
-  `SCONE-ENTRY-TLD-V1` (variabel: 33 byte privat / 1 byte
-  terbuka, enum opsi owner — flag + owner bersyarat, tidak ada
-  lagi field `until`);
+  `SCONE-ENTRY-DOM-V1` (basis 96 byte: owner 32 ‖ sequence 8 ‖
+  record_hash 32 ‖ registered_at 8 ‖ valid_until 8 ‖ mutations 8,
+  plus akhiran record-delegate opsional — count 1 B + n×32 B
+  kunci, menaik ketat, n ≤ 3) / `SCONE-ENTRY-TLD-V1` (49 B
+  privat: flag ‖ owner ‖ valid_until BE ‖ mutations BE / 9 B
+  terbuka: flag ‖ until BE — enum opsi owner);
 - `MemoryBackend` (BTreeMap) = implementasi referensi (dev,
   test); TANPA dependensi konkret dalam `scone-blockchain`
   (redb dilarang dalam crate) — protokol/konsensus bergantung
@@ -831,6 +947,9 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
   — finalitas TIDAK PERNAH membaca ulang state hidup
   setelahnya: registrasi apa pun (klaim, transfer, ban)
   setelah checkpoint hanya berlaku untuk epoch berikutnya;
+  checkpoint yang diterima DI BELAKANG tip membekukan
+  kumpulannya via replay sandbox ke tinggi checkpoint itu
+  sendiri (`pool_at_height`);
 - `seed` = `next_seed(signing_hash(checkpoint))` — seed epoch
   BERIKUTNYA diturunkan dari hash **konten** checkpoint
   (berkunci, himpunan tanda tangan dikecualikan — dua view yang
@@ -938,7 +1057,10 @@ demi byte.
   hanya saat pertama kali terlihat — aturan relay H2
   (memotong loop). Blok yang diparkir (orphan) TIDAK PERNAH
   disiarkan ulang; celah penerimaan diisi oleh jalur
-  sinkronisasi (`GetBlocks`), seperti relay.
+  sinkronisasi (`GetBlocks`) — seperti relay, yang kini
+  TAMBAHAN memicu pull mundur segera saat sebuah blok
+  terparkir pada `UnknownParent`; sim tidak memiliki pull
+  pemicu-orphan seperti itu.
 - **Produksi**: satu langkah produksi global per interval; tiap
   grup partisi memproduksi paling banyak SATU blok per putaran,
   oleh node terotorisasinya yang memegang tinggi terbaik. Saat
@@ -972,7 +1094,7 @@ demi byte.
 
 | Test | Apa yang dibuktikan |
 |---|---|
-| `convergence_simple` | 8 node, kehilangan 5 ‰, latensi 1–5 tick, 500 blok: tip sama, `state_root_smt` sama di mana-mana; finalitas aktif; tidak pernah dua checkpoint tak kompatibel per epoch. |
+| `convergence_simple` | 8 node, kehilangan 5 %, latensi 1–5 tick, 500 blok: tip sama, `state_root_smt` sama di mana-mana; finalitas aktif; tidak pernah dua checkpoint tak kompatibel per epoch. |
 | `partition_then_heal` | Partisi 4a/4b selama ~300 blok: kedua sisi memproduksi, penyembuhan → konvergensi dengan reorg cabang yang kalah; jendela checkpoint yang bersilang tidak pernah bertentangan dengan epoch bersama (sebelum dan sesudah penyembuhan). |
 | `crash_restart` | Crash pada h≈200, restart pada h≈400: resinkronisasi dengan me-replay blok jaringan — tinggi, tip, state sama; transaksi pasca-crash terlihat oleh node yang bangkit. |
 | `duplicate_and_delay` | Duplikasi 10 ‰: tinggi akhir, akar state, dan jumlah checkpoint terfinalisasi identik dengan eksekusi tanpa duplikasi (idempotensi: TxReplay/seen-set menyerap duplikat). |
@@ -986,7 +1108,8 @@ beberapa test), `horizon` 200k–500k tick virtual. Setiap test
 menanam penjaga jam-dinding < 60 dtk dalam mode debug
 (`assert_under_60s`). Biaya dominan adalah kernel validasi
 (~9 ms per `push_block_with_gc` kosong dalam debug, Ed25519 tak
-teroptimasi): skenario tetap di bawah ~8 node × 500 blok.
+teroptimasi, pada mesin referensi 8 core): skenario tetap di
+bawah ~8 node × 500 blok.
 
 ### Batasan
 

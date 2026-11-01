@@ -6,12 +6,14 @@ Sconeプロトコルの参照文書:バイナリフォーマット、正準エ�
 
 ## プロトコルバージョン
 
-- 定数: `PROTOCOL_VERSION: u32 = 1`(`scone-protocol`)。
+- 定数: `PROTOCOL_VERSION: u32 = 2`(`scone-protocol`)。
 - `Hello.version`(ハンドシェイク)と `BlockHeader.version` が運びます。
 - 互換性ルール:
   - 受信バージョンがローカルバージョンより**高い** → 拒否(`ProtocolError::UnsupportedVersion`)。ノードは知らないバージョンのフォーマットを推測しません。
   - バージョン `0` → 無効。
-  - フォーマットの集合は1つだけ:トランザクションのバージョンバイト(`0x01`)とブロックのバージョンは、ローカル値と**厳密に**一致しなければなりません。
+  - ブロックは**厳密に**バージョン `2` でなければなりません: バージョン `1`(署名前のブロックフォーマット、マイルストーンM1)は互換性のないフォーマットであり、誤ってパースされるのではなく明示的に拒否されます。
+  - `Hello` はバージョン `1..=2` を許容します(ハンドシェイクのみ — ブロックは運びません)。
+  - トランザクションフォーマットのバージョンバイト(`0x01`)はローカル値と**厳密に**一致しなければなりません。
 - この段階でメジャー/マイナーの分割はありません:単一の整数であり、ワイヤーフォーマットの破壊的変更ごとに増加します。
 
 ## バイナリフォーマットの原則
@@ -25,7 +27,7 @@ Sconeプロトコルの参照文書:バイナリフォーマット、正準エ�
 
 - すべての整数はLEB128可変長整数(7ビットごと、最下位から)。ネイティブのエンディアンは適用されません。
 - IPv4/IPv6アドレスと32バイト識別子:長さプレフィックスなしの生バイト配列。
-- フォーマットに固定サイズのワイド整数はありません:単一の整数エンコーディングルール。
+- 唯一の例外: 116バイトのチェックポイント本体(`CheckpointData`)は可変長整数ではなく固定幅の**リトルエンディアン**整数です([チェックポイント(M5)](#チェックポイントm5) を参照)。他のすべての整数は単一の可変長整数ルールに従います。
 
 ### 可変長整数(最小LEB128)
 
@@ -61,9 +63,11 @@ Sconeプロトコルの参照文書:バイナリフォーマット、正準エ�
 | `RecordHash` | 32生バイト |
 | `BlockHash` | 32生バイト |
 | `MerkleRoot` | 32生バイト |
-| `DomainName` | `str`(≤ 253バイト、`scone-core` が再検証) |
+| `DomainName` | `str` ≤ 253バイト(正準ASCII A-label)、`scone-core` が再検証 |
 
 導出(`BLAKE3-256` + `SCONE-DOMAIN-V1` プレフィックスなど)は `scone-core` が定義し続けます(`/docs/en/general/naming.md` 参照)。
+
+ワイヤー上の名前 — `DomainName` と `REGISTER_TLD` のTLD — は**正準ASCII A-label のみ**です: 非ASCIIバイトはデコード時に拒否されます(`NonCanonical`)。IDNA正準化は構築時(ユーザー入力)にのみ存在し、ワイヤー上では決して実行されません。
 
 ## トランザクション
 
@@ -81,7 +85,7 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-各判別子は任意の不透明定数です(論理的な並びなし。`0x00` は決して有効ではない)。完全な規範表は `/docs/en/technical/transactions.md` にあります。
+上の表は**部分集合**です(19あるトランザクション型のうち7つ)。各判別子は任意の不透明定数です(論理的な並びなし。`0x00` は決して有効ではない)。完全な規範表は `/docs/en/technical/transactions.md` にあります。
 
 `version` バイト(現在の値 `0x01`)は判別子の後に続きます。その他の値は明示的に拒否されます(`UnsupportedVersion(value)`)。ほとんどのトランザクションは署名されます(Ed25519) — 4つの署名なしpow-to-owner形式(`0x2A`、`0x57`、`0x84`、`0xC3`)を除きます。マイニングされたプルーフがそのまま認可であり、そのチャレンジは受益者のキーとネットワークを結び付けます。完全な仕様、署名対象ペイロード、検証ルールは **`/docs/en/technical/transactions.md`**(規範)にあります。
 
@@ -98,10 +102,10 @@ name(str ≤ 253) domain_id[32] owner[32] timestamp.v proof(bytes ≤ 256) publi
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
-TLDのクレーム(ドメイン登録とは別のレジストリ、M7)。TLDはドメインの名前と同様に**平文で運ばれます**(M8b — PoWチャレンジは名前から導出)。`tld_id` はその名前の `SCONE-TLD-V1` 導出であり、構成上すべての `DomainId` と重なりません。状態ルール(M8b): TLDが空き + ICANN予約でない(`IcannTldReserved` — ICANNルートTLDは誰もクレームできません)+ ラベルの**長さベース**難易度のPoW(`pow_length` 曲線 — `blockchain.md` 参照)。クレームされたものはクローズ(assignのみ)。
+TLDのクレーム(ドメイン登録とは別のレジストリ、M7)。TLDはドメインの名前と同様に**平文で運ばれます**(M8b — PoWチャレンジは名前から導出)。`tld_id` はその名前の `SCONE-TLD-V1` 導出であり、構成上すべての `DomainId` と重なりません。状態ルール(M8b): TLDが空き + ICANN予約でない(`IcannTldReserved` — ICANNルートTLDは誰もクレームできません)+ ラベルの**長さベース**難易度のPoW(`pow_length` 曲線 — `blockchain.md` 参照)。クレームされたものはクローズ(assignのみ)。`open` は正準ブール値(`0x00`|`0x01`; その他のバイトはハードなデコードエラー `NonCanonical`)**生まれつきオープン**のTLDに対する所有者オプションです(`0x01` = 誕生時からセルフサービス登録のためにオープン)。可変長の `proof` の後、公開鍵の直前に書かれます。
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -109,7 +113,7 @@ TLDのクレーム(ドメイン登録とは別のレジストリ、M7)。TLDは�
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-デコード時に再検査される不変条件: `sequence > 0`、かつ `owner` == `public_key` の導出。`timestamp` なし:順序付けは `sequence` を通じて行われます。トランザクションはコンパクトな参照のみを運びます。完全なDNSコンテンツはDHTに留まります(下記参照)。
+デコード時に再検査される不変条件: `sequence > 0` のみ — さらにペイロードに対する署名が、埋め込まれた `public_key` に対して検証されます。権威ルール(署名者はドメインの所有者またはそのレコード委任者の1人、最大3人でなければならない)は、適用時に `scone-blockchain` が強制する**状態**ルールであり、ワイヤーチェックではありません。`timestamp` なし:順序付けは `sequence` を通じて行われます。トランザクションはコンパクトな参照のみを運びます。完全なDNSコンテンツはDHTに留まります(下記参照)。
 
 ## DNSレコード(DHT側)
 
@@ -135,7 +139,11 @@ RecordData = type.v || ttl.v || payload(type)
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag`(1–15 B), `value`(`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute(下記参照) |
+| 32769 | NS4 | 4バイト(IPv4アドレス) |
+| 32770 | NS6 | 16バイト(IPv6アドレス) |
 | その他 | Unknown | code.v + `bytes` ≤ 4096 |
+
+型 32769(`NS4`)と 32770(`NS6`)はSconeのプライベート型です(IANA範囲外、`GEOROUTE` と同じファミリー): 名前ではなくIPv4/IPv6アドレスで指定されるネームサーバーへの委任。
 
 例: `A 192.0.2.1`(TTL 86,400)→ `01 80 a3 05 c0 00 02 01`(型、TTL可変長整数、アドレス)。
 
@@ -231,16 +239,16 @@ Message = disc u8 || payload
 | `0x0a` | `Checkpoint` | 双方 | `Checkpoint` | 署名者 ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | 双方 | — | — | チェックポイントウィンドウ |
 | `0x0c` | `GetStatus` | 双方 | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | 双方 | ノード状態(ネットワーク、チップ、高さ、NAT、ドメイン、メモリプール、ピア、ファイナリティ、新鮮なオペレーター) | — | — |
+| `0x0d` | `NodeStatus` | 双方 | ノード状態(ネットワーク、チップ、高さ、NAT、ドメイン、メモリプール、ピア、ファイナライズされたエポック、チェックポイントウィンドウサイズ、新鮮なオペレーター) | — | — |
 | `0x0e` | `LookupName` | 双方 | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | 双方 | 名前 + TLDのオンチェーン状態、CAS世代を含む(ミューテーションカウンター、registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | 双方 | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | 双方 | 所有者の生存ドメイン + TLD | — | — |
-| `0x12` | `Error` | 応答 | アプリケーションレベルのエラーメッセージ(`str`) | — | — |
+| `0x12` | `Error` | 応答 | アプリケーションレベルのエラーメッセージ(`str`、≤ 4096バイト、エンコード時とデコード時に検査) | — | — |
 
 ### チェックポイント(M5)
 
-集約チェックポイントはワイヤー上で次のように運ばれます: タグ `SCONE-CKPT-V1` || 本体 `CheckpointData`(116 B、LE — 署名プリイメージの末尾と同一: `epoch(8) height(8) block_hash(32) prev_checkpoint_hash(32) state_root(32) recovery(4)`)|| `count.v` || 署名者ごとの `pk[32] ‖ sig[64]`。**pk昇順にソート、重複なし**、`count ≤ 64`(`MAX_CHECKPOINT_SIGNERS`)。厳格なデコード: 切り詰め、誤ったタグ、非正準pk、重複または未ソート = 拒否(`None`)。決してパニックしません(破損ファズテスト済み)。
+集約チェックポイントはワイヤー上で次のように運ばれます: タグ `SCONE-CKPT-V1` || 本体 `CheckpointData`(116 B、LE — 署名プリイメージの末尾と同一: `epoch(8) height(8) recovery(4) block_hash(32) prev_checkpoint_hash(32) state_root(32)`)|| `count.v` || 署名者ごとの `pk[32] ‖ sig[64]`。**pk昇順にソート、重複なし**、`count ≤ 64`(`MAX_CHECKPOINT_SIGNERS`)。厳格なデコード: 切り詰め、誤ったタグ、非正準pk、重複または未ソート = 拒否(`None`)。決してパニックしません(破損ファズテスト済み)。
 
 `GetCheckpoints` はファイナリティウィンドウを要求します。応答は、1つ以上の `Checkpoint` メッセージによる `checkpoint_window()` ウィンドウ(最大 `CHECKPOINT_KEEP` チェックポイント、古いものから新しいものへ)です。
 
@@ -307,12 +315,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | 非最小、オーバーフロー、または長すぎる可変長整数 |
 | `IntegerOutOfRange` | 整数がターゲット型に収まらない |
 | `UnsupportedVersion` | ゼロまたはローカルより高いバージョン |
+| `PowNotSignable` | pow-to-owner形式が署名パスに回された(これらは決して署名されない — マイニングされたプルーフがそのまま認可) |
 | `UnknownDiscriminant` | 未知のトランザクション/メッセージ判別子 |
 | `LimitExceeded` | 制限を超える長さやカウント |
 | `InvalidUtf8` | UTF-8でない文字列 |
+| `InvalidTransactionKey` | 埋め込まれたEd25519公開鍵が有効な曲線点でない |
 | `TrailingBytes` | 完全な値の後に残ったバイト |
 | `Validation` | `scone-core` の不変条件違反 |
 | `NonCanonical` | フィールドごとには有効だが非正準なエンコーディング |
+| `InvalidDelegateSet` | レコード委任者セットが境界外または非正準(≤ 3キー、厳密昇順、重複なし) |
 
 デコードはネットワークデータに対して決してパニックしません。
 
@@ -320,7 +331,7 @@ canonical object → canonical binary encoding → hash / signature
 
 - 方式: `scone-crypto` 経由の **Ed25519**(RFC 8032)
   (`ed25519-dalek`、`verify_strict` 検証 — なよなよした署名と弱いキーは拒否)。
-- **チェーントランザクション**: すべての `RegisterDomain` / `RegisterTld` / `UpdateDomain` は、ペイロード `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)` に対する `public_key`(32 B)+ `signature`(64 B)を埋め込みます。完全な規範仕様: `/docs/en/technical/transactions.md`。
+- **チェーントランザクション**: すべての `RegisterDomain` / `RegisterTld` / `UpdateDomain` は、ペイロード `"SCONE-TX-SIG-V1" || disc || version || network_id(str ≤ 16) || body(tx_without_signature)` に対する `public_key`(32 B)+ `signature`(64 B)を埋め込みます — `network_id` は、エンコードされたトランザクションの最初のフィールドとして(判別子とフォーマットバージョンの直後に)注入され、各署名を1つのネットワークに結び付けます(ワイヤー自体は `network` フィールドを運びません、上記参照)。完全な規範仕様: `/docs/en/technical/transactions.md`。
 - **DHTレコード**(`SignedDnsRecord`): 署名対象ペイロードは `DnsRecord` の正準エンコーディングです。検証は `record + owner + signature` をブロックチェーンに登録された識別情報とクロスさせます。
 - 横断的ルール: `owner` とすべてのハッシュ/コミットメントは**再計算**されます。提供された値から取ることは決してありません。
 

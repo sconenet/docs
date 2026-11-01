@@ -49,7 +49,7 @@ Heartbeat {
 हस्ताक्षरित बॉडी (वायर, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (हस्ताक्षरकर्ता की कुंजी बॉडी के पूंछ में
-आती है, हर tx की तरह) `‖ signature[64]`, यानी ~230 बाइट
+आती है, हर tx की तरह) `‖ signature[64]`, यानी ~200–215 बाइट
 एनकोडेड — **कोई PoW नहीं**: लागत निरंतर उपस्थिति है (प्रति
 epoch एक हार्टबीट, महीनों तक)।
 
@@ -301,5 +301,5 @@ replayability (विंडो/निर्मार्जन) या निर�
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, वायर, सत्यापन | पूर्ण |
 | 2 | blockchain | सर्पायमान विंडो (जर्नल्ड), छाना हुआ पूल, निर्वाचन, ~15 परीक्षण | पूर्ण |
 | 3 | network | स्वचालित उत्सर्जन, tx रिले | पूर्ण |
-| 4 | CLI | `tx build heartbeat`, `scone status` में `fresh operators` प्रदर्शन | पूर्ण |
+| 4 | CLI | स्वचालित रिले जारीकरण (§7); `scone status` में `fresh operators` प्रदर्शन; ऑफ़लाइन बिल्डर हटाया (cli-simplify-v1) | पूर्ण |
 | 5 | docs | यह RFC नॉर्मेटिव रूप में समेकित, fr/en दर्पण | पूर्ण |

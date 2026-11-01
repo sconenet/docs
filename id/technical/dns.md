@@ -1,4 +1,4 @@
-# Server DNS UDP + TCP (M6 + M7b) — `scone dns`
+# Server DNS UDP + TCP (M6 + M7b) — `scone relay --dns`
 
 > Spesifikasi normatif permukaan DNS Scone.
 > Setiap perbedaan dokumen/kode = bug (perbaiki sumber
@@ -15,11 +15,12 @@ keputusan eksistensi/kedaluwarsa melewati **snapshot DNS
 otoritatif** (view RAM yang dipublikasikan setelah tiap blok
 yang diterapkan — lihat bawah), dan pengambilan record melewati
 relay (proses), via kanal internal `RelayCommand`/`ResolveLocal`
-(dalam-proses, satu putaran) — jalur terverifikasi yang sama
+(dalam-proses: satu putaran, dua saat jawaban pertama `pending`
+— lihat jalur resolusi) — jalur terverifikasi yang sama
 dengan CLI.
 
 ```text
-              UDP+TCP :5353 (default 127.0.0.1)
+              UDP+TCP :5353 (tanpa nilai = bind 0.0.0.0:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -34,8 +35,10 @@ dengan CLI.
                     │  │           chain + record terverifikasi (hash,
                     │  │           owner, sequence) → jawaban
                     │  │        apex tanpa record terpublikasi → NODATA
-                    │  └─ TIDAK → fallback upstream (jika dikonfigurasi)
-                    │           jika tidak REFUSED
+                    │  └─ TIDAK → 1 atau > 16 label → REFUSED (bahkan
+                    │           dengan upstream); bentuk tepat tetapi
+                    │           TLD asing → fallback upstream
+                    │           (jika dikonfigurasi), jika tidak REFUSED
                     │
                     │  anggaran respons:
                     │    UDP → 512 byte (tanpa EDNS); luber =
@@ -53,6 +56,12 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 1.1.1.1:53 \
             --dns-upstream 8.8.8.8:53       # + fallback rekursif
 ```
+
+`--dns` TANPA nilai mengikat `0.0.0.0:5353` — SEMUA antarmuka
+(dapat dijangkau dari setiap jaringan tempat host terhubung;
+default khusus-loopback adalah tindak-lanjut keamanan yang
+ditandai). Berikan alamat eksplisit untuk mengikat secara presisi
+(`--dns 127.0.0.1:5353` = kueri lokal saja).
 
 Relay mengumumkan alamat efektif di stdout (kontrak
 dapat-dibaca-mesin, seperti `p2p:`): baris `dns: <addr>` begitu
@@ -92,8 +101,8 @@ Klien validasi: `dig <name> --dns 127.0.0.1:5353
    independen berkunci `hash(qname)` (qtype berbagi shard:
    lokalitas per-nama). Nama panas bersaing dengan 1/16 lalu
    lintas alih-alih mengantre di belakang satu mutex pada ribuan
-   qps. Batas GLOBAL (100.000 entri / 64 MiB default,
-   `--dns-cache-limit` / `--dns-cache-max-mem`) dipecah per shard
+   qps. Batas GLOBAL (100.000 entri / 64 MiB — default tetap;
+   penanam library boleh menimpa field `Config`) dipecah per shard
    (kasus terburuk terdokumentasi: faktor 1 + N/shard). Ukuran
    rdata NYATA tiap entri diperhitungkan (~128 byte overhead per
    entri) dan pengusiran FIFO memicu pada batas pertama yang
@@ -124,12 +133,18 @@ Klien validasi: `dig <name> --dns 127.0.0.1:5353
      (`0xC00C`) ke pertanyaan yang digemakan — pertanyaan tidak
      pernah dienkode ulang penuh per record.
 2. **Berbentuk Scone?** Pre-filter ketat: label `[a-z0-9-_]`
-   (1..63), ≥ 2 label, TLD 1..63 byte `[a-z0-9-]` (lihat
+   (1..63), **2..=16 label** (bentuk level-parse), TLD 1..63
+   byte `[a-z0-9-]` (lihat
    `TldName::MAX_LEN`), panjang total ≤ 253 — **dan TLD di luar
    root ICANN** (`is_icann_tld`, daftar IANA beku + RFC 2606:
-   `com`, `fr`, `org`… tidak pernah milik Scone).
-   Nama yang TIDAK BISA jadi nama Scone (mis. `www.foo_bar`,
-   garis bawah di TLD) pergi ke fallback; nama Scone yang
+   `com`, `fr`, `org`… tidak pernah milik Scone). Nama berbentuk
+   baik DI LUAR bentuk 2..=16 (TLD saja, lebih dari 16 label)
+   **DITOLAK tanpa syarat, sebelum fallback apa pun — bahkan
+   dengan upstream terkonfigurasi** (stub resolver jika tidak
+   akan menggantung sampai timeout-nya).
+   Nama berbentuk tepat yang TIDAK BISA jadi nama Scone (mis.
+   `www.foo_bar`, garis bawah di TLD) pergi ke fallback; nama
+   Scone yang
    mungkin (`absent.uip`) urusan chain: tidak terdaftar →
    NXDOMAIN otoritatif, bahkan tanpa upstream. TLD ICANN
    (`example.com`) diteruskan ke upstream jika dikonfigurasi,
@@ -141,7 +156,13 @@ Klien validasi: `dig <name> --dns 127.0.0.1:5353
    (subnama termasuk — perilaku wildcard implisit, keputusan
    terbuka).
 4. **`resolve_local` (kanal internal)**: satu putaran, tidak
-   pernah penunggu DHT. State on-chain (`registered`, owner,
+   pernah penunggu DHT. Pengecualian: jawaban pertama yang
+   membawa `pending: true` (record terkomit on-chain —
+   `record_hash` hadir — tetapi cache DHT lokal masih kosong:
+   pull peer baru saja diterbitkan) memicu SATU coba-ulang
+   otomatis setelah 300 ms, memberi kesempatan pull mendarat —
+   paling banyak dua putaran. State on-chain (`registered`,
+   owner,
    sequence, mutations) + record cache DHT lokal **diverifikasi
    ulang** (owner, sequence, record_hash == komitmen on-chain;
    tanda tangan record bisa berasal dari owner atau delegasi
@@ -168,7 +189,10 @@ Klien validasi: `dig <name> --dns 127.0.0.1:5353
 - Tipe yang dilayani: A, AAAA, CNAME, NS, MX, TXT, **PTR, SRV,
   CAA** (+ Unknown dienkode ulang verbatim; 9 tipe asli
   totalnya, rdata dienkode per RFC — 1035/2782/8659; CAA ketat:
-  bit kritis 0x80 saja, tag huruf kecil). Kueri A/AAAA
+  bit kritis 0x80 saja, tag huruf kecil). Tipe delegasi PRIVAT
+  **NS4 = 32769 / NS6 = 32770** (nameserver via IPv4/IPv6)
+  menjawab kueri eksplisit dan disertakan dalam ANY — tidak
+  pernah dilayani sebagai A/AAAA domain. Kueri A/AAAA
   menyertakan CNAME himpunan (pengejaran alias). Kueri ANY
   (255): seluruh himpunan difilter oleh kodek.
 - Batasan (M7b): **anggaran respons bergantung pada transport** —
@@ -213,16 +237,22 @@ sama dalam TTL **ditekan** (dihitung, tidak pernah di-pull
 ulang). Pemindai — atau nama panas yang ownernya tak pernah
 mempublikasikan — tidak bisa lagi mengubah satu kueri DNS
 menjadi satu `GetRecord` per peer mesh per kueri. Entri negatif
-mati saat TTL, saat kedatangan record (pull yang berhasil
-menulis ke cache nyata), atau terdorong keluar tutup FIFO.
+mati saat TTL atau terdorong keluar tutup FIFO; saat kedatangan
+record ia TIDAK dihapus — pull yang berhasil menulis ke cache
+nyata, yang menjawab lebih dulu, sehingga entri itu berhenti
+dikonsultasikan sampai ia kedaluwarsa.
 
 Penghitung terekspos (`scone_dht_negative_hits_total`,
 `_expired_total`, `_capped_total` — lihat "Metrik" di
-`relay.md`).
+`relay.md`): hanya `_hits_total` yang terpasang hari ini;
+`_expired_total` dan `_capped_total` dideklarasikan tetapi tidak
+diinstrumentasi (saat ini selalu 0).
 
 ## TCP (M7b, RFC 7766)
 
 Port sama dengan UDP (bind TCP kedua pada alamat `--dns`).
+Bind TCP bersifat **best-effort**: saat gagal relay mencatat
+`dns tcp bind failed (udp only)` dan tetap melayani UDP saja.
 Transport mengikuti RFC 1035 §4.2.2: setiap pesan berprefiks
 panjangnya pada **2 byte** big-endian.
 
@@ -262,10 +292,10 @@ klien                     server
 | Respons TCP maks | 65.535 byte |
 | Koneksi TCP bersamaan | 64 (semafor, tolak segera) |
 | Timeout baca TCP | 5 dtk |
-| Cache | batas GLOBAL 100.000 entri / 64 MiB default, dipecah 16 shard (`--dns-cache-limit` / `--dns-cache-max-mem`) |
+| Cache | batas GLOBAL 100.000 entri / 64 MiB (default tetap), dipecah 16 shard |
 | TTL otoritatif | **per record** (`record.ttl`, batas 1..=2.592.000 dtk; konstanta historis 60 dtk tetap hanya untuk respons layanan) |
 | TTL fallback (clamp) | 600 dtk |
-| Kueri UDP paralel | 4.096 (`MAX_INFLIGHT_UDP`, semafor; melampaui: jatuhkan, klien mencoba ulang) — dapat disetel `--dns-max-inflight` (min 1) |
+| Kueri UDP paralel | 4.096 (`MAX_INFLIGHT_UDP`, semafor; default tetap — penanam library boleh menimpa field `Config`). Melampaui: loop penerimaan MELAKUKAN BACKPRESSURE (setiap penerimaan menunggu permit; buffer socket kernel, lalu timeout klien, menyerap kelebihannya) |
 | Cache negatif DHT | 30 dtk (`DHT_NEGATIVE_TTL_SECS`), tutup FIFO 4.096 nama |
 | Timeout per upstream | 2 dtk |
 
@@ -429,6 +459,18 @@ test `geo_known_bytes`, dibekukan).
 
 ### Pemilihan (resolusi)
 
+> **Batasan relay (biner saat ini)**: hanya scope **World**,
+> **Continent** dan **Country** yang benar-benar dilayani oleh
+> resolver `scone relay`. Rute **Region**, **Asn** dan
+> **IpPrefix** tervalidasi on-chain (dekode wire, tanda tangan,
+> keunikan) dan dihitung dalam sort kanonik, tetapi jalur
+> pelayanan mendekode ulang himpunan record melalui bentuk JSON
+> yang hanya mengenal tiga scope v1: rute yang membawa scope itu
+> dibuang sebelum pemilihan dan tidak pernah terpilih. Domain
+> yang SEMUA rutennya membawa Region/Asn/IpPrefix jatuh ke jalur
+> DNS klasik (biasanya NODATA pada A/AAAA). Tindak-lanjut kode
+> tertunda.
+
 1. **Scope** — spesifisitas menurun, **6 level**:
    **prefiks IP terpanjang yang cocok → AS eksak → negara eksak
    → region eksak → benua → dunia**.
@@ -441,10 +483,14 @@ test `geo_known_bytes`, dibekukan).
      mengidentifikasi jaringan eksak) dan kurang dari negara
      (penomoran opaque, andal hanya jika penerbit dan locator
      berbagi yang sama), tetapi lebih dari benua (ia terkandung
-     dalam negaranya, maka a fortiori dalam benuanya).
-   - *Asn*: nomor AS eksak klien.
+     dalam negaranya, maka a fortiori dalam benuanya) —
+     **tidak dilayani** oleh relay saat ini (lihat batasan di
+     atas).
+   - *Asn*: nomor AS eksak klien (**tidak dilayani** oleh relay
+     saat ini — lihat batasan di atas).
    - *Country*: negara eksak.
-   - *Region*: subdivisi eksak (identifier opaque).
+   - *Region*: subdivisi eksak (identifier opaque; **tidak
+     dilayani** oleh relay saat ini — lihat batasan di atas).
    - *Continent*: diberikan locator **atau diturunkan dari
      negara** via tabel lokal (`continent_of_country`); negara
      yang tak dikenal tabel jatuh ke benua eksplisit atau
@@ -495,9 +541,16 @@ test `geo_known_bytes`, dibekukan).
 
 Keputusan routing geo **TIDAK PERNAH di-cache** di bawah
 `(qname, qtype)`: ia bergantung pada scope klien resolver, dan
-kunci seperti itu akan melayani rute AS ke klien TW. Jawaban geo
-dihitung ulang pada setiap kueri (biaya: satu select_scope +
-undian terbobot, µs) dan melewati cache. Cache klasik
+kunci seperti itu akan melayani rute AS ke klien TW. Sebuah
+**mini-cache geo berbatas** khusus ada sebagai gantinya: kunci
+`(qname, negara-klien)` (negara sama + nama sama = keputusan
+rute sama), dibatasi 4.096 entri, tiap entri kedaluwarsa dengan
+TTL-nya sendiri dibatasi 60 dtk (pembaruan record berlaku dalam
+batas itu bahkan tanpa pengusiran). Ia diisi HANYA saat scope
+pemenang setiap rute memegang satu endpoint — keputusan
+deterministik; scope terbobot (multi-endpoint) dihitung ulang
+pada setiap kueri sehingga nonce per-permintaan terus
+mendistribusikan beban. Cache klasik
 (qname, qtype) tetap tak berubah untuk segalanya lain —
 termasuk NODATA yang dihasilkan saat geo tidak memutuskan
 apa pun. Rcode error tetap tidak pernah di-cache.
@@ -508,11 +561,16 @@ Owner sebuah domain memilih mode pelayanan per domain:
 
 - **DHT (default)** — tanpa record `ns`, jaringan Scone melayani
   A/AAAA on-chain (relay `--dns`, atau jembatan NSD via export);
-- **NS independen** — owner menambahkan record
+- **NS independen** — owner MEMPUBLIKASIKAN himpunan record
   `ns <ip-atau-nama>` (nameserver MILIKNYA, IP langsung atau
-  hostname): domain DIDELIGASIKAN — jaringan berhenti melayani
-  kontennya (A/AAAA → NODATA + otoritas NS), dan siapa pun yang
-  me-resolve mengikuti NS milik owner. Batasnya: **12 NS
+  hostname): domain DIDELIGASIKAN. Jaringan tidak mencabut apa
+  pun: ia melayani himpunan bertanda tangan apa adanya —
+  himpunan khusus-NS saja tidak menyisakan A/AAAA untuk
+  dijawab (kueri alamat → NODATA, record NS membawa
+  otoritasnya), dan siapa pun yang
+  me-resolve mengikuti NS milik owner. Entri NS-per-IP hanya
+  menjawab pada tipe privat NS4 = 32769 / NS6 = 32770 — tidak
+  pernah sebagai alamat domain. Batasnya: **12 NS
   berbeda per domain** (semua bentuk, terdeduplikasi per nilai
   — cermin dari batas registry dunia nyata). Menghapus sebuah
   NS membebaskan slotnya; menghapus semuanya mengembalikan
@@ -526,8 +584,11 @@ himpunan record bertanda tangan apa adanya, dalam urutan record
 ### Keamanan
 
 - Record GEOROUTE adalah record bertanda tangan seperti
-  lainnya: diverifikasi terhadap chain (owner, sequence,
-  record_hash) sebelum penggunaan apa pun. **Tanpa kepercayaan
+  lainnya: diverifikasi terhadap chain sebelum penggunaan apa
+  pun — owner, sequence, record_hash, dan aturan keempat:
+  **paling banyak SATU GEOROUTE per scope** (rute kedua dengan
+  scope sama ditolak, `geo_scopes_unique` — dua "zona EU" akan
+  membuat resolusi ambigu). **Tanpa kepercayaan
   jaringan tanpa validasi** — GEOROUTE DHT tak terverifikasi
   tidak pernah menjawab.
 - Posisi klien berasal dari **sirkuit yang ditemukan otomatis**:

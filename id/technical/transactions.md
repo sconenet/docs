@@ -8,9 +8,10 @@ referensinya adalah [`scone-protocol`](../../../crates/scone-protocol)
 (enkode) dan [`scone-blockchain`](../../../crates/scone-blockchain)
 (validasi).
 
-`PROTOCOL_VERSION` = **1**. Hanya ada satu himpunan format: byte
-versi selain `0x01` (dalam transaksi) atau berbeda dari versi
-lokal (dalam blok) ditolak dengan `UnsupportedVersion`.
+`PROTOCOL_VERSION` = **2**. Hanya ada satu himpunan format: byte
+`version` transaksi selain `0x01` ditolak dengan
+`UnsupportedVersion`; `version` blok yang berbeda dari
+`PROTOCOL_VERSION` (`2`) ditolak, bukan ditafsirkan ulang.
 
 ## Ringkasan
 
@@ -80,12 +81,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` memeriksa strukturnya: epoch sama,
+- `validate()` memeriksa strukturnya: epoch sama DAN
+  `prev_checkpoint_hash` sama (konteks yang bertentangan),
   `signing_hash` berbeda, dua tanda tangan berbeda, tanda tangan
   reporter atas payload kanonik;
-- aturan state (terjurnal, dapat dibatalkan dalam reorg): KEDUA
-  tanda tangan terdakwa harus terverifikasi terhadap DUA hash
-  penandatanganan berbeda pada epoch yang sama; terdakwa harus
+- aturan state (terjurnal, dapat dibatalkan dalam reorg): dua
+  checkpoint bukti membawa dua hash penandatanganan berbeda,
+  MASING-MASING terverifikasi — `verify_strict` — di bawah SATU
+  kunci terdakwa pada epoch yang sama; terdakwa harus
   berada dalam kumpulan layak (`SlashOffenderNotInPool` jika
   tidak); lalu **banning** — kunci dikeluarkan dari kumpulan PoS
   secara persisten (blacklist dalam state);
@@ -136,7 +139,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 byte mentah | derivasi dari `public_key` |
 | `timestamp` | varint | informasi pengurutan (Unix, detik) |
 | `proof` | `bytes` ≤ 256 | payload PoW registrasi (lihat [bawah](#bukti-proof-of-work-registrasi-pow)) |
-| `open` | `0x00\|0x01` | kelahiran **terbuka**: TLD mendarat langsung di `TldState::Open` (tanpa pemilik, mandiri + PoW, satu PoW pada tarif `open_tld_pow_difficulty` — lebih murah dari privat: sumber daya bersama, tanpa kursi PoS maupun eksklusivitas); kelahiran **privat**: perilaku historis (owner, kursi PoS, `tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | kelahiran **terbuka**: TLD mendarat langsung di `TldState::Open` (tanpa pemilik, mandiri + PoW, satu PoW pada tarif kurva-panjang lahir-terbuka `pow_length::open_tld_difficulty` — lebih murah dari privat: sumber daya bersama, tanpa kursi PoS maupun eksklusivitas); kelahiran **privat**: perilaku historis (owner, kursi PoS, kurva panjang privat `pow_length::tld_difficulty`) |
 | `public_key` | 32 byte mentah | kunci publik Ed25519 penandatangan |
 | `signature` | **tepat 64 byte** | tanda tangan Ed25519 atas payload bertanda tangan |
 
@@ -194,15 +197,16 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | Field | Tipe | Batasan |
 |---|---|---|
-| `open` | 1 byte | **secara ketat `0x00` atau `0x01`** (bentuk kanonik; nilai lain → error dekode, bukan koersi) |
-| `open_proof` | `proof` (varint-panjang + byte) | field **bertanda tangan**; wajib dan diverifikasi saat `open = 0x01` (PoW pembukaan, `open_tld_pow_difficulty` jaringan, tantangan `SCONE-TLD-OPEN-V1 ‖ tld_id`); kosong saat `open = 0x00` (penutupan gratis) |
+| `open` | 1 byte | **secara ketat `0x01`**: penutupan tidak ada — `open = 0x00` ditolak dengan error bertipe `TldCloseUnsupported` (opsi owner satu arah; ditolak saat dekode, yang menjalankan `validate()`), byte lain adalah error dekode, bukan koersi |
+| `open_proof` | `proof` (varint-panjang + byte) | field **bertanda tangan**; wajib dan diverifikasi (PoW pembukaan, `open_tld_pow_difficulty` datar jaringan, tantangan `SCONE-TLD-OPEN-V1 ‖ tld_id`); tidak pernah dikonsultasi selain itu, karena tidak ada transaksi `open = 0x00` yang pernah diterima |
 
 TLD **tertutup** = assign-only (domain dibuat secara eksklusif
 oleh owner TLD via `AssignDomain`); TLD **terbuka** = siapa pun
 bisa melakukan PoW registrasi dan mengklaim domain bebas
 (`RegisterDomain`). **Pembukaan** berbiaya proof of work tambahan
-(lebih ringan dari klaim TLD: ~3 hari di mainnet versus ~1
-pekan), dibayar sekali oleh owner dalam `SetTldOpen` — buktinya
+(26 bit ≈ 8,5 hari pada mesin referensi 8 core, versus ≈ 34 hari
+untuk klaim privat 1 karakter), dibayar sekali oleh owner dalam
+`SetTldOpen` — buktinya
 bepergian dalam field `open_proof` bertanda tangan dan tidak bisa
 diganti setelah penandatanganan.
 
@@ -244,11 +248,14 @@ Biaya perpanjangan bergantung pada sifat TLD di bawahnya
 (dievaluasi saat apply, atas state blok):
 
 - **TLD terbuka**: perpanjangan berbiaya **PoW yang sama dengan
-  penciptaan** — tantangan sama
-  (`SCONE-DOMAIN-V1 ‖ canonical name`), kesulitan per-panjang-label
-  dan per-jaringan yang sama, jendela validitas epoch yang sama.
-  Domain tidak pernah "dipanen" gratis: setiap masa hidup dibayar
-  dengan kerja.
+  penciptaan** — kesulitan per-panjang-label
+  dan per-jaringan yang sama, jendela validitas epoch yang sama,
+  tetapi tantangan terikat pada kedaluwarsa SAAT INI:
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`.
+  Akhiran kedaluwarsa membuat preimage perpanjangan berbeda dari
+  registrasi dan dari setiap perpanjangan sebelumnya: satu bukti
+  yang ditambang membayar tepat satu masa. Domain tidak pernah
+  "dipanen" gratis: setiap masa hidup dibayar dengan kerja.
 - **TLD privat**: namespace adalah stake owner TLD (PoS).
   Transaksi harus **ditandatangani oleh owner TLD** (atau operator
   yang didelegasikan) — tanda tangan ADALAH otorisasinya, field
@@ -278,9 +285,12 @@ Ditandatangani oleh owner **privat** TLD saat ini. Aturan apply:
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (akhiran anti-reuse
   mengikat tiap PoW pada SATU masa), kesulitan per-panjang yang
   sama dengan klaim awal;
-- perpanjangan TIDAK dibekukan selama masa tenggang — ia satu-
-  satunya operasi manajemen yang masih tersedia bagi owner
-  kedaluwarsa.
+- perpanjangan TIDAK dibekukan selama masa tenggang — dan juga
+  bukan operasi owner lainnya: pembekuan kedaluwarsa hanya
+  mengenai `AssignDomain`
+  (`TldExpiredFrozen`). `TransferTld`, `RevokeTld`, `SetTldOpen`
+  dan `SetTldOperator` tetap dapat diterapkan pada TLD privat
+  kedaluwarsa (dalam masa tenggang).
 
 ## Keluarga otoritas-terdelegasi — terikat-penghitung (0xE2, 0xA9, 0x5E, 0x66)
 
@@ -393,7 +403,8 @@ aturan otoritas lapisan state — penandatangan ∈ {owner} ∪ delegasi,
 tangan tetap mencakup field `owner` melalui payload penandatanganan,
 sehingga seorang delegasi menandatangani "untuk" namespace tertentu.
 Catatan: peta owner→kunci dipelajari atas dasar kemunculan pertama
-(registrasi/penugasan), sehingga pembaruan oleh delegasi tidak
+(registrasi, penugasan, dan pembaruan berkunci-owner mana pun yang
+id ownernya masih kosong), sehingga pembaruan oleh delegasi tidak
 pernah menimpanya.
 
 ### Batas ketat
@@ -506,7 +517,11 @@ menggantikan kunci penandatangan, TANPA tanda tangan di ekor:
   (privat → TldClosed: namespace privat mempertahankan jalur
   tanda tangan owner);
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
-  valid_until.v ‖ proof ‖ pubkey_dest.
+  valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW`
+  hanya untuk TLD TERBUKA (seperti `RegisterDomainPow`:
+  `TldClosed` di bawah TLD privat), sedangkan `RENEW_TLD_POW`
+  tetap hanya untuk TLD PRIVAT
+  (`TldIsOpen` jika tidak).
 
 ### Penjaga penerapan (D3)
 
@@ -571,7 +586,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+Lima tambahan mengikuti aturan yang sama — header
+`disc ‖ version ‖ network`, lalu body wire eksak tanpa tanda
+tangan ekor (untuk `SlashTx`, milik reporter). `Heartbeat`
+berakhir dengan kunci penandatangan: salinan kedua field
+`operator` yang harus identik (penolakan bertipe jika tidak).
 
 Properti:
 
@@ -665,65 +702,85 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 Kesulitan dan epoch bepergian bersama bukti, tetapi keduanya
 **dideklarasikan produsen sehingga tidak pernah dipercaya**:
-verifier membandingkan kesulitan terhadap **konstanta protokol**
-untuk jenis registrasi (payload yang kesulitannya berbeda dari
-konstanta — lebih rendah *atau* lebih tinggi — ditolak,
+verifier membandingkan kesulitan terhadap nilai yang protokol
+tetapkan untuk jenis bukti tersebut — kurva panjang untuk
+registrasi (lihat
+[Kesulitan](#kesulitan-kurva-berdasarkan-panjang-m8b--kalibrasi-argon2id)
+di bawah), parameter datar untuk transfer dan penugasan (payload
+yang kesulitan deklarasinya berbeda darinya — lebih rendah *atau*
+lebih tinggi — ditolak,
 `InvalidProof`), dan epoch terhadap milik blok penerap
 (`ProofEpochMismatch` saat ketidakcocokan). Nonce lalu
-diverifikasi ulang pada kesulitan konstanta, digest dihitung
-ulang dari nol.
+diverifikasi ulang pada kesulitan yang ditetapkan itu, digest
+dihitung ulang dari nol.
 
-### Kesulitan (kurva **berdasarkan panjang**, M8b + kalibrasi terukur)
+### Kesulitan (kurva **berdasarkan panjang**, M8b + kalibrasi Argon2id)
 
 Kesulitan BUKAN parameter datar: ia fungsi deterministik dari
 **panjang label yang dibuat** (`scone-core::pow_length` — TLD
 untuk `RegisterTld`, label paling kiri untuk `RegisterDomain`),
-per jaringan:
+per jaringan. DUA kurva, satu per jenis objek: kemiringan TLD
+landai (tiap karakter tambahan membagi biaya dengan ~1,22),
+kemiringan domain lebih curam (tiap karakter tambahan membagi
+biaya dengan ~1,40):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), di-clamp di lantai
+kurva TLD    (TLD privat dan lahir-terbuka): apex − round(0.287 × (len − 1)),
+                                          di-clamp di lantai
+kurva domain (domain di bawah TLD terbuka):  apex − round(0.480 × (len − 1)),
+                                          di-clamp di lantai
 ```
 
-| Jaringan | TLD privat (apex/lantai) | TLD lahir-terbuka / domain (apex/lantai) |
-|---|---|---|
-| testnet | 8 bit / 2 bit | 6 bit / 2 bit |
-| mainnet | 42 bit / 30 bit | 40 bit / 30 bit |
-| devnet | 2 bit / 1 bit | 1 bit / 1 bit |
+Setiap jenis memulai dari apex-nya sendiri dan berakhir di
+lantainya sendiri
+(`tld_difficulty`, `open_tld_difficulty`, `domain_difficulty` —
+TLD lahir-terbuka membayar kurva TLD satu bit di bawah apex
+privat, domain mulai dua bit di bawah pada kemiringan lebih
+curam):
+
+| Jaringan | TLD privat (apex → lantai) | TLD lahir-terbuka (apex → lantai) | Domain (apex → lantai) |
+|---|---|---|---|
+| testnet | 8 → 2 bit | 7 → 2 bit | 6 → 1 bit |
+| mainnet | 28 → 25 bit | 27 → 25 bit | 26 → 22 bit |
+| devnet | 2 → 1 bit | 1 → 1 bit | 1 → 1 bit |
+
+Tangga mainnet (Argon2id 64 MiB, t = 2, p = 1 pada ~11,4 H/s per
+core — ekspektasi pada mesin referensi 8 core):
+
+| panjang | TLD privat | TLD lahir-terbuka | domain |
+|---|---|---|---|
+| 1 | 28 bit ≈ 30 hari | 27 bit | 26 bit |
+| 3 | 27 bit | 26 bit | 25 bit |
+| 7 | 26 bit | 25 bit | 23 bit |
+| 10+ | 25 bit (lantai) | 25 bit (lantai) | 22 bit (lantai) |
+
+Lantai 25-bit ≈ 4,3 hari pada mesin itu; lebih banyak core
+selesai lebih cepat, lebih sedikit lebih lama — layanan PoW
+berbayar menyerap selisihnya.
 
 TLD yang **lahir terbuka** (`RegisterTld` dengan `open = 0x01`)
-membayar kurva "pembukaan" (apex − 2, seperti
-`domain_difficulty`); **membuka TLD privat yang sudah ada**
-(`SetTldOpen`) tetap pada kesulitan datar
-(`open_tld_pow_difficulty`: 6 bit testnet / 22 bit mainnet /
+membayar kurva TLD pada apex − 1 (mainnet 27 → 25 bit — BUKAN
+apex domain); **membuka TLD privat yang sudah ada**
+(`SetTldOpen`) adalah bukti yang berbeda dan DATAR
+(`open_tld_pow_difficulty`: 6 bit testnet / 26 bit mainnet /
 2 bit devnet — tx hanya membawa `tld_id`, namanya sudah dibayar
-panjangnya saat penciptaan). Benchmark mainnet (TLD privat,
-~6 M hash/dtk): 1 karakter = 42 bit (≥ 7 hari), 5 karakter =
-40 bit (~2 hari), 19 karakter = 35 bit (~1,6 jam), 29+ karakter
-= lantai 30-bit (~3 menit). Kurvanya hidup di
-`scone-core::pow_length` (konstanta `MAINNET_APEX = 42`,
-`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
+panjangnya saat penciptaan). Kurvanya hidup di
+`scone-core::pow_length` (konstanta `MAINNET_APEX = 28`,
+`MAINNET_FLOOR = 25`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
 `DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); parameter datar
-(`tld_pow_difficulty`, dsb.) tetap di
-`scone-core::network::NetworkParams`. Mengubah satu nilai =
+`scone-core::network::NetworkParams` hanya melayani bukti-bukti
+yang tetap datar — membuka TLD yang sudah ada
+(`open_tld_pow_difficulty`, 26 bit mainnet), transfer
+(`transfer_pow_difficulty`, 16) dan penugasan
+(`assign_pow_difficulty`, 16) — plus tampilan CLI. Puncak datar
+registrasi yang dulu (`RegisterTld` 24 bit / `RegisterDomain`
+20 bit, kalibrasi era-BLAKE3 ~7,7 M H/s) adalah nilai historis
+pra-kurva. Mengubah satu nilai =
 perubahan konsensus **untuk jaringan itu**. Invarian: devnet
 adalah `NetworkParams` ketiga yang lengkap dan testnet tetap
 identik ketat dengan konstanta pra-devnet-nya (parameter
 Argon2id, kurva, jendela) — devnet TIDAK berbagi konstanta apa
 pun dengan jaringan lain melampaui kodenya sendiri.
-
-Kalibrasi terukur puncak datar (2026-10, `cargo run
---release -p scone-core --example pow_bench` — throughput
-satu-utas ~7,7 M H/s pada x86-64 referensi):
-
-| Jenis (mainnet) | kesulitan | waktu nyata rata-rata |
-|---|---|---|
-| `RegisterTld` | 24 bit | ~7 dtk |
-| `RegisterDomain` | 20 bit | ~54 ms |
-
-Pada ~65 dtk/blok: klaim TLD berbiaya ~0,1 blok CPU satu-inti,
-domain ~1 ms blok — simbolis bagi pengguna, mahal untuk
-diindustrialisasi skala besar (anti-squat). Kalibrasi ulang jika
-target perangkat keras turun (ARM mobile: ~4–8× lebih lambat).
 
 Cabang state (M8b, dirilis): `RegisterTld` SELALU membutuhkan
 PoW-nya; `RegisterDomain` membutuhkannya pada TLD **terbuka**
@@ -807,11 +864,11 @@ dirantai ke hash induk (`prev_hash`), `version` =
 tangan) dan timestamp disediakan pemanggil; trait `Consensus` yang
 ada dipakai simetris dengan validasi.
 
-## Contoh heks (vektor nyata, dapat direproduksi — M8b)
+## Contoh heks (vektor ilustratif — M8b)
 
 ### RegisterDomain `example.uip`, timestamp 42, testnet
 
-Payload bertanda tangan (vektor terpin; secara historis dihasilkan
+Payload bertanda tangan (vektor ilustratif; secara historis dihasilkan
 oleh perkakas offline yang dihapus — nilainya tetap vektor yang
 valid). `network` muncul di sini karena ini PAYLOAD
 PENANDATANGANAN (satu-satunya tempatnya); transaksi wire yang
@@ -827,13 +884,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (kunci build tetap)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      field kesulitan mendahului kurva panjang)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + awal sig
 ```
 
 ### RegisterTld `uip`, timestamp 42
 
-Payload bertanda tangan (vektor terpin) — `TldId` adalah vektor
+Payload bertanda tangan (vektor ilustratif) — `TldId` adalah vektor
 derivasi yang di-pin di `/docs/en/general/naming.md`:
 
 ```text
@@ -851,7 +909,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 (Nilai lengkap dulu dapat direproduksi via perkakas offline yang
-dihapus; vektor di atas tetap ter-pin dan valid. PoW ditambang
+dihapus; vektor di atas tetap ilustratif dan valid. PoW ditambang
 otomatis pada kesulitan jaringan — nonce bervariasi antar
 eksekusi; hanya network/name/id/owner/pk yang stabil. Sejak
 perubahan wire 2026-09, heks transaksi bertanda tangan TIDAK LAGI

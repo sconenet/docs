@@ -39,7 +39,8 @@ pendek.
   pada bentuk kanonik A-label
 - batas dalam kode: `TldName::MAX_LEN = 63` byte
 - valid: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, TLD dengan
-  tepat 63 byte, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  tepat 63 byte, `éxemple` (→ `xn--exemple-2ua`, pemetaan
+  ilustratif — tidak diikat oleh test), `例子`
   (→ `xn--fsqu00a`)
 - tidak valid: TLD yang A-label-nya melebihi 63 byte, `ABC`, `-ab`,
   `ab-`, string kosong
@@ -171,8 +172,9 @@ yang dimiliki seseorang. Ringkasan normatif:
 ### TLD privat
 
 - **Lahir — PoW**: diklaim dengan proof of work, kesulitan
-  menurut panjang (mainnet: 1 karakter ≈ 34 hari komputasi; lantai
-  ≈ 4,3 hari pada 10+ karakter). Pengklaim menjadi owner dan
+  menurut panjang (mainnet, pada mesin referensi 8 core: 1
+  karakter ≈ 34 hari komputasi; lantai ≈ 4,3 hari pada 10+
+  karakter). Pengklaim menjadi owner dan
   memegang **kursi PoS** (kumpulan kelayakan validator — heartbeat
   wajib agar tetap segar, delegasi operator tersedia).
 - **Hidup — PoS**: tanda tangan owner mengotorisasi segalanya di
@@ -214,7 +216,8 @@ yang dimiliki seseorang. Ringkasan normatif:
 
 ### Domain di bawah TLD terbuka
 
-- **Lahir — PoW** (kurva dikurangi vs TLD: mainnet 1 karakter ≈
+- **Lahir — PoW** (kurva dikurangi vs TLD, pada mesin referensi
+  8 core: mainnet 1 karakter ≈
   8,5 hari, lantai ≈ setengah hari).
 - **Perpanjangan — PoW identik dengan kelahiran** (kurva kesulitan
   yang sama; tantangan terikat pada kedaluwarsa saat ini, sehingga

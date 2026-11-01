@@ -60,16 +60,18 @@ scone-core       ← プロトコル型(scone-crypto に依存)
 scone-protocol  ← ワイヤー/ブロックチェーンのバイナリフォーマット
     ▲
 scone-blockchain← ブロックチェーンロジック、正準状態(メモリ内)
-    ▲               └ scone-topology(純粋エンジン、ネットワーク/fs/
-                     async ゼロ。scone-network がデータを供給)— scone-genesis
-                     (一回限りの mainnet ジェネシスツールバイナリ)
+    ▲
 scone-storage   ← ローカル永続化:redb バックエンド + 検証済みスナップショット
     ▲
 scone-network   ← p2p リレー:libp2p/QUIC、メモリプール、同期、DHT、DNS
     ▲
-scone-keystore  ← 暗号化された `.sconekey` キーファイル(scone-crypto に依存)
-    ▲
 scone           ← バイナリ / アプリケーション
+
+scone-keystore  ← 暗号化された `.sconekey` キーファイル(scone-crypto
+                     のみに依存)。scone-network が消費
+scone-topology  ← 純粋なメッシュエンジン、ネットワーク/fs/async ゼロ。
+                     scone-network がデータを供給し、その決定を適用
+scone-genesis   ← 一回限りの mainnet ジェネシスツールバイナリ
 ```
 
 ### 決定:`scone-core` は `scone-crypto` に依存する
@@ -79,13 +81,14 @@ scone           ← バイナリ / アプリケーション
 
 - `scone-crypto` は最下層です。バイト列に対する純粋に決定論的な関数(キー生成用のOS RNGを加算)、コア型ゼロ、ネットワーク/ファイルシステム/async の依存ゼロ → 循環は不可能。
 - `scone-core` はハッシュ計算のためだけにそれを使います。
+- `scone-core` はさらに `argon2`(登録PoW)と `idna`(国際化名)にも直接依存します — 純粋な依存関係であり、レイヤー構造は保たれます。
 - Ed25519の署名とキーは `scone-crypto` にあり、バイト列(`scone-protocol` が生成する正準ペイロード)に対して操作します。
 
 ### 各クレートの役割
 
 **scone-core** — 名前(`TldName`、`DomainName`)、識別子(`DomainId`、`OwnerId`、`PublicKeyRef`)、DNSデータ(`DnsRecord`、`SignedDnsRecord`)、トランザクション(`RegisterDomain`、`UpdateDomain`)。決定論的かつポータブル。このクレートで禁止されているもの:libp2p、redb、tokio/async、ネットワーク、ファイル、OS、DNSサーバー、ブロックチェーンロジック。
 
-**scone-crypto** — 暗号学的プリミティブ。現在:`hash256`(BLAKE3)、Ed25519の署名とキー(`SigningKey`、`PublicKey`、`Signature`、厳格なバッチ検証)、レコードグループのAEADエンベロープ(XChaCha20-Poly1305)。計画中:Merkleツリー。ルール:自作のアルゴリズムなし、監査済みの依存関係のみ。
+**scone-crypto** — 暗号学的プリミティブ。現在:`hash256`(BLAKE3)、Ed25519の署名とキー(`SigningKey`、`PublicKey`、`Signature`、厳格なバッチ検証)。計画中:Merkleツリー。ルール:自作のアルゴリズムなし、監査済みの依存関係のみ。
 
 **scone-protocol** — プロトコルのバイナリフォーマット。トランザクション、DNSレコード、ブロック(不透明なコンセンサスフィールドを持つ `Block`/`BlockHeader`)、P2Pメッセージの正準エンコード/デコード(最小限のLEB128可変長整数、裸の32バイト識別子)。アロケーションの前にサイズ制限を検査し、非正準形を拒否し、バージョニング(`PROTOCOL_VERSION`)を備えます。コンセンサス、ネットワーク、ストレージのロジックはありません。フォーマット参照: `/docs/en/technical/protocol.md`。
 
@@ -93,7 +96,7 @@ scone           ← バイナリ / アプリケーション
 
 **scone-storage** — ローカル永続化(同梱済み)。具体的なバックエンドは `redb`(`NodeStore`)で、ブロックチェーン/DHT/DNS がredbに直接結合しないよう、最小限のトレイトの背後に隠されています。別のバックエンド(分散KV)を接続することも可能です。ページネーションされたKV状態バックエンド、ブロックログ、検証済みスナップショット(ハッシュ化されたマニフェスト + ページ)、再起動時のリストア/リプレイパスを含みます。参照: `/docs/en/technical/storage.md`。
 
-**scone-network** — ノードのp2pリレー。libp2p/QUICスワーム、トランザクションとブロックのリレー(組織的なローカル検証)、有界のメモリプール、有界のブロック同期(128ブロック/リクエスト)、`SignedDnsRecord` のKademlia DHT、UDP+TCP DNSサーバー(GeoDNS常時有効 — 組み込みGeoIPテーブル、再帰フォールバック)、アンカーのチェックポイント/ハートビートループ(CLIはリレーと直接p2p QUICで対話し、ローカルRPCはもうありません)。到達可能性と発見:AutoNAT v2(reachable/NATedの判定)、NAT化ノード用のcircuit-relay v2 + DCUtR、UPnP(ルーターによるQUICポートマッピング、オプトイン)。`.env` ファイルによる設定(`.env.example` を参照)。参照: `/docs/en/technical/relay.md`。
+**scone-network** — ノードのp2pリレー。libp2p/QUICスワーム、トランザクションとブロックのリレー(組織的なローカル検証)、有界のメモリプール、有界のブロック同期(128ブロック/リクエスト)、`SignedDnsRecord` のKademlia DHT、UDP+TCP DNSサーバー(GeoDNS常時有効 — 組み込みGeoIPテーブル、再帰フォールバック)、アンカーのチェックポイント/ハートビートループ(CLIはリレーと直接p2p QUICで対話し、ローカルRPCはもうありません)。到達可能性と発見:AutoNAT v1(reachable/NATedの判定)、NAT化ノード用のcircuit-relay v2 + DCUtR、UPnP(ルーターによるQUICポートマッピング、オプトイン)。`.env` ファイルによる設定(`.env.example` を参照)。参照: `/docs/en/technical/relay.md`。
 
 **scone-keystore** — Ed25519署名キーの暗号化された保存(`.sconekey` ファイル:Argon2id + XChaCha20-Poly1305)。このクレートがファイルシステムを所有するため、`scone-crypto` は純粋なまま保てます。参照: `/docs/en/technical/keystore.md`。
 
@@ -135,10 +138,10 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-2つのノードプロファイル:
+ノードプロファイル(計画中 — 現時点でそのようなオペレーターフラグは存在しません:現在のすべてのノードが全ブロックを保持しており、上記のオプトインのスナップショットインポートが唯一の保持制御です):
 
-- **アーカイブノード**(オペレーターフラグ):すべての履歴ブロックを保持し、ネットワークに提供し、既存のパスで起動します。
-- **フル状態ノード**:Hにおける完全な状態と接尾辞を保持しますが、Hより下の履歴は保持しません。将来のブロックを検証し、状態を提供しますが、履歴は提供しません。
+- **アーカイブノード**(計画中):すべての履歴ブロックを保持し、ネットワークに提供し、既存のパスで起動します。
+- **フル状態ノード**(計画中):Hにおける完全な状態と接尾辞を保持しますが、Hより下の履歴は保持しません。将来のブロックを検証し、状態を提供しますが、履歴は提供しません。
 
 このパスはオプトインです。検証済みスナップショットのインポートは明示的なオペレーター操作(`import_verified_snapshot`)であり、自動化はされません。既存ノードのデフォルト動作は変わりません。規範的詳細: `/docs/en/technical/storage.md` の「VERIFIED state snapshot」節と「State bootstrap」節。
 

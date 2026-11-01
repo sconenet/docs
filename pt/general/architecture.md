@@ -70,16 +70,18 @@ scone-core       ← tipos do protocolo (depende de scone-crypto)
 scone-protocol  ← formato binário wire/blockchain
     ▲
 scone-blockchain← lógica blockchain, estado canônico (em memória)
-    ▲               └ scone-topology (engine pura, zero rede/fs/
-                     async; alimentada por scone-network) — scone-genesis
-                     (binário de ferramenta one-shot para a gênese da mainnet)
+    ▲
 scone-storage   ← persistência local: backend redb + snapshots verificados
     ▲
 scone-network   ← relay p2p: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← arquivos de chaves `.sconekey` criptografados (depende de scone-crypto)
-    ▲
 scone           ← binário / aplicação
+
+scone-keystore  ← arquivos de chaves `.sconekey` criptografados (depende
+                     apenas de scone-crypto); consumida por scone-network
+scone-topology  ← engine pura de malha, zero rede/fs/async; alimentada
+                     por scone-network, que aplica suas decisões
+scone-genesis   ← binário de ferramenta one-shot para a gênese da mainnet
 ```
 
 ### Decisão: `scone-core` depende de `scone-crypto`
@@ -92,6 +94,9 @@ não deve contaminar o core. Resolução:
   sobre bytes (mais o RNG do SO para geração de chaves), zero tipos do core,
   nenhuma dependência de rede/filesystem/async → nenhuma circularidade possível;
 - `scone-core` a usa apenas para hashing;
+- `scone-core` também depende diretamente de `argon2` (PoW de
+  registro) e `idna` (nomes internacionalizados) — dependências
+  puras, a estratificação em camadas é respeitada;
 - assinaturas e chaves Ed25519 vivem em `scone-crypto` e operam sobre
   bytes (payloads canônicos produzidos por `scone-protocol`).
 
@@ -105,9 +110,9 @@ tokio/async, rede, arquivos, SO, servidor DNS, lógica blockchain.
 
 **scone-crypto** — primitivas criptográficas. Hoje: `hash256`
 (BLAKE3), assinaturas e chaves Ed25519 (`SigningKey`,
-`PublicKey`, `Signature`, verificação estrita em lote), envelope
-AEAD de grupos de registros (XChaCha20-Poly1305). Planejado: árvore
-Merkle. Regra: nenhum algoritmo caseiro, apenas dependências auditadas.
+`PublicKey`, `Signature`, verificação estrita em lote). Planejado:
+árvore Merkle. Regra: nenhum algoritmo caseiro, apenas dependências
+auditadas.
 
 **scone-protocol** — formato binário do protocolo: codificação/decodificação
 canônica (varint LEB128 mínimo, identificadores de 32 bytes puros)
@@ -144,7 +149,7 @@ limitado, sync de blocos limitado (128 blocos/pedido), DHT Kademlia para
 tabela GeoIP embutida, fallback recursivo), o loop de
 checkpoint/heartbeat das âncoras (a CLI fala p2p QUIC direto com o
 relay, sem RPC local). Alcançabilidade e descoberta: AutoNAT
-v2 (veredito alcançável/NATed), circuit-relay v2 + DCUtR para nós
+v1 (veredito alcançável/NATed), circuit-relay v2 + DCUtR para nós
 atrás de NAT e UPnP (mapeamento da porta QUIC pelo roteador,
 opt-in). Configuração via arquivo `.env` (ver `.env.example`).
 Referência: `/docs/en/technical/relay.md`.
@@ -203,13 +208,15 @@ blocos recentes H+1..H+k (relay, altura crescente)
 sincronizado — no boot, replay APENAS do sufixo acima de H
 ```
 
-Dois perfis de nó:
+Perfis de nó (PLANEJADOS — nenhuma flag de operador desse tipo
+existe hoje: cada nó atual retém todos os blocos, e o import de
+snapshot opt-in acima é o único controle de retenção):
 
-- **nó arquivo** (flag de operador): guarda todos os blocos históricos,
+- **nó arquivo** (planejado): guarda todos os blocos históricos,
   os serve à rede, inicia pelos caminhos existentes;
-- **nó de estado completo**: detém o estado completo em H e o sufixo,
-  mas não o histórico abaixo de H — ele valida blocos futuros e
-  serve estado, não serve histórico.
+- **nó de estado completo** (planejado): detém o estado completo em
+  H e o sufixo, mas não o histórico abaixo de H — ele valida blocos
+  futuros e serve estado, não serve histórico.
 
 Este caminho é OPT-IN: importar um snapshot verificado é uma ação
 explícita do operador (`import_verified_snapshot`), nunca automática —

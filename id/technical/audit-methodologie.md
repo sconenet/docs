@@ -11,7 +11,7 @@ Model lawan: node p2p yang permusuhan sewenang-wenang (bisa
 mengirim byte apa pun via QUIC/UDP), pengirim tx permusuhan,
 operator relay yang ingin tahu, data-dir yang dicuri. DIKELUARKAN
 menurut desain: klien akhir (DNS bersifat publik), ketersediaan
-global (chaos sudah diuji).
+global (chaos sudah diuji — baterai `tests/adversarial*.rs`).
 
 Tabel aset, menurut urutan kritisitas:
 1. **Ownership** (state chain: Register/Update/Transfer/Assign) —
@@ -25,10 +25,19 @@ Tabel aset, menurut urutan kritisitas:
 
 ## 1. Audit statis otomatis (hari 1 — mekanis)
 
-- `cargo audit` (CVE dependensi: libp2p/quinn/rustls/redb/ed25519).
-- `cargo geiger` + tinjauan `unsafe` (diharapkan ≈ 0).
+- `cargo audit` (CVE dependensi: libp2p/quinn/rustls/redb/ed25519);
+  penerimaan dilacak di `audit.toml` (RUSTSEC-2024-0436 diterima:
+  `paste` tidak dipelihara, tidak ada cacat yang diketahui).
+- `cargo geiger` + tinjauan `unsafe` (diharapkan ≈ 0 —
+  terverifikasi: satu-satunya `unsafe` berada di test;
+  `#![forbid(unsafe_code)]` di scone-topology).
 - `cargo clippy --workspace --all-targets -- -D warnings`
-  (sudah hijau, jadikan penghalang CI).
+  (sudah hijau; jadikan penghalang lokal pra-merge — belum ada
+  CI).
+- Belum ada harness fuzz: deliverable pertama adalah crate
+  `fuzz/` yang menargetkan lima dekoder (`decode_complete`,
+  `parse_query`, `extract_answers`, parser berkas record, parser
+  keyfile).
 - Fuzzing batas dekode (hari 2-3):
   `cargo-fuzz` pada `scone_protocol::decode_complete` (Message,
   Transaction, Block, SignedDnsRecord, Checkpoint) — inilah
@@ -44,7 +53,8 @@ Tabel aset, menurut urutan kritisitas:
 Diurutkan menurut kritisitas aset, 1 komponen = 1 daftar periksa:
 
 ### 2.1 scone-crypto + derivasi identitas (hari 4)
-- OwnerId = BLAKE3(pubkey): periksa kanonisasi byte (tidak ada
+- OwnerId = BLAKE3("SCONE-OWNER-V1" ‖ BLAKE3("SCONE-PUBKEY-V1" ‖
+  pubkey)): periksa kanonisasi byte (tidak ada
   representasi ambigu → 2 kunci, 1 owner).
 - Ed25519: DESERIALIZATION ketat (kunci non-kanonik ditolak?),
   verifikasi dengan pemisahan konteks (tiap pemakaian punya tag
@@ -54,7 +64,7 @@ Diurutkan menurut kritisitas aset, 1 komponen = 1 daftar periksa:
   izin berkas, padding oracle pada ciphertext.
 
 ### 2.2 Penerapan transaksi (hari 5) — intinya
-Untuk SETIAP varian Transaction (13 hari ini):
+Untuk SETIAP varian Transaction (19 hari ini):
 - Apakah tx idempoten di bawah replay (txid unik, nonce/sequence)?
 - Apakah pemeriksaan ownership mendahului efek apa pun? (penandatangan ==
   owner yang dipelajari on-chain, tidak pernah dipercaya dari tx itu
@@ -105,8 +115,10 @@ Untuk tiap temuan tinjauan manual, test yang membuktikannya:
   pesan salah-bentuk/tidak setuju) — perluas SimNet dengan peran
   "byzantine pasif";
 - mesh nyata 30 node dengan 3 node permusuhan (byte acak, ledakan
-  tx tidak valid, record DHT palsu) — baterai chaos sudah ada,
-  tambahkan peran penyerang;
+  tx tidak valid, record DHT palsu) — aspirasional hari ini:
+  baterai yang ada adalah `tests/adversarial*.rs` (adversarial,
+  adversarial_consensus, adversarial_dos) plus skenario sim;
+  perluas dengan peran penyerang;
 - cek silang: dua implementasi dekode (dokumen protocol.md
   NORMATIF — auditor mengimplementasikan wire dari dokumen SAJA
   dan membandingkan byte; setiap perbedaan = bug dokumen ATAU
@@ -130,7 +142,8 @@ spesifikasi kebutuhan — ini keuntungan biaya nyata.
       perbedaan tip atau korupsi cache
 - [ ] Perbedaan dokumen/kode: nol (diverifikasi oleh implementasi
       wire ganda)
-- [ ] CVE pemblokir: nol (cargo audit)
+- [ ] CVE pemblokir: nol (cargo audit; RUSTSEC yang diterima
+      dilacak di `audit.toml`)
 - [ ] Audit eksternal lingkup kripto/wire/tx selesai (jika
       dianggarkan)
 

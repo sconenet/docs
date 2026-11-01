@@ -150,16 +150,16 @@ Duas inclinações distintas: `log₂(1.22) ≈ 0,287` bit/caractere para TLDs
 `log₂(1.40) ≈ 0,480` bit/caractere para domínios — domínios decaem
 mais rápido: seu valor está no TLD que os carrega. Um TLD nascido aberto
 fica no apex privado − 1; um domínio no apex privado − 2
-(mainnet: TLD privado 25, TLD aberto 24, domínio 23). Benchmarks da
+(mainnet: TLD privado 28, TLD aberto 27, domínio 26). Benchmarks da
 mainnet (Argon2id memory-hard, ~11.4 H/s single-thread):
-TLD privado 1 caractere = 28 bits ≈ 30 dias, 9+ caracteres = piso de 25
+TLD privado 1 caractere = 28 bits ≈ 30 dias, 10+ caracteres = piso de 25
 bits ≈ 3.8 dias; TLD aberto 1 caractere = 27 bits ≈ 15 dias; domínio
 1 caractere = 26 bits ≈ 3.8 dias, 9+ caracteres = piso de 22 bits
 ≈ 11.5 h. **Máquina de referência de 8 núcleos**
 (recalibração 2026-10 — a CLI minera
 multi-core), ~11.4 H/s/núcleo. **Abrir** um
 TLD privado existente (`SetTldOpen`) permanece na dificuldade plana
-(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet): a tx
+(`open_tld_pow_difficulty`: 6 bits testnet / 26 bits mainnet): a tx
 carrega apenas o `tld_id`, o nome pagou seu comprimento na criação.
 **Mais duas provas planas** completam a família (anti-spam a nível
 de consenso, mesmo sal de época e janela que os registros):
@@ -181,7 +181,7 @@ nenhuma rede):
 
 | Campo | Valor |
 |---|---|
-| `version` | `PROTOCOL_VERSION` (`1`) |
+| `version` | `PROTOCOL_VERSION` (`2`) |
 | `height` | `0` |
 | `prev_hash` | 32 bytes zero (nenhum bloco anterior) |
 | `tx_root` | raiz Merkle da lista vazia |
@@ -244,12 +244,16 @@ rápida:
 ## Estado canônico
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- enum (owner-option): o inváriante aberto/privado é
-               -- estrutural; o prazo de morte vive fora da entrada
-               -- (tabela tld_floors + agenda de morte jornalizada)
+               -- estrutural; o mandato vive DENTRO da entrada, apenas
+               -- a agenda de morte derivada (mandato + carência) vive
+               -- fora dela (tld_deaths/tld_floors + agenda de morte
+               -- jornalizada)
 `mutations` é o contador de mutações MONOTÔNICO do namespace — a
 geração CAS anti-replay de suas operações protegidas
 (`SetRecordDelegates`, `SetTldOperator`, `SetDomainOperator`,
@@ -264,6 +268,19 @@ contra uma geração obsoleta é uma rejeição tipada
 (`StaleStateBinding`) que não muta nada. Derivação completa e
 racional: `transactions.md`, «O contador de mutações»; análise de
 segurança: `security-model.md`.
+
+`record_delegates` (KSK/ZSK-lite): um conjunto gerenciado pelo owner
+de no máximo `MAX_RECORD_DELEGATES` = 3 chaves públicas autorizadas
+a assinar `UpdateDomain` para ESTE domínio, junto com o owner
+(auto-operação sempre válida). Mantido por `SetRecordDelegates`
+(0x66, exclusivo do owner — delegados jamais podem editar o
+conjunto, nem mesmo para adicionar ou remover a si mesmos; ligado
+ao contador de mutações por CAS como toda operação protegida, que
+ele incrementa); o conjunto é esvaziado no `TransferDomain` (a zona
+do novo owner começa sem chaves de operadores estranhas) e morre
+com o domínio — sem expiração, o tempo de vida do nome limita toda
+concessão. Comprometido na folha do domínio (`SCONE-LEAF-DOM-V4`,
+sufixo de delegados após o contador).
 
 ChainState   = NetworkParams                  (rede vinculada, M8b)
                + DomainId -> DomainState      (acesso direto, em memória)
@@ -311,17 +328,24 @@ vice-versa).
   `SCONE-TLD-V1 || tld` (derivado do nome carregado pela tx), na
   dificuldade **por comprimento** do label (`pow_length`):
   nascimento privado → `tld_difficulty` (apex da rede), nascimento aberto
-  (`open = 0x01`) → `open_tld_difficulty` (apex − 2) — o digest é
+  (`open = 0x01`) → `open_tld_difficulty` (apex − 1) — o digest é
   recomputado do zero
   (sal `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`,
   núcleo Argon2id), a
-  dificuldade autodeclarada deve igualar a dificuldade esperada, e a
-  **época declarada** pela prova deve igualar
-  `height/POW_WINDOW` do bloco aplicador (sal de época contra
-  pré-mineração — rejeição tipada `ProofEpochMismatch`, ver
-  `transactions.md`);
-- na aplicação: `open = 0x01` → `{ Open }` (de ninguém — autoatendimento,
-  assento PoS liberado, piso de morte lançado em `now + grace`);
+  dificuldade autodeclarada deve igualar a dificuldade esperada, e
+  a **época declarada** pela prova deve cair na janela retroativa de
+  validade do bloco aplicador: uma prova permanece válida enquanto
+  `declared_epoch ≤ block_epoch < declared_epoch + W`, com
+  `W = 1 << max(0, difficulty − 16)` épocas (`POW_WINDOW_REF_BITS`
+  = 16 — igualdade estrita de época única até dificuldade ≤ 16, a
+  janela dobra por bit extra acima, calibrada para cobrir o tempo
+  médio de mineração; somente retroativa: uma prova jamais pode ser
+  minerada para o futuro — sal de época contra pré-mineração,
+  rejeição tipada `ProofEpochMismatch`, ver `transactions.md`);
+- na aplicação: `open = 0x01` → `{ Open { until } }` (de ninguém —
+  autoatendimento; a chave não concede assento PoS e nada é
+  aprendido; piso de morte lançado em `now + OPEN_TLD_FLOOR_SECS`
+  — 1 ano);
   `open = 0x00` → `{ Private { owner } }` — **fechado por padrão**
   (somente assign); a abertura é explícita via `SetTldOpen`.
 
@@ -349,7 +373,11 @@ bloco inteiro (undo-log).
 **UPDATE (UpdateDomain)**:
 
 - o domínio deve existir (não expirado);
-- `tx.owner` deve ser o owner atual;
+- `tx.owner` deve ser o owner atual do domínio — e o ASSINANTE pode
+  ser o owner OU um de seus delegados de records (`tx.owner`
+  permanece o owner do domínio mesmo quando um delegado assina;
+  `RecordSignerUnauthorized` caso contrário — todo outro tipo mantém
+  a derivação estrita owner↔chave);
 - `tx.sequence` deve ser **exatamente** `current_sequence + 1`
   (sem lacunas, sem replay);
 - na aplicação: `sequence` avança, `record_hash` é substituído.
@@ -359,7 +387,13 @@ bloco inteiro (undo-log).
 - o TLD deve existir e ser **privado** (`UnknownTld` / `TldIsOpen`
   caso contrário — um TLD aberto não pertence a ninguém);
 - o assinante deve ser o owner atual (`NotTldOwner` caso contrário);
-- na aplicação: `owner = new_owner` (a identidade do destinatário é
+- **PoW de cessão obrigatório** (anti-churn, plano): o desafio é
+  ligado ao estado, à ligação de contador ATUAL do namespace
+  (`tld_binding(tld_id, valid_until, mutations)`), e a prova mina na
+  `transfer_pow_difficulty` plana (mesmo sal de época que os
+  registros);
+- na aplicação: `owner = new_owner` e o contador de mutações é
+  incrementado (+1) (a identidade do destinatário é
   opaca; a ligação às chaves que podem gastá-lo é feita por
   txs subsequentes). Sem sequência: a primeira transferência aplicada
   vence (ordem da chain).
@@ -382,12 +416,13 @@ bloco inteiro (undo-log).
 - assinante = owner atual (`NotTldOwner`);
 - **abertura = PoW obrigatório**: `pow::verify` sobre o desafio
   `SCONE-TLD-OPEN-V1 || tld_id` na dificuldade plana da
-  rede `open_tld_pow_difficulty` (6 bits testnet / 22 bits mainnet),
+  rede `open_tld_pow_difficulty` (6 bits testnet / 26 bits mainnet),
   sal de época incluído (a prova viaja no campo assinado
   `open_proof` da tx);
 - na aplicação: `TldState::Open` — **o owner é apagado**
-  (irreversível, assento PoS liberado), um piso de morte é lançado em
-  `now + grace`.
+  (irreversível; o caso de liberação de assento: o assento PoS do
+  antigo owner é liberado), um piso de morte é lançado em
+  `now + OPEN_TLD_FLOOR_SECS` (1 ano).
 
 **ASSIGN_DOMAIN (0xD4)**:
 
@@ -396,15 +431,26 @@ bloco inteiro (undo-log).
   assinante =
   owner do TLD (`NotTldOwner`);
 - o domínio deve estar livre (mesma regra de carência que REGISTER);
+- **PoW obrigatório** (anti-spam, plano): a prova mina o desafio
+  `SCONE-DOMAIN-ASSIGN-V1 ‖ nome canônico` na
+  `assign_pow_difficulty` plana da rede (16 bits mainnet /
+  4 bits testnet / 1 bit devnet) — mesmo sal de época e janela que
+  os registros (plana por decisão: a exclusividade do namespace foi
+  paga na criação do TLD, sem dupla tributação por comprimento);
 - na aplicação: `{ owner: assignee, sequence: 0, record_hash:
-  None, registered_at: now, valid_until: now + 1 ano }`. **Sem
-  PoW**: é o owner do namespace quem garante.
+  None, registered_at: now, valid_until: now + 1 ano }`.
 
 **TRANSFER_DOMAIN (0xE2, M8c)**:
 
 - o domínio deve existir (`UnknownDomain` caso contrário), assinante =
   owner atual (`NotOwner`);
-- na aplicação: `owner = new_owner` (o assento PoS segue o
+- **PoW de cessão obrigatório** (anti-churn, plano): o desafio é
+  ligado ao estado, à ligação de contador ATUAL do namespace
+  (`domain_binding(domain_id, registered_at, mutations)`), e a
+  prova mina na `transfer_pow_difficulty` plana (mesmo sal de época
+  que os registros);
+- na aplicação: `owner = new_owner` e o contador de mutações é
+  incrementado (+1) (o assento PoS segue o
   domínio no pool de owners, simétrico ao `TransferTld`). Sem
   sequência: a primeira transferência aplicada vence (ordem da chain).
 
@@ -417,7 +463,8 @@ bloco inteiro (undo-log).
     pública do assinante
     (`effective_operator(tld_owner) == renew.public_key` — a
     delegação é sempre lida A PARTIR DO owner do TLD, nunca o
-    contrário). O campo `proof` deve estar vazio (proof não vazio
+    contrário). O campo `proof` deve estar vazio ou conter
+    exatamente 20 bytes zero (qualquer outra prova não vazia
     = rejeitar).
   - **TLD aberto**: autorização **PoW** — o assinante é o
     owner atual do domínio (`NotOwner` caso contrário) e a prova
@@ -436,6 +483,43 @@ bloco inteiro (undo-log).
   adia o piso de morte do TLD aberto subjacente (a tx
   carrega o nome canônico para esse fim).
 
+**Família pow-to-owner (D2)**: `RegisterTldPow` (0x2A),
+`RenewTldPow` (0x57), `RegisterDomainPow` (0x84), `RenewDomainPow`
+(0xC3) não carregam **nem assinante nem assinatura** — a prova
+minerada É toda a autorização (apenas validação estrutural no nível
+da transação; a verificação de assinatura é pulada). Todo desafio é
+`tag ‖ nome ‖ chave pública do beneficiário ‖ comprimento ‖ id de
+rede` (`pow_challenge_to`): uma prova só é consumível PELA sua chave
+destinatária em sua rede (sem replay de prova roubada, sem replay
+entre redes), e o beneficiário (`pubkey_dest`) é um parâmetro, nunca
+um assinante. Regras na aplicação:
+
+- `RegisterTldPow`: espelha REGISTER_TLD (nome livre, não-ICANN;
+  dificuldade por comprimento conforme o tipo de nascimento; flag
+  `open` e piso de vida de nascimento aberto) mas credita
+  `pubkey_dest`; a chave do beneficiário é aprendida na primeira
+  aparição (nascimento privado — stakeholder PoS);
+- `RenewTldPow` / `RenewDomainPow`: o desafio de renovação anexa a
+  EXPIRAÇÃO ATUAL (8 B big-endian) — uma prova minerada paga um
+  mandato (anti-reuso) — e está TRAVADA ao owner on-chain atual: o
+  beneficiário deve igualá-lo (`NotTldOwner` / `NotOwner`), uma
+  renovação jamais muda de mãos; mandato fixo, como os caminhos
+  assinados;
+- `RegisterDomainPow` / `RenewDomainPow`: **apenas TLDs abertos**
+  (`TldClosed` sob um TLD privado — num namespace privado, a criação
+  é atribuição e a renovação permanece no caminho de assinatura do
+  owner).
+
+**Outros tipos de transação**: `Slash` (0x15 — evidência de
+equivocação: a chave do infrator sai do pool de elegibilidade para
+sempre; o infrator deve estar no pool vivo na aplicação,
+idempotente, domínios/TLDs não apreendidos), `Heartbeat` (0x71 —
+anti-replay por operador: timestamp estritamente crescente, um
+heartbeat por operador por época), `SetTldOperator` (0xA9) /
+`SetDomainOperator` (0x5E — delegação de operador). Suas regras
+completas de aplicação são especificadas em
+`/docs/en/technical/transactions.md`.
+
 **GC determinístico (M8b)**: antes de aplicar as transações de um
 bloco, a chain avalia as expirações no **timestamp do bloco pai**:
 qualquer domínio cujo `valid_until ≤ now` é removido do estado vivo
@@ -450,8 +534,14 @@ próprio relógio, independente dos domínios.
 
 - **TLD privado**: a reivindicação abre um **mandato de 3 anos**
   (`TLD_TERM_SECS`). A renovação (`RenewTld`, 0x8F) paga um **PoW igual
-  à criação** e reseta exatamente 3 anos (mandato fixo
-  rederivado na aplicação). Na expiração, uma **carência de 60 dias**
+  à criação** (desafio = `tld_challenge(name) ‖ expiração
+  atual`, 8 B big-endian — ligado ao prazo atual,
+  anti-reuso: uma prova minerada paga um mandato) e reseta
+  exatamente 3 anos (mandato fixo
+  rederivado na aplicação); o contador de mutações é preservado. A
+  renovação só é permitida enquanto
+  `now ≤ valid_until + 60 d` (`TldExpiredFrozen` além disso). Na
+  expiração, uma **carência de 60 dias**
   (`TLD_GRACE_SECS`) abre: a renovação permanece possível, mas **toda
   outra operação de gestão é congelada** — notadamente `AssignDomain`
   (rejeição tipada `TldExpiredFrozen`): um owner expirado perde
@@ -530,6 +620,14 @@ letra:
 2. `height` == altura do tip + 1;
 3. `version` == `PROTOCOL_VERSION` **exatamente** (qualquer outra
    versão — menor ou maior — é rejeitada, não reinterpretada);
+3bis. **janela de chain-time**: o timestamp do bloco pai é a ÚNICA
+   fonte de tempo da chain (GC de expiração, prazos `valid_until`)
+   — o bloco deve satisfazer `parent_time ≤ timestamp ≤ parent_time +
+   MAX_TIMESTAMP_DRIFT_SECS` (10 anos; erro tipado
+   `InvalidTimestamp`). A altura 1, origem do chain-time, comete seu
+   timestamp tal qual, mas deve deixar a mesma margem abaixo de
+   `u64::MAX`, de modo que nenhum bloco isolado possa jamais abrir
+   uma janela de GC cobrindo todo o espaço de tempo;
 4. contagem de transações ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` recomputado sobre as transações na ordem do bloco;
 6. hooks de consenso (`validate_header`, `validate_tx`);
@@ -549,12 +647,18 @@ letra:
    (`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`, limitado); a assinatura
    cobre o *hash de assinatura do produtor* = o `BlockHash` do header
    **com o campo `consensus` esvaziado** (o payload vive nesse
-   campo; assinar o hash completo seria circular); o produtor deve
-   pertencer ao conjunto autorizado no `timestamp` do bloco (comitê
-   eleito por checkpoint, mais sorteios de recuperação destravados;
-   bootstrap: owners de domínios vivos — um pool vazio = produção
-   aberta, caso contrário o primeiro registro seria impossível). A
-   gênese (altura 0, payload vazio) é estrutural e nunca concernida.
+   campo; assinar o hash completo seria circular); no regime
+   finalizado o produtor deve pertencer ao POLO CONGELADO INTEIRO
+   (owners elegíveis no último checkpoint finalizado — o comitê
+   eleito mais os sorteios de recuperação são apenas o conjunto de
+   ASSINATURA do checkpoint, nunca um filtro de produção); antes da
+   primeira finalidade e abaixo de `BOOTSTRAP_OPEN_MAX_HEIGHT`
+   (1000) a verificação de pertencimento é PULADA — qualquer
+   assinatura de produtor válida produz (o comitê de bootstrap ainda
+   não é um fato de consenso: duas visões no mesmo tip computariam
+   conjuntos diferentes e congelariam a chain); além dessa janela
+   sem finalidade, a validação é estrita contra o pool local.
+   A gênese (altura 0, payload vazio) é estrutural e nunca concernida.
    Erro tipado `InvalidProducer`;
 7. para cada transação, em ordem: validação **criptográfica**
    (`validate_transaction`: vínculo owner/chave recomputado +
@@ -612,9 +716,11 @@ blocos concorrentes:
   vence; empate perfeito → desempate determinístico (menor hash de tip na
   ordem lexicográfica — dois nós detendo os mesmos blocos sempre escolhem
   o mesmo vencedor, testado);
-- **piso de finalidade**: um ramo cujo um dos ancestrais contradiz um
-  checkpoint finalizado (incluído no `prev_checkpoint_hash` de um
-  checkpoint aceito) é recusado (erro tipado
+- **piso de finalidade**: um ramo é recusado a menos que contenha,
+  na altura exata, o bloco de todo checkpoint finalizado RETIDO
+  (a janela retida são os últimos `CHECKPOINT_KEEP` = 64
+  checkpoints; os mais antigos saem da verificação — seus blocos
+  podem ter deixado a janela RAM) (erro tipado
   `Consensus("branch contradicts a finalized checkpoint")`);
 - adoção = replay desde a gênese dos blocos do ramo vencedor
   (determinismo bit a bit testado: dois nós recebendo os mesmos blocos
@@ -671,21 +777,25 @@ RAM. Quatro peças:
 ### Backend KV (`state_backend.rs`)
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
 - `Pkey` = os 32 bytes brutos do `DomainId`/`TldId` — UM espaço de
   chaves ordenado (prefixos de derivação disjuntos), valores = as
-  codificações `SCONE-ENTRY-DOM-V1` (88 bytes fixos) /
-  `SCONE-ENTRY-TLD-V1` (variável: 33 bytes privado / 1 byte aberto,
-  enum owner-option — flag + owner condicional, sem mais campo
-  `until`) ;
+  codificações `SCONE-ENTRY-DOM-V1` (base de 96 bytes: owner 32 ‖
+  sequence 8 ‖ record_hash 32 ‖ registered_at 8 ‖ valid_until 8 ‖
+  mutations 8, mais um sufixo opcional de delegados de records —
+  contagem 1 B + n×32 B chaves, estritamente crescentes, n ≤ 3) /
+  `SCONE-ENTRY-TLD-V1` (49 B privado: flag ‖ owner ‖ valid_until BE ‖
+  mutations BE / 9 B aberto: flag ‖ until BE — enum owner-option);
 - `MemoryBackend` (BTreeMap) = implementação de referência (dev,
   testes); NENHUMA dependência concreta em `scone-blockchain` (redb
   proibido na crate) — protocolo/consenso dependem apenas do TRAIT;
@@ -807,7 +917,9 @@ FinalizedBase { checkpoint, pool, block_ts, seed }
 - `pool` = `eligible_validators(timestamp do bloco finalizado)`
   — a finalidade NUNCA relê o estado vivo depois disso: qualquer
   registro (reivindicação, transferência, banimento) após o checkpoint
-  só conta para épocas posteriores;
+  só conta para épocas posteriores; um checkpoint aceito ATRÁS do tip
+  congela seu pool via um replay sandbox até a própria altura do
+  checkpoint (`pool_at_height`);
 - `seed` = `next_seed(signing_hash(checkpoint))` — a seed da
   PRÓXIMA época deriva do hash do **conteúdo** do checkpoint
   (com chave, conjunto de assinaturas excluído — duas visões detendo
@@ -910,8 +1022,10 @@ reproduzível byte a byte.
   (mesma partição) um bloco/transação/checkpoint apenas na primeira
   vista — regra de relay H2 (corta loops). Um bloco estacionado
   (órfão) NUNCA é re-broadcastado; as lacunas de recepção são
-  preenchidas pelo caminho de sincronização (`GetBlocks`), como o
-  relay.
+  preenchidas pelo caminho de sincronização (`GetBlocks`) — como o
+  relay, que agora ADICIONALMENTE dispara um pull retroativo
+  imediato quando um bloco estaciona em `UnknownParent`; a sim não
+  tem esse pull disparado por órfão.
 - **Produção**: um passo global de produção por intervalo; cada
   grupo de partição produz no máximo UM bloco por rodada, pelo seu
   nó autorizado detendo a melhor altura. Durante o bootstrap (antes
@@ -943,7 +1057,7 @@ reproduzível byte a byte.
 
 | Teste | O que é provado |
 |---|---|
-| `convergence_simple` | 8 nós, 5 ‰ de perda, latência 1–5 ticks, 500 blocos: mesmo tip, mesmo `state_root_smt` em todo lugar; finalidade ativa; nunca dois checkpoints incompatíveis por época. |
+| `convergence_simple` | 8 nós, 5 % de perda, latência 1–5 ticks, 500 blocos: mesmo tip, mesmo `state_root_smt` em todo lugar; finalidade ativa; nunca dois checkpoints incompatíveis por época. |
 | `partition_then_heal` | Partição 4a/4b por ~300 blocos: ambos os lados produzem, cura → convergência com reorg do ramo perdedor; janelas de checkpoint cruzadas nunca contradizem uma época compartilhada (antes e depois da cura). |
 | `crash_restart` | Crash em h≈200, restart em h≈400: ressincronização por replay dos blocos da rede — mesma altura, tip, estado; a transação pós-crash é visível ao nó ressuscitado. |
 | `duplicate_and_delay` | 10 ‰ de duplicação: altura final, raiz de estado e contagem de checkpoints finalizados idênticos à execução sem duplicação (idempotência: TxReplay/seen-sets absorvem duplicatas). |
@@ -957,7 +1071,8 @@ alguns testes), `horizon` 200k–500k ticks virtuais. Todo teste embute
 uma guarda de relógio de parede < 60 s em modo debug
 (`assert_under_60s`). O custo dominante é o kernel de validação
 (~9 ms por `push_block_with_gc` vazio em debug, Ed25519
-não otimizado): os cenários ficam sob ~8 nós × 500 blocos.
+não otimizado, na máquina de referência de 8 núcleos): os cenários
+ficam sob ~8 nós × 500 blocos.
 
 ### Limites
 

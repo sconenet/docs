@@ -37,7 +37,8 @@ Um TLD é um label DNS como qualquer outro: o limite genérico de label
   forma canônica A-label
 - limite codificado: `TldName::MAX_LEN = 63` bytes
 - válidos: `uip`, `com`, `test`, `abc12`, `0x`, `a-b`, um TLD de
-  exatamente 63 bytes, `éxemple` (→ `xn--exemple-2ua`), `例子`
+  exatamente 63 bytes, `éxemple` (→ `xn--exemple-2ua`, mapeamento
+  ilustrativo — não fixado por um teste), `例子`
   (→ `xn--fsqu00a`)
 - inválidos: um TLD cuja A-label exceda 63 bytes, `ABC`, `-ab`,
   `ab-`, string vazia
@@ -162,8 +163,9 @@ o que pertence a alguém. Resumo normativo:
 ### TLD privado
 
 - **Nascimento — PoW**: reivindicado por prova de trabalho, dificuldade por
-  comprimento (mainnet: 1 caractere ≈ 34 d de computação; piso ≈ 4.3 d com
-  10+ caracteres). O reclamante torna-se o owner e detém um **assento PoS**
+  comprimento (mainnet, na máquina de referência de 8 núcleos: 1 caractere
+  ≈ 34 d de computação; piso ≈ 4.3 d com 10+ caracteres). O reclamante
+  torna-se o owner e detém um **assento PoS**
   (pool de elegibilidade para validadores — heartbeats exigidos para
   permanecer fresco, delegação a operador disponível).
 - **Vida — PoS**: a assinatura do owner autoriza tudo no
@@ -203,7 +205,8 @@ o que pertence a alguém. Resumo normativo:
 
 ### Domínio sob um TLD aberto
 
-- **Nascimento — PoW** (curva reduzida vs TLD: mainnet 1 caractere ≈ 8.5 d,
+- **Nascimento — PoW** (curva reduzida vs TLD, na máquina de
+  referência de 8 núcleos: mainnet 1 caractere ≈ 8.5 d,
   piso ≈ meio dia).
 - **Renovação — PoW idêntica ao nascimento** (mesma curva de
   dificuldade; o desafio é vinculado à expiração atual, portanto

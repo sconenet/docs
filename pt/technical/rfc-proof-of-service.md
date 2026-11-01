@@ -49,7 +49,7 @@ Heartbeat {
 Corpo assinado (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (a chave do assinante aparece na cauda
-do corpo, como em toda tx) `‖ signature[64]`, ou seja ~230 bytes
+do corpo, como em toda tx) `‖ signature[64]`, ou seja ~200–215 bytes
 codificados — **sem PoW**: o custo é a presença contínua (um
 heartbeat por época, por meses).
 
@@ -307,5 +307,5 @@ reprodutibilidade da chain (janela/purga) ou a eleição
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validação | feito |
 | 2 | blockchain | janela deslizante (jornalizada), pool filtrado, eleição, ~15 testes | feito |
 | 3 | network | emissão automática, relay de tx | feito |
-| 4 | CLI | `tx build heartbeat`, exibição `fresh operators` no `scone status` | feito |
+| 4 | CLI | emissão automática pelo relay (§7); exibição `fresh operators` no `scone status`; construtor offline removido (cli-simplify-v1) | feito |
 | 5 | docs | esta RFC consolidada em forma normativa, espelho fr/en | feito |

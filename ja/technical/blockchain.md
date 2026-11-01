@@ -111,13 +111,13 @@ TLD     : difficulty(len) = apex − round(0.287 × (len − 1)), clamped at the
 domain  : difficulty(len) = apex − round(0.480 × (len − 1)), clamped at the floor
 ```
 
-2つの異なる傾き: TLDでは `log₂(1.22) ≈ 0.287` ビット/文字(1文字追加するごとにコストが約1.22で割られる)、ドメインでは `log₂(1.40) ≈ 0.480` ビット/文字 — ドメインはより速く減衰します。その価値は、ドメインを運ぶTLDにあるからです。生まれながらオープンのTLDはプライベートの頂点 − 1、ドメインはプライベートの頂点 − 2 です(mainnet: プライベートTLD 25、オープンTLD 24、ドメイン23)。Mainnetベンチマーク(メモリハードArgon2id、シングルスレッドで約11.4 H/s): プライベートTLD 1文字 = 28ビット ≈ 30日、9文字以上 = 25ビット下限 ≈ 3.8日。オープンTLD 1文字 = 27ビット ≈ 15日。ドメイン1文字 = 26ビット ≈ 3.8日、9文字以上 = 22ビット下限 ≈ 11.5時間。**8コアリファレンスマシン**(2026年10月の再較正 — CLIはマルチコアでマイニング)、約11.4 H/s/コア。既存のプライベートTLDの**オープン化**(`SetTldOpen`)は、フラットな難易度のままです(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 22ビット)。txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済みです。**さらに2つのフラットなプルーフ**がこのファミリーを完成させます(コンセンサスレベルのアンチスパム、登録と同じエポックソルトとウィンドウ): 譲渡には `transfer_pow_difficulty`(`TransferTld`/`TransferDomain`、チャレンジ = 名前空間の**現在の**カウンターバインディング — `transactions.md` の「ミューテーションカウンター」参照)、プライベートTLDの下での作成には `assign_pow_difficulty`(`AssignDomain`、チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — 意図的にフラット: 名前空間の排他性はTLD生成時に支払済み、長さごとの二重課税はなし)。目安となる値: 16ビットmainnet(bench-pow 2026-10-23較正: 実測 10.6 H/s の1コアで譲渡/アサイン1回あたり約1.7時間、リファレンス 11.4 H/s。4コアで約25分 — 工業化には高価、誠実な所有者には通常の仕事)、4ビットtestnet、1ビットdevnet。純粋関数(決定論)。
+2つの異なる傾き: TLDでは `log₂(1.22) ≈ 0.287` ビット/文字(1文字追加するごとにコストが約1.22で割られる)、ドメインでは `log₂(1.40) ≈ 0.480` ビット/文字 — ドメインはより速く減衰します。その価値は、ドメインを運ぶTLDにあるからです。生まれながらオープンのTLDはプライベートの頂点 − 1、ドメインはプライベートの頂点 − 2 です(mainnet: プライベートTLD 28、オープンTLD 27、ドメイン26)。Mainnetベンチマーク(メモリハードArgon2id、シングルスレッドで約11.4 H/s): プライベートTLD 1文字 = 28ビット ≈ 30日、10文字以上 = 25ビット下限 ≈ 3.8日。オープンTLD 1文字 = 27ビット ≈ 15日。ドメイン1文字 = 26ビット ≈ 3.8日、9文字以上 = 22ビット下限 ≈ 11.5時間。**8コアリファレンスマシン**(2026年10月の再較正 — CLIはマルチコアでマイニング)、約11.4 H/s/コア。既存のプライベートTLDの**オープン化**(`SetTldOpen`)は、フラットな難易度のままです(`open_tld_pow_difficulty`: testnet 6ビット / mainnet 26ビット)。txは `tld_id` のみを運び、名前は生成時にその長さの対価を支払済みです。**さらに2つのフラットなプルーフ**がこのファミリーを完成させます(コンセンサスレベルのアンチスパム、登録と同じエポックソルトとウィンドウ): 譲渡には `transfer_pow_difficulty`(`TransferTld`/`TransferDomain`、チャレンジ = 名前空間の**現在の**カウンターバインディング — `transactions.md` の「ミューテーションカウンター」参照)、プライベートTLDの下での作成には `assign_pow_difficulty`(`AssignDomain`、チャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — 意図的にフラット: 名前空間の排他性はTLD生成時に支払済み、長さごとの二重課税はなし)。目安となる値: 16ビットmainnet(bench-pow 2026-10-23較正: 実測 10.6 H/s の1コアで譲渡/アサイン1回あたり約1.7時間、リファレンス 11.4 H/s。4コアで約25分 — 工業化には高価、誠実な所有者には通常の仕事)、4ビットtestnet、1ビットdevnet。純粋関数(決定論)。
 
 ジェネシスはネットワークごとのプロトコル定数であり、定数だけから再現可能です(ランダム性なし、ローカル時計なし、ネットワークなし):
 
 | フィールド | 値 |
 |---|---|
-| `version` | `PROTOCOL_VERSION`(`1`) |
+| `version` | `PROTOCOL_VERSION`(`2`) |
 | `height` | `0` |
 | `prev_hash` | 32個のゼロバイト(前のブロックなし) |
 | `tx_root` | 空リストのMerkleルート |
@@ -145,12 +145,15 @@ devnet(`scone-devnet`)は、高速なローカル反復に特化した第3のネ
 ## 正準状態
 
 ```text
-DomainState  = { owner: OwnerId, sequence: u64, record_hash: Option<RecordHash>,
+DomainState  = { owner: OwnerId, record_delegates: BTreeSet<PublicKey>,
+                 sequence: u64, record_hash: Option<RecordHash>,
                  registered_at: u64, valid_until: u64, mutations: u64 }
-TldState     = enum { Private { owner: OwnerId, mutations: u64 } | Open }
+TldState     = enum { Private { owner: OwnerId, valid_until: u64, mutations: u64 }
+                      | Open { until: u64 } }
                -- enum (owner-option): the open/private invariant is
-               -- structural; the death deadline lives outside the entry
-               -- (tld_floors table + journaled death schedule)
+               -- structural; the term lives IN the entry, only the
+               -- derived death schedule (term + grace) lives outside
+               -- it (tld_deaths/tld_floors + journaled death schedule)
 ChainState   = NetworkParams                  (bound network, M8b)
                + DomainId -> DomainState      (direct access, in memory)
                + TldId -> TldState            (TLD registry, M7b)
@@ -158,6 +161,8 @@ ChainState   = NetworkParams                  (bound network, M8b)
 ```
 
 `mutations` は名前空間の**単調な**ミューテーションカウンターです — ガードされた操作のCASアンチリプレイ世代(`SetRecordDelegates`、`SetTldOperator`、`SetDomainOperator`、`TransferTld`、`TransferDomain` は検証してからインクリメント。更新はそれを保存し、移転はインクリメントします)。名前空間のSMTリーフにコミットされます — ドメインリーフ `SCONE-LEAF-DOM-V4`(カウンターはライフタイムフィールドとレコードコミットメントの間)、TLDリーフ `SCONE-LEAF-TLD-V4`(単射なバリアントバイト。`Private` はカウンター)— そしてname-state応答で公開されます。クライアントはフェッチしてからバインドします(fetch-then-bind): 陳腐な世代に対して構築されたトランザクションは、何も変更しない型付き拒否(`StaleStateBinding`)です。完全な導出と根拠: `transactions.md` の「ミューテーションカウンター」。セキュリティ分析: `security-model.md`。
+
+`record_delegates`(KSK/ZSK-lite): このドメインの `UpdateDomain` に署名することを許可された、所有者が管理する最大 `MAX_RECORD_DELEGATES` = 3つの公開鍵の集合。所有者とともに機能します(自己操作は常に有効)。`SetRecordDelegates` によって管理されます(0x66、所有者専用 — デリゲートはセットを編集できません。自分自身を追加または除去することもできません。すべてのガードされた操作と同様にミューテーションカウンターにCAS結合され、それを上方に動かします)。セットは `TransferDomain` でクリアされ(新しい所有者のゾーンは外部のオペレーターキーなしで始まります)、ドメインとともに死にます — 失効なし、名前の生涯がすべての許可を境界付けます。ドメインリーフにコミットされます(`SCONE-LEAF-DOM-V4`、カウンターの後のデリゲート接尾辞)。
 
 * `registered_at` / `valid_until`(M8b): 登録の失効。**親ブロックのタイムスタンプ**に対して評価されます(決定論的、ヘッダーにコミット — 決してローカル時計ではない)。
 * `open`: プライベートTLDは**生まれながらオープン**になれます(`RegisterTld` で `open = 0x01` — 誰のものでもない、セルフサービス)、またはクレーム時に**クローズ**(クローズ = assignのみ)。その後 `SetTldOpen`(PoW付きセルフ登録)でオープン化 — **不可逆**です。
@@ -175,8 +180,8 @@ ChainState   = NetworkParams                  (bound network, M8b)
 **REGISTER_TLD**:
 
 - TLDは**空き**(TLDレジストリに不在)で、かつ**ICANN予約でない**ことが必要(`IcannTldReserved`: ICANNルートTLDはScone上では誰のものでもありません)。
-- **必須PoW**: チャレンジ `SCONE-TLD-V1 || tld`(txが運ぶ名前から導出)に対する `pow::verify`。ラベルの**長さベース**難易度(`pow_length`)で: プライベート誕生 → `tld_difficulty`(ネットワークの頂点)、オープン誕生(`open = 0x01`)→ `open_tld_difficulty`(頂点 − 2)— ダイジェストはゼロから再計算され(ソルト `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`、Argon2idコア)、自己申告の難易度は期待値と等しくなければならず、プルーフが**申告するエポック**は適用ブロックの `height/POW_WINDOW` と等しくなければなりません(先行マイニング対策のエポックソルト — 型付き拒否 `ProofEpochMismatch`、`transactions.md` 参照)。
-- 適用時: `open = 0x01` → `{ Open }`(誰のものでもない — セルフサービス、PoSシート解放、死亡下限を `now + grace` に敷設)。`open = 0x00` → `{ Private { owner } }` — **デフォルトでクローズ**(assignのみ)。オープン化は `SetTldOpen` による明示的操作です。
+- **必須PoW**: チャレンジ `SCONE-TLD-V1 || tld`(txが運ぶ名前から導出)に対する `pow::verify`。ラベルの**長さベース**難易度(`pow_length`)で: プライベート誕生 → `tld_difficulty`(ネットワークの頂点)、オープン誕生(`open = 0x01`)→ `open_tld_difficulty`(頂点 − 1)— ダイジェストはゼロから再計算され(ソルト `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`、Argon2idコア)、自己申告の難易度は期待値と等しくなければならず、プルーフが**申告するエポック**は、適用ブロックの後方有効ウィンドウに収まらなければなりません: `declared_epoch ≤ block_epoch < declared_epoch + W` の間、プルーフは有効です。`W = 1 << max(0, difficulty − 16)` エポック(`POW_WINDOW_REF_BITS` = 16 — 難易度 ≤ 16 では厳密な単一エポック等価、それを超えるビットごとにウィンドウが倍増。平均マイニング時間をカバーするよう較正。後方のみ: プルーフが未来のためにマイニングされることは決してありません — 先行マイニング対策のエポックソルト、型付き拒否 `ProofEpochMismatch`、`transactions.md` 参照)。
+- 適用時: `open = 0x01` → `{ Open { until } }`(誰のものでもない — セルフサービス。このキーはPoSシートを与えず、何も学習されません。死亡下限は `now + OPEN_TLD_FLOOR_SECS` — 1年に敷設)。`open = 0x00` → `{ Private { owner } }` — **デフォルトでクローズ**(assignのみ)。オープン化は `SetTldOpen` による明示的操作です。
 
 **REGISTER(RegisterDomain)**:
 
@@ -190,7 +195,7 @@ ChainState   = NetworkParams                  (bound network, M8b)
 **UPDATE(UpdateDomain)**:
 
 - ドメインは存在しなければならない(失効していない)。
-- `tx.owner` は現在の所有者でなければならない。
+- `tx.owner` はドメインの現在の所有者でなければなりません — そして**署名者**は所有者またはそのレコードデリゲートの1人であってかまいません(デリゲートが署名しても `tx.owner` はドメイン所有者のまま。そうでなければ `RecordSignerUnauthorized` — 他のすべての種別は厳密な owner↔key 導出を保ちます)。
 - `tx.sequence` は `current_sequence + 1` と**厳密に**等しくなければならない(ギャップなし、リプレイなし)。
 - 適用時: `sequence` が進み、`record_hash` が置き換わります。
 
@@ -198,7 +203,8 @@ ChainState   = NetworkParams                  (bound network, M8b)
 
 - TLDは存在し、かつ**プライベート**でなければならない(そうでなければ `UnknownTld` / `TldIsOpen` — オープンTLDは誰のものでもありません)。
 - 署名者は現在の所有者でなければならない(そうでなければ `NotTldOwner`)。
-- 適用時: `owner = new_owner`(受取人の識別情報は不透明です。それを使えるキーへの結合は、後続のtxによって行われます)。シーケンスなし: 最初に適用された移転が勝ちます(チェーン順序)。
+- **必須の譲渡PoW**(アンチチャーン、フラット): チャレンジは名前空間の**現在の**カウンターバインディングに状態結合され(`tld_binding(tld_id, valid_until, mutations)`)、プルーフはフラットな `transfer_pow_difficulty` でマイニングされます(登録と同じエポックソルト)。
+- 適用時: `owner = new_owner` かつミューテーションカウンターが上方に動きます(+1)(受取人の識別情報は不透明です。それを使えるキーへの結合は、後続のtxによって行われます)。シーケンスなし: 最初に適用された移転が勝ちます(チェーン順序)。
 
 **REVOKE_TLD (0x6B)**:
 
@@ -209,34 +215,44 @@ ChainState   = NetworkParams                  (bound network, M8b)
 
 - TLDは存在し、かつ**プライベート**でなければならない(すでにオープンなら → `TldIsOpen`: 元の所有者は消去されており、正当に署名できるキーはもう存在しません)。`open = 0x00`(クローズ化)→ 純粋検証の段階で早期の型付き拒否 `TldCloseUnsupported`: **オープン化は不可逆**です(owner-option)。
 - 署名者 = 現在の所有者(`NotTldOwner`)。
-- **オープン化 = 必須PoW**: チャレンジ `SCONE-TLD-OPEN-V1 || tld_id` に対する `pow::verify` を、ネットワークのフラットな `open_tld_pow_difficulty` で(testnet 6ビット / mainnet 22ビット)。エポックソルト込み(プルーフはtxの署名済み `open_proof` フィールドを通ります)。
-- 適用時: `TldState::Open` — **所有者は消去されます**(不可逆、PoSシート解放)、死亡下限が `now + grace` に敷かれます。
+- **オープン化 = 必須PoW**: チャレンジ `SCONE-TLD-OPEN-V1 || tld_id` に対する `pow::verify` を、ネットワークのフラットな `open_tld_pow_difficulty` で(testnet 6ビット / mainnet 26ビット)。エポックソルト込み(プルーフはtxの署名済み `open_proof` フィールドを通ります)。
+- 適用時: `TldState::Open` — **所有者は消去されます**(不可逆。シート解放のケース: 元の所有者のPoSシートが解放されます)、死亡下限が `now + OPEN_TLD_FLOOR_SECS`(1年)に敷かれます。
 
 **ASSIGN_DOMAIN (0xD4)**:
 
 - 運ばれる名前のTLDは存在し、かつ**プライベート**でなければならない(そうでなければ `TldIsOpen`: オープンTLDはセルフサービスのみ)。署名者 = TLDの所有者(`NotTldOwner`)。
 - ドメインは空きでなければならない(REGISTERと同じ猶予ルール)。
-- 適用時: `{ owner: assignee, sequence: 0, record_hash: None, registered_at: now, valid_until: now + 1 year }`。**PoWなし**: 名前空間の所有者が保証します。
+- **必須PoW**(アンチスパム、フラット): プルーフはチャレンジ `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` を、ネットワークのフラットな `assign_pow_difficulty`(mainnet 16ビット / testnet 4ビット / devnet 1ビット)でマイニングします — 登録と同じエポックソルトとウィンドウ(意図的にフラット: 名前空間の排他性はTLD生成時に支払済み、長さごとの二重課税はなし)。
+- 適用時: `{ owner: assignee, sequence: 0, record_hash: None, registered_at: now, valid_until: now + 1 year }`。
 
 **TRANSFER_DOMAIN (0xE2, M8c)**:
 
 - ドメインは存在しなければならない(そうでなければ `UnknownDomain`)。署名者 = 現在の所有者(`NotOwner`)。
-- 適用時: `owner = new_owner`(PoSシートは所有者プール内でドメインに追従し、`TransferTld` と対称)。シーケンスなし: 最初に適用された移転が勝ちます(チェーン順序)。
+- **必須の譲渡PoW**(アンチチャーン、フラット): チャレンジは名前空間の**現在の**カウンターバインディングに状態結合され(`domain_binding(domain_id, registered_at, mutations)`)、プルーフはフラットな `transfer_pow_difficulty` でマイニングされます(登録と同じエポックソルト)。
+- 適用時: `owner = new_owner` かつミューテーションカウンターが上方に動きます(+1)(PoSシートは所有者プール内でドメインに追従し、`TransferTld` と対称)。シーケンスなし: 最初に適用された移転が勝ちます(チェーン順序)。
 
 **RENEW_DOMAIN (0x3C)**:
 
 - ドメインは存在しなければならない。**TLDの種別が最初に評価されます**(M8c強化):
-  - **プライベートTLD**: **PoS**認可 — 署名者はTLD所有者自身、またはTLD所有者のシートが署名者の公開鍵に委任していること(`effective_operator(tld_owner) == renew.public_key` — 委任は常にTLD所有者から読み取られ、逆ではない)。`proof` フィールドは空でなければなりません(非空のプルーフ = 拒否)。
+  - **プライベートTLD**: **PoS**認可 — 署名者はTLD所有者自身、またはTLD所有者のシートが署名者の公開鍵に委任していること(`effective_operator(tld_owner) == renew.public_key` — 委任は常にTLD所有者から読み取られ、逆ではない)。`proof` フィールドは空またはちょうど20個のゼロバイトでなければなりません(その他の非空のプルーフ = 拒否)。
   - **オープンTLD**: **PoW**認可 — 署名者は現在のドメイン所有者(そうでなければ `NotOwner`)であり、プルーフは更新チャレンジをマイニングします: 生成と同じ難易度(ラベル長による)、**現在の失効時刻に紐付け**(`challenge = DOMAIN_ID_VERSION ‖ canonical name ‖ current valid_until`)— 更新のプルーフは、登録のものおよび過去すべての更新のものと異なります(再利用防止)。
 - `valid_until` は現在の期限を**厳密に延長**しなければならない(そうでなければ `RenewalNotExtending`)。
 - `valid_until ≤ now + 3年`(`RenewalExceedsTerm` — 囤積対策の上限: **更新1回の期間 = 1年、最大3年先まで**)。
 - 適用時: `valid_until = tx.valid_until`。更新は、配下のオープンTLDの死亡下限も先送りします(txはその目的のために正準名を運びます)。
 
+**Pow-to-ownerファミリー(D2)**: `RegisterTldPow`(0x2A)、`RenewTldPow`(0x57)、`RegisterDomainPow`(0x84)、`RenewDomainPow`(0xC3)は**署名者も署名も運びません** — マイニングされたプルーフこそが認可の全体です(トランザクション層では構造検証のみ。署名検証はスキップされます)。すべてのチャレンジは `tag ‖ name ‖ beneficiary public key ‖ length ‖ network id`(`pow_challenge_to`)です: プルーフを消費できるのは、そのネットワーク上でその宛先キーだけです(盗まれたプルーフのリプレイなし、ネットワーク横断リプレイなし)。受益者(`pubkey_dest`)はパラメータであって、決して署名者ではありません。適用時のルール:
+
+- `RegisterTldPow`: REGISTER_TLD をミラーします(空きの非ICANN名。誕生種別による長さベース難易度。`open` フラグと生まれつきオープンの寿命下限)が、`pubkey_dest` にクレジットします。受益者のキーは初出時に学習されます(プライベート誕生 — PoSステークホルダー)。
+- `RenewTldPow` / `RenewDomainPow`: 更新チャレンジは**現在の**失効を接尾辞として追加します(ビッグエンディアン8 B)— マイニングされた1つのプルーフが1つの期間を支払います(再利用防止)— そして現在のオンチェーン所有者に**ロック**されます: 受益者はそれと等しくなければならず(`NotTldOwner` / `NotOwner`)、更新が持ち主を変えることは決してありません。署名パスと同様の固定期間。
+- `RegisterDomainPow` / `RenewDomainPow`: **オープンTLDのみ**(`TldClosed` — プライベートTLDの下では、作成はアサインであり、更新は所有者署名パスに留まります)。
+
+**その他のトランザクション型**: `Slash`(0x15 — 等価性違反の証拠: 問題のキーは生涯、適格プールから外れます。問題の者は適用時に生存プール内になければならず、冪等、ドメイン/TLDは接収されない)、`Heartbeat`(0x71 — オペレーターごとのアンチリプレイ: 厳密に増加するタイムスタンプ、オペレーターごとにエポックあたり1ハートビート)、`SetTldOperator`(0xA9)/ `SetDomainOperator`(0x5E — オペレーター委任)。それらの完全な適用ルールは `/docs/en/technical/transactions.md` に規定されています。
+
 **決定論的GC(M8b)**: ブロックのトランザクションを適用する前に、チェーンは**親ブロックのタイムスタンプ**で失効を評価します: `valid_until ≤ now` であるドメインはすべて、生存状態から除去され、**30日の猶予ウィンドウ**(`valid_until + 30日`)に駐車されます。猶予期間中は元の所有者だけが名前を再クレームできます。その後は誰にでも解放されます。GCはジャーナル記録されます: 拒否されたブロックは、GC前の状態をビットごとに復元します。
 
 **TLDライフサイクル(固定期間)**: TLDはドメインから独立した、独自の時計を持ちます。
 
-- **プライベートTLD**: クレームは**3年の期間**(`TLD_TERM_SECS`)を開きます。更新(`RenewTld`、0x8F)は**生成と同等のPoW**を支払い、ちょうど3年をリセットします(適用時に固定期間が再導出)。失効時には**60日の猶予**(`TLD_GRACE_SECS`)が開きます: 更新は可能なままですが、**その他すべての管理操作は凍結**されます — 特に `AssignDomain`(型付き拒否 `TldExpiredFrozen`): 期限切れの所有者は、更新するまで管理権限を失います。配下にすでに割り当てられたドメインは、独自の `valid_until` を生きます — 凍結するのはTLDであって、その子ではありません。猶予が更新なしに経過: TLDはGCで死にます(PoSシート解放、再クレーム可能)。`TransferTld` は残りの期間を運びます。
+- **プライベートTLD**: クレームは**3年の期間**(`TLD_TERM_SECS`)を開きます。更新(`RenewTld`、0x8F)は**生成と同等のPoW**を支払います(チャレンジ = `tld_challenge(name) ‖ current expiry`、ビッグエンディアン8 B — 現在の期限に結合、再利用防止: マイニングされた1つのプルーフが1つの期間を支払い)、ちょうど3年をリセットします(適用時に固定期間が再導出)。ミューテーションカウンターは保存されます。更新が許されるのは `now ≤ valid_until + 60日` の間だけです(それを超えると `TldExpiredFrozen`)。失効時には**60日の猶予**(`TLD_GRACE_SECS`)が開きます: 更新は可能なままですが、**その他すべての管理操作は凍結**されます — 特に `AssignDomain`(型付き拒否 `TldExpiredFrozen`): 期限切れの所有者は、更新するまで管理権限を失います。配下にすでに割り当てられたドメインは、独自の `valid_until` を生きます — 凍結するのはTLDであって、その子ではありません。猶予が更新なしに経過: TLDはGCで死にます(PoSシート解放、再クレーム可能)。`TransferTld` は残りの期間を運びます。
 - **オープンTLD**: **1年の下限**付きで誕生(またはオープン化)(`OPEN_TLD_FLOOR_SECS` — 即時生成・破壊対策)。配下で生きているすべてのドメインが死の時計を押し戻します(最新のドメインの失効に追従)。ドメインがなくなり + 下限経過: GCで死に、再クレーム可能。
 - **不滅のオープンTLD**(ジェネシスのみ: `.scone`、`.tor` — CNAME経由でオニオンアドレス上の検証可能な名前付け —、`.p2p`): `OpenImmortalTld` アロケーションは `until = u64::MAX` の番兵を設定します — GCは決してそれを越えられず、単調な再武装も決してそれを下げられません: すべてのドメインを失っても、TLDは決して失効しません。実行時トランザクションで不滅のものは作れません(`RegisterTld` は1年の下限を維持)。配下のドメインは通常のサイクルを生きます。
 
@@ -271,11 +287,12 @@ canonical chain
 1. `prev_hash` == 正準チップのハッシュ(そうでなければ、親が未知なら `UnknownParent`、既知だがチップでなければ `ParentNotTip`: 最小限のフォーク検出)。
 2. `height` == チップの高さ + 1。
 3. `version` == `PROTOCOL_VERSION` と**厳密に**等しい(その他のバージョン — 低くても高くても — は再解釈されずに拒否)。
+3bis. **チェーン時間ウィンドウ**: 親ブロックのタイムスタンプは、チェーンの**唯一の**時間の情報源です(失効GC、`valid_until` の期限)— ブロックは `parent_time ≤ timestamp ≤ parent_time + MAX_TIMESTAMP_DRIFT_SECS`(10年。型付きエラー `InvalidTimestamp`)を満たさなければなりません。高さ1(チェーン時間の原点)は、そのタイムスタンプをそのままコミットしますが、`u64::MAX` の下に同じヘッドルームを残さなければなりません — したがって、単一のブロックが時間空間全体をカバーするGCウィンドウを開くことは決してできません;
 4. トランザクション数 ≤ `MAX_TXS_PER_BLOCK`(4096)。
 5. ブロック順のトランザクションに対して `tx_root` を再計算。
 6. コンセンサスフック(`validate_header`、`validate_tx`)。
 6ter. **ウィンドウ化TXIDアンチリプレイ(.bakポート)**: `TxId` が直近 `REPLAY_WINDOW_BLOCKS = 256` ブロックの包含インデックスに現れるトランザクションは拒否されます(`TxReplay`)。インデックス(TxId → 包含高さ)は正準チェーンの純粋関数であり、同じペースで刈り取られます。インデックスは起動時にストレージが再構築します(永続化された最後の `min(256, height)` ブロックの再スキャン — M8、`/docs/en/technical/storage.md` 参照): 再起動したノードは、生存ノードと同じリプレイを拒否します。ウィンドウを超えると、再包含は引き続き状態ルールの対象です(二重クレーム、シーケンスのリプレイ)。
-6bis. **署名済み生成者(M5、.bakポート)**: `consensus` ペイロードは生成者ペイロードとしてデコードされなければなりません(`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`、有界)。署名は*生成者署名ハッシュ* = **`consensus` フィールドを空にした**ヘッダーの `BlockHash` をカバーします(ペイロードはそのフィールドに存在します。完全なハッシュに署名すると循環になります)。生成者は、ブロックの `timestamp` で認可された集合(チェックポイントで選出された委員会、アンロックされたリカバリー抽選、ブートストラップ: 生存ドメインの所有者 — 空のプール = 誰でも生成可。そうでなければ最初の登録が不可能です)に属さなければなりません。ジェネシス(高さ0、空ペイロード)は構造的であり、対象外です。型付きエラー `InvalidProducer`。
+6bis. **署名済み生成者(M5、.bakポート)**: `consensus` ペイロードは生成者ペイロードとしてデコードされなければなりません(`SCONE-BLOCK-V1 ‖ pk[32] ‖ sig[64]`、有界)。署名は*生成者署名ハッシュ* = **`consensus` フィールドを空にした**ヘッダーの `BlockHash` をカバーします(ペイロードはそのフィールドに存在します。完全なハッシュに署名すると循環になります)。ファイナライズ体制では、生成者は**凍結プール全体**(最後にファイナライズされたチェックポイントでの適格所有者 — 選出された委員会 + リカバリー抽選は、チェックポイントの**署名**集合にすぎず、決して生成フィルターではありません)に属さなければなりません。最初のファイナリティの前、および `BOOTSTRAP_OPEN_MAX_HEIGHT`(1000)の下では、メンバーシップ検査は**スキップ**されます — 有効な生成者署名があれば生成できます(ブートストラップ委員会はまだコンセンサスの事実ではありません: 同じチップの2つのビューは異なる集合を計算し、チェーンを凍結してしまいます)。そのウィンドウをファイナリティなしで超えると、検証はローカルプールに対して厳密になります。ジェネシス(高さ0、空ペイロード)は構造的であり、対象外です。型付きエラー `InvalidProducer`。
 7. 各トランザクションについて、順番に: **暗号学的**検証(`validate_transaction`: 所有者/キーの結合を再計算 + ゼロから再計算した署名対象ペイロードに対する `verify_strict`、`/docs/en/technical/transactions.md` 参照)、次に**アンドゥジャーナル**の下での正準状態への適用(アンドゥログ: 適用されたトランザクションごとに1エントリ、コストはO(ブロックのトランザクション数)であり、O(ドメイン数)ではない)。
 8. アトミックコミット: すべて通過 ⇒ ブロック追加、ジャーナル破棄。わずかなエラーでも ⇒ ジャーナル巻き戻し(逆順)、チェーンはビットごとに厳密に不変。
 
@@ -306,7 +323,7 @@ BlockBuilder::after(parent_height, prev_hash)
 
 - 未知の親 → `UnknownParent`(ブロックは待機します)。
 - 有効な系譜だが遅れている → ブランチ評価: 最長のチェーンが勝ちます。完全な同点 → 決定論的タイブレーク(辞書式順序で最小のチップハッシュ — 同じブロックを持つ2つのノードは常に同じ勝者を選びます。テスト済み)。
-- **ファイナリティ下限**: 祖先のいずれかがファイナライズされたチェックポイントに矛盾するブランチ(受理されたチェックポイントの `prev_checkpoint_hash` に含まれる)は拒否されます(型付きエラー `Consensus("branch contradicts a finalized checkpoint")`)。
+- **ファイナリティ下限**: ブランチは、保持されているすべてのファイナライズ済みチェックポイントのブロックを、正確な高さで含んでいなければ拒否されます(保持ウィンドウは最後の `CHECKPOINT_KEEP` = 64チェックポイント。より古いものは検査から外れます — それらのブロックはRAMウィンドウを去っているかもしれません)(型付きエラー `Consensus("branch contradicts a finalized checkpoint")`)。
 - 採用 = 勝ったブランチのブロックのジェネシスからのリプレイ(ビット完全な決定論をテスト済み: 同じブロックを異なる順序で受け取った2つのノードは、同じ状態に到達します)。
 - 完全な検証の前に、受け取ったブロックが正準になることはありません。
 
@@ -340,16 +357,18 @@ pub trait Consensus {
 ### KVバックエンド(`state_backend.rs`)
 
 ```rust
-pub trait StateBackend: Default + Send {
+pub trait StateBackend: Send {
     fn get(&self, key: &Pkey) -> Option<Vec<u8>>;
     fn put(&mut self, key: Pkey, value: Vec<u8>);
     fn delete(&mut self, key: &Pkey);
     fn range(&self, from: Option<&Pkey>, limit: usize)
         -> (Vec<(Pkey, Vec<u8>)>, Option<Pkey>);
+    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 ```
 
-- `Pkey` = `DomainId`/`TldId` の32生バイト — ただ一つの順序付きキー空間(素な導出プレフィックス)。値 = `SCONE-ENTRY-DOM-V1`(88固定バイト)/ `SCONE-ENTRY-TLD-V1`(可変: プライベート33バイト / オープン1バイト、owner-option enum — フラグ + 条件付き所有者、`until` フィールドはもうなし)エンコーディング。
+- `Pkey` = `DomainId`/`TldId` の32生バイト — ただ一つの順序付きキー空間(素な導出プレフィックス)。値 = `SCONE-ENTRY-DOM-V1`(96バイトのベース: owner 32 ‖ sequence 8 ‖ record_hash 32 ‖ registered_at 8 ‖ valid_until 8 ‖ mutations 8、加えてオプションのレコードデリゲート接尾辞 — カウント1 B + n×32 B のキー、厳密昇順、n ≤ 3)/ `SCONE-ENTRY-TLD-V1`(プライベート49 B: flag ‖ owner ‖ valid_until BE ‖ mutations BE / オープン9 B: flag ‖ until BE — owner-option enum)エンコーディング。
 - `MemoryBackend`(BTreeMap)= 参照実装(dev、テスト)。`scone-blockchain` に具体的な依存はありません(クレート内でredb禁止)— プロトコル/コンセンサスはトレイトのみに依存します。
 - `CachedBackend<B>`(`state_cache.rs`)= 内部バックエンドの上の有界LRUキャッシュ: ライトスルー(内部は常に最新)、ミスはキャッシュされない、`range` は内部をページング — 内部バックエンド単独と同じ回答(決定論契約、テスト済み)。
 - `RedbBackend`(`scone-storage::redb_backend`)= 永続バックエンド: `state_kv` テーブル(32バイト生キー、辞書式順序 = 必須の昇順)、カウンタは `state_kv_meta` メタテーブルで維持(COUNTは決してしない)。`CachedBackend<RedbBackend>` = 有界RAMフットプリントを持つ状態 — 「ライトティア」。
@@ -406,7 +425,7 @@ PoS**シート**は登録ではありません。生存するドメインまた�
 FinalizedBase { checkpoint, pool, block_ts, seed }
 ```
 
-- `pool` = `eligible_validators(ファイナライズされたブロックのタイムスタンプ)` — ファイナリティは以後、ライブ状態を決して再読しません: チェックポイント後のあらゆる登録(クレーム、移転、追放)は、以降のエポックにのみ効きます。
+- `pool` = `eligible_validators(ファイナライズされたブロックのタイムスタンプ)` — ファイナリティは以後、ライブ状態を決して再読しません: チェックポイント後のあらゆる登録(クレーム、移転、追放)は、以降のエポックにのみ効きます。チップの**後ろで**受理されたチェックポイントは、サンドボックスリプレイでチェックポイント自身の高さに至る状態からプールを凍結します(`pool_at_height`)。
 - `seed` = `next_seed(signing_hash(checkpoint))` — 次のエポックのシードは、チェックポイントの**内容**ハッシュから導出されます(キー付き、署名セット除外 — 同じチェックポイントの異なるクォーラム部分集合を持つ2つのビューは、同じ委員会を選出します)。
 
 ### 委員会抽選(ブートストラップ、新鮮さ、縮退)
@@ -439,7 +458,7 @@ M8b以降で提供(以前は先送り): ネットワークごとの登録PoW(`Re
 ### モデル
 
 - **トランスポート**: すべての送信は、確率的損失(‰で設定可能)、有界な人工レイテンシ(`latency_ticks`)、起こりうる重複(1つの遅延コピー)、現在のパーティションマップ(グループ間メッセージは消失)を受けます。重複は論理時計を進めず、新しい送信を引き起こしません: 実イベントストリームは重複の有無にかかわらず同一です(決定論契約、`duplicate_and_delay` テストで証明)。
-- **伝染ゴシップ**: ノードは、初見のときにだけ、接続されたピア(同じパーティション)にブロック/トランザクション/チェックポイントを再送信します — リレールールH2(ループを切断)。駐車(孤児)ブロックは決して再ブロードキャストされません。受信ギャップは同期パス(`GetBlocks`)で埋められます。リレーと同様です。
+- **伝染ゴシップ**: ノードは、初見のときにだけ、接続されたピア(同じパーティション)にブロック/トランザクション/チェックポイントを再送信します — リレールールH2(ループを切断)。駐車(孤児)ブロックは決して再ブロードキャストされません。受信ギャップは同期パス(`GetBlocks`)で埋められます — リレーと同様ですが、リレーはさらに、ブロックが `UnknownParent` でパーキングされたときに即時の後方プルをトリガーするようになりました(シミュレーションにはそのような孤児トリガーのプルはありません)。
 - **生成**: 間隔ごとに1つのグローバル生成ステップ。各パーティショングループは、ラウンドごとに最大1ブロックを、最良の高さを持つ認可ノードによって生成します。ブートストラップ中(最初のファイナリティの前)、生成者は最下位ノードに固定されます: 認可された生成者集合は状態から導かれ(生存ドメインのプール)、わずかに異なる2つのビューは異なる委員会を選出し、ローカルには正当なブロックが他所では `InvalidProducer` になります — 永久の分岐です。最初のファイナリティの後、委員会はファイナリティベースに凍結され(収束したどのノードでも同一)、生成は自由です。
 - **ファイナリティ**: `sign_interval` 高さのすべての倍数で、委員会の指定アンカーが、実際のクラッシュ安全な `SignerGuard` を通じてチップの決定論的な内容に署名します(1キー = エポックごとに1票、拡散前に状態がfsyncされる)。他の委員会メンバーは受領時に署名し(参照されたブロックが確かにその高さでの自分の正準ブロックであることを検証した後 — リレーレベルのガード)、拡充された集約を再ブロードキャストします。クォーラムで `accept_checkpoint` がファイナライズします。各ノードはエポックごとに最初に見た提案にコミットします(ブートストラップの二重ファイナリティ防止ガード: 署名者が素である同じエポックの2つの競合提案は、両方蓄積できません)。
 - **クラッシュ/再起動**: クラッシュしたノードは、すべてのRAM状態(チェーン、メモリプール、パーキング、ビュー)を失いますが、本物のプロセスとまったく同様に、ディスク上の署名者ガードディレクトリは保持します。ピアが提供する正準ブロックをリプレイして再同期します(`GetBlocks`/`GetCheckpoints`)。
@@ -448,7 +467,7 @@ M8b以降で提供(以前は先送り): ネットワークごとの登録PoW(`Re
 
 | テスト | 証明されること |
 |---|---|
-| `convergence_simple` | 8ノード、損失5‰、レイテンシ1〜5ティック、500ブロック: どこでも同じチップ、同じ `state_root_smt`。アクティブなファイナリティ。エポックごとに2つの非互換チェックポイントは決してない。 |
+| `convergence_simple` | 8ノード、損失5 %、レイテンシ1〜5ティック、500ブロック: どこでも同じチップ、同じ `state_root_smt`。アクティブなファイナリティ。エポックごとに2つの非互換チェックポイントは決してない。 |
 | `partition_then_heal` | 4a/4bが約300ブロック分割: 両側が生成、治癒 → 敗者ブランチのリオルグとともに収束。交差するチェックポイントウィンドウは、共有エポックと決して矛盾しない(治癒の前後)。 |
 | `crash_restart` | h≈200でクラッシュ、h≈400で再起動: ネットワークのブロックのリプレイによる再同期 — 同じ高さ、チップ、状態。クラッシュ後のトランザクションは、蘇ったノードから見える。 |
 | `duplicate_and_delay` | 10‰の重複: 最終高さ、状態ルート、ファイナライズされたチェックポイント数が、重複なしの実行と同一(冪等性: TxReplay/seenセットが重複を吸収)。 |
@@ -456,7 +475,7 @@ M8b以降で提供(以前は先送り): ネットワークごとの登録PoW(`Re
 
 ### パラメータと期間の境界
 
-デフォルト値: `produce_interval` 7ティック、`sign_interval` 16高さ、`sync_interval` 29〜60ティック(デフォルト41、一部のテストで引き下げ)、`horizon` 20万〜50万仮想ティック。すべてのテストは、デバッグモードで60秒未満の壁時計ガードを組み込みます(`assert_under_60s`)。支配的なコストは検証カーネルです(デバッグで空の `push_block_with_gc` あたり約9 ms、Ed25519未最適化): シナリオは約8ノード × 500ブロック以下に留まります。
+デフォルト値: `produce_interval` 7ティック、`sign_interval` 16高さ、`sync_interval` 29〜60ティック(デフォルト41、一部のテストで引き下げ)、`horizon` 20万〜50万仮想ティック。すべてのテストは、デバッグモードで60秒未満の壁時計ガードを組み込みます(`assert_under_60s`)。支配的なコストは検証カーネルです(デバッグで空の `push_block_with_gc` あたり約9 ms、Ed25519未最適化、8コアリファレンスマシン上): シナリオは約8ノード × 500ブロック以下に留まります。
 
 ### 限界
 

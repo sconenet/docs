@@ -8,7 +8,7 @@ epoch N+1 की समिति सीड
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`
 से निकाली जाती है, **उस पात्रता पूल पर जो checkpoint N द्वारा फ़ाइनल
 किए गए ब्लॉक पर जमा है**। `signing_hash` चेकपॉइंट के **सामग्री**
-(epoch, height, block, prev, state root — हस्ताक्षर समुच्चय
+(epoch, height, recovery, block, prev, state root — हस्ताक्षर समुच्चय
 छोड़कर) का हैश है: सीड उस चीज़ का शुद्ध फलन है *जो* फ़ाइनल किया गया,
 कभी इस बात का नहीं *किस* कोरम उपसमुच्चय ने हस्ताक्षर किया — एक ही
 चेकपॉइंट के दो भिन्न (दोनों वैध) उपसमुच्चय धारण करने वाले दृश्य एक ही

@@ -30,7 +30,7 @@ Heartbeat {
 ```
 
 署名対象本体(ワイヤー、`scone-protocol`):
-`operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖ timestamp.v ‖ operator[32]`(署名者のキーは、あらゆるtxと同様に本体の末尾に現れます)`‖ signature[64]`。エンコードでおよそ230バイト — **PoWなし**:コストは継続的な存在です(エポックごとに1回のハートビートを、何ヶ月も)。
+`operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖ timestamp.v ‖ operator[32]`(署名者のキーは、あらゆるtxと同様に本体の末尾に現れます)`‖ signature[64]`。エンコードでおよそ200〜215バイト — **PoWなし**:コストは継続的な存在です(エポックごとに1回のハートビートを、何ヶ月も)。
 
 署名者はオペレーター自身です: `owner` は常に `operator` から再導出されます(入力から取ることは決してなく)、デコードは、先頭の `operator` フィールドと異なる署名キーを型付きエラー(`InvalidOwner`)で拒否します。
 
@@ -177,5 +177,5 @@ else :
 | 1 | core + protocol | `Heartbeat`、`SetTldOperator`、`SetDomainOperator`、ワイヤー、検証 | 完了 |
 | 2 | blockchain | スライディングウィンドウ(ジャーナル記録付き)、フィルタ済みプール、選出、約15テスト | 完了 |
 | 3 | network | 自動発信、txリレー | 完了 |
-| 4 | CLI | `tx build heartbeat`、`scone status` の `fresh operators` 表示 | 完了 |
+| 4 | CLI | リレーによる自動送出(§7)。`scone status` の `fresh operators` 表示。オフラインビルダーは削除(cli-simplify-v1) | 完了 |
 | 5 | docs | このRFCの規範形への統合、fr/enミラー | 完了 |

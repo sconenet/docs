@@ -7,9 +7,10 @@
 (एनकोडिंग) और [`scone-blockchain`](../../../crates/scone-blockchain)
 (सत्यापन) है।
 
-`PROTOCOL_VERSION` = **1**। केवल एक ही प्रारूप-समुच्चय है: (लेनदेन में)
-`0x01` के अतिरिक्त कोई अन्य संस्करण बाइट या (ब्लॉक में) स्थानीय संस्करण से
-भिन्न मान `UnsupportedVersion` के साथ अस्वीकृत होता है।
+`PROTOCOL_VERSION` = **2**। केवल एक ही प्रारूप-समुच्चय है: (लेनदेन में)
+`0x01` के अतिरिक्त कोई अन्य लेनदेन `version` बाइट `UnsupportedVersion`
+के साथ अस्वीकृत होती है; (ब्लॉक में) `PROTOCOL_VERSION` (`2`) से भिन्न
+ब्लॉक `version` अस्वीकृत, पुनर्व्याख्या नहीं।
 
 ## अवलोकन
 
@@ -74,12 +75,14 @@ offender[32] | evidence_a (CheckpointData 116 B)
   | reporter_pk[32] | reporter_signature[64]
 ```
 
-- `validate()` संरचना जाँचता है: एक ही epoch, भिन्न
+- `validate()` संरचना जाँचता है: एक ही epoch **और** वही
+  `prev_checkpoint_hash` (विरोधी संदर्भ), भिन्न
   `signing_hash`, दो भिन्न हस्ताक्षर, रिपोर्टर के हस्ताक्षर
   कैननिकल पेलोड पर;
-- अवस्था नियम (जर्नल्ड, reorg पर प्रत्यावर्तनीय): आरोपी के दोनों
-  हस्ताक्षरों को एक ही epoch पर दो भिन्न signing hashes के विरुद्ध
-  सत्यापित होना चाहिए; आरोपी पात्र पूल में होना चाहिए
+- अवस्था नियम (जर्नल्ड, reorg पर प्रत्यावर्तनीय): दोनों साक्ष्य
+  चेकपॉइंट दो भिन्न signing hashes लाते हैं, प्रत्येक —
+  `verify_strict` — उसी epoch पर एक ही आरोपी कुंजी के अंतर्गत
+  सत्यापित; आरोपी पात्र पूल में होना चाहिए
   (अन्यथा `SlashOffenderNotInPool`); फिर **प्रतिबंध** — कुंजी
   PoS पूल से स्थायी रूप से हटा दी जाती है (अवस्था में ब्लैकलिस्ट);
 - न्यूनतम दंड: आरोपी के डोमेन/TLD **जब्त नहीं** किए जाते
@@ -128,7 +131,7 @@ tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open(0x00|
 | `owner` | 32 कच्चे बाइट्स | `public_key` की व्युत्पत्ति |
 | `timestamp` | varint | क्रम सूचना (Unix, सेकंड) |
 | `proof` | `bytes` ≤ 256 | रजिस्ट्रेशन PoW पेलोड (देखें [नीचे](#रजिस्ट्रेशन-प्रूफ-ऑफ़-वर्क-pow)) |
-| `open` | `0x00\|0x01` | **खुला** जन्म: TLD सीधे `TldState::Open` में उतरता है (कोई स्वामी नहीं, स्व-सेवा + PoW, `open_tld_pow_difficulty` दर पर एक ही PoW — निजी से सस्ता: साझा संसाधन, न PoS सीट न अनन्यता); **निजी** जन्म: ऐतिहासिक व्यवहार (स्वामी, PoS सीट, `tld_pow_difficulty`) |
+| `open` | `0x00\|0x01` | **खुला** जन्म: TLD सीधे `TldState::Open` में उतरता है (कोई स्वामी नहीं, स्व-सेवा + PoW, खुले-जन्म लंबाई-वक्र दर `pow_length::open_tld_difficulty` पर एक ही PoW — निजी से सस्ता: साझा संसाधन, न PoS सीट न अनन्यता); **निजी** जन्म: ऐतिहासिक व्यवहार (स्वामी, PoS सीट, निजी लंबाई वक्र `pow_length::tld_difficulty`) |
 | `public_key` | 32 कच्चे बाइट्स | हस्ताक्षरकर्ता की Ed25519 सार्वजनिक कुंजी |
 | `signature` | **ठीक 64 बाइट** | हस्ताक्षरित पेलोड का Ed25519 हस्ताक्षर |
 
@@ -184,14 +187,15 @@ tld_id[32] owner[32] open u8 open_proof(proof) public_key[32] signature[64]
 
 | फ़ील्ड | प्रकार | बंधन |
 |---|---|---|
-| `open` | 1 बाइट | **सख्ती से `0x00` या `0x01`** (कैननिकल रूप; कोई अन्य मान → डिकोडिंग त्रुटि, कभी बल-रूपांतरण नहीं) |
-| `open_proof` | `proof` (length-varint + bytes) | **हस्ताक्षरित** फ़ील्ड; `open = 0x01` होने पर अनिवार्य और सत्यापित (खोलने का PoW, नेटवर्क का `open_tld_pow_difficulty`, चुनौती `SCONE-TLD-OPEN-V1 ‖ tld_id`); `open = 0x00` होने पर खाली (बंद करना मुफ़्त है) |
+| `open` | 1 बाइट | **सख्ती से `0x01`**: बंद करना मौजूद नहीं — `open = 0x00` टाइप्ड त्रुटि `TldCloseUnsupported` से अस्वीकृत (एक-तरफ़ा स्वामी-विकल्प; डिकोडिंग पर अस्वीकृत, जो `validate()` चलाती है), कोई अन्य बाइट डिकोडिंग त्रुटि है, कभी बल-रूपांतरण नहीं |
+| `open_proof` | `proof` (length-varint + bytes) | **हस्ताक्षरित** फ़ील्ड; अनिवार्य और सत्यापित (खोलने का PoW, नेटवर्क की समतल `open_tld_pow_difficulty`, चुनौती `SCONE-TLD-OPEN-V1 ‖ tld_id`); अन्यथा कभी परामर्शित नहीं, क्योंकि कोई `open = 0x00` लेनदेन कभी स्वीकृत नहीं होता |
 
 **बंद** TLD = केवल-assign (डोमेन केवल TLD के स्वामी द्वारा
 `AssignDomain` से बनते हैं); **खुला** TLD = कोई भी रजिस्ट्रेशन PoW कर
 एक खाली डोमेन पर दावा कर सकता है (`RegisterDomain`)। **खोलने**
 पर एक अतिरिक्त कार्य-प्रमाण लगता है (TLD दावे से हल्का:
-मेननेट पर ~3 दिन बनाम ~1 सप्ताह), जो स्वामी द्वारा `SetTldOpen`
+8-कोर संदर्भ मशीन पर 26 bits ≈ 8.5 दिन, बनाम 1-वर्ण निजी दावे के
+लिए ≈ 34 दिन), जो स्वामी द्वारा `SetTldOpen`
 में एक बार चुकाया जाता है — प्रमाण हस्ताक्षरित `open_proof` फ़ील्ड में
 यात्रा करता है और हस्ताक्षर के बाद प्रतिस्थापित नहीं हो सकता।
 
@@ -232,9 +236,12 @@ name(str ≤ 253) domain_id[32] owner[32] valid_until.v proof(bounded) public_ke
 (लागू-समय पर, ब्लॉक अवस्था पर मूल्यांकित):
 
 - **खुला TLD**: नवीनीकरण का खर्च **निर्माण जैसी ही PoW** है —
-  वही चुनौती (`SCONE-DOMAIN-V1 ‖ canonical name`), वही
-  प्रति-लेबल-लंबाई और प्रति-नेटवर्क कठिनाई, वही epoch वैधता
-  विंडो। कोई डोमेन कभी मुफ़्त में "इकट्ठा" नहीं किया जाता: जीवन की
+  वही प्रति-लेबल-लंबाई और प्रति-नेटवर्क कठिनाई, वही epoch वैधता
+  विंडो, पर **वर्तमान** समाप्ति से बंधी चुनौती:
+  `SCONE-DOMAIN-V1 ‖ canonical name ‖ current_valid_until (BE64)`।
+  समाप्ति प्रत्यय नवीनीकरण प्रीइमेज को पंजीकरण के और प्रत्येक
+  पूर्व नवीनीकरण से भिन्न बनाता है: एक माइन किया प्रूफ ठीक एक
+  अवधि चुकाता है। कोई डोमेन कभी मुफ़्त में "इकट्ठा" नहीं किया जाता: जीवन की
   प्रत्येक अवधि कार्य में भुगतान होती है।
 - **निजी TLD**: नेमस्पेस TLD स्वामी का दाँव (PoS) है।
   लेनदेन **TLD स्वामी द्वारा हस्ताक्षरित** होना चाहिए (या उसके
@@ -264,8 +271,11 @@ TLD के वर्तमान **निजी** स्वामी द्व�
   `SCONE-TLD-V1 ‖ name ‖ current_expiry(BE64)` (एंटी-पुनःउपयोग
   प्रत्यय हर PoW को एक ही अवधि से बाँधता है), प्रारंभिक दावे जैसी
   प्रति-लंबाई कठिनाई;
-- अवधि के दौरान नवीनीकरण जमा **नहीं** है — यही एकमात्र
-  प्रबंधन क्रिया है जो समाप्त स्वामी के लिए उपलब्ध रहती है।
+- अवधि के दौरान नवीनीकरण जमा **नहीं** है — और अन्य स्वामी
+  संचालन भी नहीं: समाप्ति जमावट केवल `AssignDomain` पर लगती है
+  (`TldExpiredFrozen`)। `TransferTld`, `RevokeTld`, `SetTldOpen`
+  और `SetTldOperator` समाप्त (अनुग्रह में) निजी TLD पर लागू
+  रहते हैं।
 
 ## प्रतिनिधि-प्राधिकरण परिवार — काउंटर-बंधित (0xE2, 0xA9, 0x5E, 0x66)
 
@@ -374,7 +384,8 @@ domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 हस्ताक्षरित पेलोड के माध्यम से `owner` फ़ील्ड को कवर करता है,
 अतः प्रतिनिधि किसी विशिष्ट नेमस्पेस के "लिए" हस्ताक्षर करता है।
 सावधानी: स्वामी→कुंजी मैप पहली-उपस्थिति आधार पर सीखा जाता है
-(पंजीकरण/आवंटन), अतः प्रतिनिधि अद्यतन उसे कभी अधिलेखित नहीं करता।
+(पंजीकरण, आवंटन, और कोई भी स्वामी-कुंजी अद्यतन जिसका owner id
+अभी रिक्त हो), अतः प्रतिनिधि अद्यतन उसे कभी अधिलेखित नहीं करता।
 
 ### सख्त सीमाएँ
 
@@ -429,7 +440,10 @@ challenge = kind_tag ‖ name ‖ pubkey_dest[32] ‖ len(network_id) ‖ networ
   timestamp.v ‖ proof ‖ pubkey_dest — केवल खुला TLD (निजी →
   TldClosed: निजी namespace स्वामी-हस्ताक्षर पथ रखता है);
 - `RENEW_TLD_POW` / `RENEW_DOMAIN_POW`: name ‖ id ‖ owner ‖
-  valid_until.v ‖ proof ‖ pubkey_dest।
+  valid_until.v ‖ proof ‖ pubkey_dest — `RENEW_DOMAIN_POW`
+  केवल खुला TLD (`RegisterDomainPow` की तरह: निजी TLD के अंतर्गत
+  `TldClosed`), जबकि `RENEW_TLD_POW` केवल निजी TLD रहता है
+  (अन्यथा `TldIsOpen`)।
 
 ### अनुप्रयोग गार्ड (D3)
 
@@ -542,7 +556,29 @@ RENEW_DOMAIN_no_sig    = disc(0x3C) version(0x01) network name domain_id[32] own
                             valid_until.v proof public_key[32]
 TRANSFER_DOMAIN_no_sig = disc(0xE2) version(0x01) network domain_id[32] owner[32]
                             new_owner[32] proof public_key[32]
+SLASH_TX_no_sig        = disc(0x15) version(0x01) network offender[32]
+                            evidence_a[116] sig_a[64] evidence_b[116]
+                            sig_b[64] public_key[32]
+HEARTBEAT_no_sig       = disc(0x71) version(0x01) network operator[32]
+                            owner[32] tip_seen[32] height_seen.v
+                            timestamp.v operator[32]
+SET_TLD_OPERATOR_no_sig = disc(0xA9) version(0x01) network tld_id[32]
+                            owner[32] operator.option state_binding[32]
+                            public_key[32]
+SET_DOMAIN_OPERATOR_no_sig = disc(0x5E) version(0x01) network
+                            domain_id[32] owner[32] operator.option
+                            state_binding[32] public_key[32]
+SET_RECORD_DELEGATES_no_sig = disc(0x66) version(0x01) network
+                            domain_id[32] owner[32] count(1)
+                            keys[32×count] state_binding[32]
+                            public_key[32]
 ```
+
+पाँच जोड़ उसी नियम का अनुसरण करते हैं — हेडर `disc ‖ version ‖
+network`, फिर सटीक वायर बॉडी अंतिम हस्ताक्षर रहित (`SlashTx` के
+लिए रिपोर्टर का)। `Heartbeat` हस्ताक्षरकर्ता कुंजी पर समाप्त होता
+है: `operator` फ़ील्ड की दूसरी प्रति जो समरूप होनी चाहिए
+(अन्यथा टाइप्ड अस्वीकृति)।
 
 गुण:
 
@@ -629,62 +665,77 @@ nonce_le64 || epoch_le64 || difficulty_le32
 
 कठिनाई और epoch प्रमाण के साथ यात्रा करते हैं, लेकिन वे
 **उत्पादक-घोषित और इसलिए कभी विश्वास नहीं** हैं: सत्यापक
-कठिनाई की तुलना रजिस्ट्रेशन प्रकार के **प्रोटोकॉल स्थिरांक** से
-करता है (जिस पेलोड की घोषित कठिनाई स्थिरांक से भिन्न हो — कम *या*
-अधिक — वह अस्वीकृत, `InvalidProof`), और epoch की तुलना लागू
+कठिनाई की तुलना प्रोटोकॉल द्वारा प्रूफ के प्रकार हेतु निर्धारित
+मान से करता है — पंजीकरणों के लिए लंबाई वक्र (नीचे
+[कठिनाइयाँ](#कठिनाइयाँ-लंबाई-आधारित-वक्र-m8b--argon2id-कैलिब्रेशन)
+देखें), cessions और assignments के लिए समतल पैरामीटर (जिस पेलोड
+की घोषित कठिनाई उससे भिन्न हो — कम *या*
+अधिक — वह अस्वीकृत, `InvalidProof`) — और epoch की तुलना लागू
 ब्लॉक के epoch से करता है (बेमेल पर `ProofEpochMismatch`)। फिर
-nonce स्थिरांक कठिनाई पर पुनः सत्यापित होता है, डाइजेस्ट शुरू से
+nonce उसी निर्धारित कठिनाई पर पुनः सत्यापित होता है, डाइजेस्ट शुरू से
 पुनर्गणित।
 
-### कठिनाइयाँ (**लंबाई-आधारित** वक्र, M8b + मापी गई कैलिब्रेशन)
+### कठिनाइयाँ (**लंबाई-आधारित** वक्र, M8b + Argon2id कैलिब्रेशन)
 
 कठिनाई एक समतल पैरामीटर नहीं है: यह **बनाए गए लेबल की लंबाई** का
 नियतिवादी फलन है (`scone-core::pow_length` — `RegisterTld` के लिए
 TLD, `RegisterDomain` के लिए सबसे बायाँ लेबल), प्रति
-नेटवर्क:
+नेटवर्क। दो वक्र, प्रति वस्तु-प्रकार एक: TLD की ढलान धीमी है
+(प्रत्येक अतिरिक्त वर्ण लागत ~1.22 से भागता है), डोमेन की ढलान तीखी
+(प्रत्येक अतिरिक्त वर्ण लागत ~1.40 से भागता है):
 
 ```text
-difficulty(len) = apex − round(0.415 × (len − 1)), clamped at the floor
+TLD curve    (private and born-open TLD): apex − round(0.287 × (len − 1)),
+                                          clamped at the floor
+domain curve (domain under an open TLD):  apex − round(0.480 × (len − 1)),
+                                          clamped at the floor
 ```
 
-| नेटवर्क | निजी TLD (apex/floor) | खुले जन्मे TLD / डोमेन (apex/floor) |
-|---|---|---|
-| testnet | 8 bits / 2 bits | 6 bits / 2 bits |
-| mainnet | 42 bits / 30 bits | 40 bits / 30 bits |
-| devnet | 2 bits / 1 bit | 1 bit / 1 bit |
+प्रत्येक प्रकार अपने apex से शुरू अपने floor पर समाप्त होता है
+(`tld_difficulty`, `open_tld_difficulty`, `domain_difficulty` —
+खुला जन्मा TLD TLD वक्र को निजी apex से एक बिट नीचे चुकाता है,
+डोमेन तीखी ढलान पर दो बिट नीचे शुरू):
+
+| नेटवर्क | निजी TLD (apex → floor) | खुला जन्मा TLD (apex → floor) | डोमेन (apex → floor) |
+|---|---|---|---|
+| testnet | 8 → 2 bits | 7 → 2 bits | 6 → 1 bit |
+| mainnet | 28 → 25 bits | 27 → 25 bits | 26 → 22 bits |
+| devnet | 2 → 1 bit | 1 → 1 bit | 1 → 1 bit |
+
+मेननेट सीढ़ी (Argon2id 64 MiB, t = 2, p = 1, प्रति कोर ~11.4 H/s पर —
+8-कोर संदर्भ मशीन पर अपेक्षाएँ):
+
+| लंबाई | निजी TLD | खुला जन्मा TLD | डोमेन |
+|---|---|---|---|
+| 1 | 28 bits ≈ 30 दिन | 27 bits | 26 bits |
+| 3 | 27 bits | 26 bits | 25 bits |
+| 7 | 26 bits | 25 bits | 23 bits |
+| 10+ | 25 bits (फ़्लोर) | 25 bits (फ़्लोर) | 22 bits (फ़्लोर) |
+
+25-bit फ़्लोर उस मशीन पर ≈ 4.3 दिन है; अधिक कोर तेज़ समाप्त करते
+हैं, कम लेते हैं — चुकाई गई PoW सेवा अंतर सोखती है।
 
 एक **खुले जन्मे** TLD (`RegisterTld` with `open = 0x01`) को
-"खोलने" का वक्र (apex − 2, `domain_difficulty` की तरह) चुकाना पड़ता है;
-**मौजूदा निजी TLD को खोलना** (`SetTldOpen`) समतल कठिनाई पर रहता है
-(`open_tld_pow_difficulty`: 6 bits testnet / 22 bits mainnet /
-2 bits devnet — tx केवल `tld_id` वहन करता है, नाम ने निर्माण पर
-अपनी लंबाई का भुगतान किया है)।
-मेननेट बेंचमार्क (निजी TLD, ~6 M hashes/s): 1 वर्ण = 42
-bits (≥ 7 दिन), 5 वर्ण = 40 bits (~2 दिन), 19 वर्ण = 35 bits
-(~1.6 h), 29+ वर्ण = 30-bit फ़्लोर (~3 मिनट)। वक्र
-`scone-core::pow_length` में रहते हैं (स्थिरांक `MAINNET_APEX = 42`,
-`MAINNET_FLOOR = 30`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
-`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`); समतल
-पैरामीटर (`tld_pow_difficulty`, आदि) `scone-core::network::NetworkParams`
-में रहते हैं। किसी मान को बदलना = उस नेटवर्क के लिए सहमति
+TLD वक्र apex − 1 पर चुकाना पड़ता है (मेननेट 27 → 25 bits —
+डोमेन apex नहीं); **मौजूदा निजी TLD को खोलना** (`SetTldOpen`) एक
+भिन्न, समतल प्रूफ है (`open_tld_pow_difficulty`: 6 bits testnet /
+26 bits mainnet / 2 bits devnet — tx केवल `tld_id` वहन करता है, नाम
+ने निर्माण पर अपनी लंबाई का भुगतान किया है)। वक्र
+`scone-core::pow_length` में रहते हैं (स्थिरांक `MAINNET_APEX = 28`,
+`MAINNET_FLOOR = 25`, `TESTNET_APEX = 8`, `TESTNET_FLOOR = 2`,
+`DEVNET_APEX = 2`, `DEVNET_FLOOR = 1`);
+`scone-core::network::NetworkParams` के समतल पैरामीटर केवल
+उन प्रमाणों की सेवा करते हैं जो समतल रहते हैं — मौजूदा TLD
+खोलना (`open_tld_pow_difficulty`, 26 bits मेननेट), cessions
+(`transfer_pow_difficulty`, 16) और assignments
+(`assign_pow_difficulty`, 16) — साथ में CLI प्रदर्शन। पूर्व समतल
+पंजीकरण शिखर (`RegisterTld` 24 bits / `RegisterDomain` 20 bits,
+BLAKE3-युग ~7.7 M H/s कैलिब्रेशन) ऐतिहासिक, प्री-वक्र मान हैं।
+किसी मान को बदलना = उस नेटवर्क के लिए सहमति
 परिवर्तन। अपरिवर्तनीयता: devnet एक पूर्ण तीसरा
 `NetworkParams` है और testnet अपने प्री-devnet स्थिरांकों के समान
 सख्ती से समान रहता है (Argon2id पैरामीटर, वक्र, विंडो) — devnet
 कोड के अतिरिक्त अन्य नेटवर्कों से कोई स्थिरांक साझा नहीं करता।
-
-समतल शिखरों की मापी गई कैलिब्रेशन (2026-10, `cargo run
---release -p scone-core --example pow_bench` — संदर्भ x86-64 पर
-एकल-थ्रेड थ्रूपुट ~7.7 M H/s):
-
-| प्रकार (मेननेट) | कठिनाई | औसत वास्तविक समय |
-|---|---|---|
-| `RegisterTld` | 24 bits | ~7 s |
-| `RegisterDomain` | 20 bits | ~54 ms |
-
-~65 s/ब्लॉक पर: एक TLD दावा ~0.1 ब्लॉक की एकल-कोर CPU लागत, एक
-डोमेन ~1 ms ब्लॉक का — उपयोगकर्ता के लिए सांकेतिक, पैमाने पर
-औद्योगिक बनाना महँगा (एंटी-स्क्वॉट)। हार्डवेयर लक्ष्य गिरने पर पुनः
-कैलिब्रेट करें (मोबाइल ARM: ~4–8× धीमा)।
 
 अवस्था शाखाएँ (M8b, शिप किया गया): `RegisterTld` को सदा उसकी PoW
 चाहिए; `RegisterDomain` को **खुले** TLD पर PoW चाहिए (बंद पथ
@@ -764,11 +815,11 @@ bits (≥ 7 दिन), 5 वर्ण = 40 bits (~2 दिन), 19 वर्ण
 और timestamp कॉलर देता है; मौजूदा `Consensus` trait
 सत्यापन के सममित रूप से उपयोग होता है।
 
-## हेक्स उदाहरण (वास्तविक, पुनरुत्पादनीय वेक्टर — M8b)
+## हेक्स उदाहरण (उदाहरणात्मक वेक्टर — M8b)
 
 ### RegisterDomain `example.uip`, timestamp 42, testnet
 
-हस्ताक्षरित पेलोड (पिन किया वेक्टर; ऐतिहासिक रूप से हटाए गए
+हस्ताक्षरित पेलोड (उदाहरणात्मक वेक्टर; ऐतिहासिक रूप से हटाए गए
 ऑफ़लाइन टूलिंग द्वारा उत्पन्न — मान वैध वेक्टर बने हुए हैं)। `network`
 यहाँ दिखता है क्योंकि यह हस्ताक्षर पेलोड है (इसकी एकमात्र जगह);
 हस्ताक्षरित वायर लेनदेन में स्वयं कोई नहीं:
@@ -783,13 +834,14 @@ e6a2cbe264f81ed7da4d901c4deec6a3579224b8080fad01cb7461b8c264f181  domain_id
 7b2446dadddf640244ac8677a401f148b2b23d1c836d5ad3dd340f8ef2edbed8   owner (fixed build key)
 2a                                    timestamp (varint, 42)
 14 0200000000000000 0000000000000000 04000000
-                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet)
+                                      proof (20 B: nonce 2, epoch 0, difficulty 4 — testnet;
+                                      the difficulty field predates the length curve)
 2a002152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12  pk + start of sig
 ```
 
 ### RegisterTld `uip`, timestamp 42
 
-हस्ताक्षरित पेलोड (पिन किया वेक्टर) — `TldId`, `/docs/en/general/naming.md`
+हस्ताक्षरित पेलोड (उदाहरणात्मक वेक्टर) — `TldId`, `/docs/en/general/naming.md`
 में पिन किया व्युत्पत्ति वेक्टर है:
 
 ```text
@@ -807,7 +859,7 @@ ad5a86d68643d5c22d6a959bb1a315530c77dfda241f1ac1a8107450f3fab25e  tld_id ("uip")
 ```
 
 (पूर्ण मान हटाए गए ऑफ़लाइन टूलिंग द्वारा पुनरुत्पादनीय थे;
-नीचे के वेक्टर पिन और वैध बने हुए हैं। PoW
+नीचे के वेक्टर उदाहरणात्मक और वैध बने हुए हैं। PoW
 नेटवर्क कठिनाई पर स्वचालित माइन होता है — nonce दौर-दौर
 बदलते हैं; केवल network/name/id/owner/pk स्थिर हैं। 2026-09
 वायर परिवर्तन के बाद से हस्ताक्षरित लेनदेन के हेक्स में अब बाइट्स

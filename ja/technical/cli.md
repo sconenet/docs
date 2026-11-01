@@ -6,7 +6,7 @@
 
 - **stdoutはコマンド出力専用**です(`scone status`、`identity list`、`status` など)。スクリプトはstdoutをリダイレクトしても、その中にログが混入することは決してありません。パイプは信頼性を保ちます。認められた例外:`scone relay` は、リスナーがバインドされた時点でデータ行 `p2p: <multiaddr>`、`dns: <addr>`、`metrics: <addr>` をstdoutに出力します(`--bootstrap` / 設定で使えるデータであり、ログではありません。各行ちょうど1回、即時にフラッシュされます)。
 - **すべてのログはstderrに出力されます**(コンパクトな `tracing` フォーマット)。リレーのログも含みます。リレーは移行前からstderrにログを出力していました。
-- CLIのユーザー向けエラーメッセージ(`scone: <error>`)はstderrのままです。これはUXであり、ログではありません。
+- CLIのユーザー向けエラーメッセージ(`scone: <error>`)はstderrのままです。これはUXであり、ログではありません。失敗したコマンドは、2行目のstderr `[Failed: <error>]` も出力します。成功したコマンドのステータス行と対をなします。
 
 ## レベルと `--verbose` / `-v`
 
@@ -20,7 +20,7 @@
 
 `-v`/`--verbose` は**グローバルかつ反復可能**なフラグです。サブコマンドの前でも後でも受け付けられます(`scone -vv identity list` と `scone identity list -vv` は等価です)。
 
-**`scone relay` がデフォルトでINFOのままの理由**:リレーはデーモンであり、運用可能であるためには、フラグを要求することなく、自分の活動(RPC/p2pのリッスン、受け入れて生成したブロック、接続したピア、拒否)をログに記録しなければなりません。一方、一回きりのコマンドは、ターミナルやスクリプトを汚さないように、黙して(WARNのまま)動作します。
+**`scone relay` がデフォルトでINFOのままの理由**:リレーはデーモンであり、運用可能であるためには、フラグを要求することなく、自分の活動(p2pのリッスン、受け入れて生成したブロック、接続したピア、拒否)をログに記録しなければなりません。一方、一回きりのコマンドは、ターミナルやスクリプトを汚さないように、黙して(WARNのまま)動作します。
 
 ## `RUST_LOG`(上書き)
 
@@ -46,15 +46,15 @@ RUST_LOG=scone_network=trace,info scone relay   # ターゲットごと
 - そうでなければ変数(`.env` からロードされたものも、実際のプロセス環境に設定されたものも、同じ変数、同じ効果)。
 - そうでなければclapの内蔵デフォルト。
 
-反復可能な変数(`SCONE_BOOTSTRAP`、`SCONE_DNS_UPSTREAM`)は蓄積されます。`.env` に値ごとに1行(dotenvyが追記)。
+`.env` は変数ごとに**1つ**の値だけを保持します。dotenvyは変数の最初の出現を適用し(重複は黙ってスキップ)、決して蓄積しません。実際のプロセス環境もファイルに勝ります。したがって、複数のブートストラップシードやDNSアップストリームは、コマンドラインで `--bootstrap` / `--dns-upstream` フラグを繰り返すことで指定します。
 
 `SCONE_*` 変数の完全な表(ネットワーク、P2Pリッスン、ブートストラップ、ジェネシス、UPnP、DNSサーフェス、メトリクス、トポロジープロファイル、アンカー)とそれぞれの意味は[`relay.md`](relay.md#environment-configuration-env)にあります。コメント付きテンプレートはリポジトリルートの `.env.example` です(`.env` にコピーして使います。コミットは決してしないこと。`.env` はgitignoreされています)。
 
 ## レベルの意味(コード規約)
 
-- `error!`:失敗(現在の呼び出し箇所はなし。ネットワークの失敗は `warn!` として飲み込まれ、致命的なローカルの失敗だけが `run()` からの型付きエラーとして表面化します)。
+- `error!`:致命的なローカルの失敗(読めない/破損した署名者状態による署名者の無効化、使用不能なストア、深いフォークのリカバリ失敗、永続化されなかったアンカーパスフレーズ)— ネットワークの失敗は `warn!` として飲み込まれ、致命的なローカルの失敗だけが `run()` からの型付きエラーとして表面化します。
 - `warn!`:拒否された敵対的または悪意のあるネットワーク入力、メモリプールから追い出された古いtx、生成中に破棄された競合tx、アウトバウンド/インバウンドの失敗、DHTキーの不一致。
-- `info!`:ブロックの受理/生成、RPC/p2pのリッスン、ピア接続、リレー起動(状態チェックポイント)。
+- `info!`:ブロックの受理/生成、p2pのリッスン、ピア接続、リレー起動(状態チェックポイント)。
 - `debug!`:内部詳細(tx受理、ピア切断、RPCラウンドトリップ、キーストア一覧、`SCONE_KAD_DEBUG` 配下のkadイベント)。
 - `trace!`:ペイロード用に予約(現在の呼び出し箇所はなし)。
 
@@ -65,7 +65,7 @@ RUST_LOG=scone_network=trace,info scone relay   # ターゲットごと
 
 - **`--peer` は不要**:コマンドはデフォルトでローカルリレーと対話します。`SCONE_PEER` 環境変数または `--peer` で上書きできます。
 - キーストアが単一の識別情報しか保持していないとき、**`--identity` は不要**です(黙って使用されます。複数ある場合は、エラーがそれらを一覧表示します)。
-- 削除済み(stubが代替を示します):`show`、`submit`、`lookup`、`owned`。
+- 削除済み:`show`、`submit`、`lookup`、`owned` — stubはありません。clapがこれらの名前を、汎用の「unrecognized subcommand」エラーと最も近い名前の提案付きで拒否します。
 - 新規:`scone domain renew <name>`、`scone domains`、`scone domain get|set`(単一レコード、ファイル不要)。
 
 ```bash
@@ -115,11 +115,11 @@ scone domain delegates clear example.uip --identity alice
 
 上記のデフォルトは日常の使用をカバーします。スクリプトやWeb/API相互運用のために、完全なサーフェスは引き続き利用可能です:
 
-すべての操作には正規のパスが1つだけ存在します。かつてのルートエイリアス（`show`、`lookup`、`owned`、`renew`）は削除されました（remove-cli-aliases）。実在しなかった `domain info` の記載も同時に削除されています。
+すべての操作には正規のパスが1つだけ存在します。かつてのルートエイリアス（`show`、`lookup`、`owned`、`renew`）は削除されました（remove-cli-aliases）。`domain info` は `domain get` の互換性エイリアスとして残ります。
 
-オフラインの16進サーフェス(`tx build|sign|verify`、`submit tx` サブコマンド)は削除されました(remove-tx-surface-v2)。これらが担っていたM8bの操作は、今や第一級のコマンドです。`scone tld open <tld>`(一方向のセルフサービスオープン、オープン用PoWは代わりにマイニングされます)、`scone tld transfer <tld> <owner>`、`scone tld revoke <tld>`、`scone domain assign <name> <owner>`(TLD所有者、プライベートTLD)、そして `scone domain transfer <name> <owner>`。いずれも:状態読み取り、署名、送信、txid。DNSレコードの解決は `scone domain resolve <name>`(旧 `record get`)に移動しました。16進公開チャンネル(`record put`)はなくなりました。編集は `domain set` / `domain update` 経由で行います。
+オフラインの16進サーフェス(`tx build|sign|verify`、`submit tx` サブコマンド)は削除されました(remove-tx-surface-v2)。これらが担っていたM8bの操作は、今や第一級のコマンドです。`scone tld open <tld>`(一方向のセルフサービスオープン、オープン用PoWは代わりにマイニングされます)、`scone tld transfer <tld> <owner>`、`scone tld revoke <tld>`、`scone domain assign <name> <owner>`(TLD所有者、プライベートTLD)、そして `scone domain transfer <name> <owner>`。いずれも:署名、送信、txid。譲渡パス(`tld transfer`、`domain transfer`)はオンチェーン状態をクライアント側で事前に読みます — 譲渡プルーフは現在の世代に束縛されます — 一方、`tld open`、`tld revoke`、`domain assign` はクライアント側の状態読み取りを行いません(ノードが強制します)。DNSレコードの解決は `scone domain resolve <name>`(旧 `record get`)に移動しました。16進公開チャンネル(`record put`)はなくなりました。編集は `domain set` / `domain update` 経由で行います。
 - `scone domain mine <name>` — 登録プルーフだけをマイニングします(識別情報なし、keystoreなし、送信なし)。`scone-domain-pow-v1` JSON `{type, name, network_id, epoch, proof}` をstdoutに出力します。委託マイニング:別のマシンがあなたのためにマイニングし、あなたのキーがあなたのマシンを離れることは決してありません。パイプやリダイレクトで使えます。`scone domain mine n.tld | scone domain register n.tld --proof -`(`--proof FILE` でも可)。プルーフは名前とネットワークに束縛されます。新鮮さはノードが適用時に強制します(epoch有効ウィンドウ)。`--mine-for <pubkey>` を付けると、代わりにその受益者のためのPOW-TO-OWNERプルーフをマイニングし、`scone-domain-pow-to-v1` JSON `{type, name, network_id, epoch, pow_to, proof}` を出力します。消費できるのはその正確なキーの `register --to` / `renew --to` だけです(チャレンジがそのキーを埋め込みます。送信時に大文字小文字を区別しないチェック)。
-- Pow-to-owner送信(keystore不要 — `--to` は `--identity` と排他):`scone domain register <name> --to <pubkey>` / `scone domain renew <name> --to <pubkey>`、および `scone tld register <tld> --to <pubkey>` / `scone tld renew <tld> --to <pubkey>` は、チャレンジが受益者のキーを束縛するプルーフを送信します。オンチェーンの `owner` は `hash(pubkey_dest)` として再計算されます(renewは決して持ち主を変えません)。`--proof` なしでは、コマンド自身がプルーフをマイニングします。`--proof -`/FILE 付きでは `scone-domain-pow-to-v1` ペイロードを消費し、別の受益者のためにマイニングされたプルーフを拒否します。パイプのスタイル:`scone domain mine n.tld --mine-for <pubkey> | scone domain register n.tld --to <pubkey> --proof -`。
+- Pow-to-owner送信(keystore不要 — `--to` は `--identity` と排他):`scone domain register <name> --to <pubkey>` / `scone domain renew <name> --to <pubkey>`、および `scone tld register <tld> --to <pubkey>` / `scone tld renew <tld> --to <pubkey>` は、チャレンジが受益者のキーを束縛するプルーフを送信します。オンチェーンの `owner` は `hash(pubkey_dest)` として再計算されます(renewは決して持ち主を変えません)。`--to` コマンドは常にその場でプルーフをマイニングします — `--proof` が存在するのは `domain register --to` **だけ**です: `--proof -`/FILE 付きでは `scone-domain-pow-to-v1` ペイロードを消費し、**別の**受益者のためにマイニングされたプルーフを拒否します。パイプのスタイル:`scone domain mine n.tld --mine-for <pubkey> | scone domain register n.tld --to <pubkey> --proof -`。
 - `scone domain export <name> [--out FILE]` — チェーン検証済みのレコードセットを、ちょうど `update --file` のフォーマットで書き出します(往復保証:export → 編集 → update が同じセットを再送信)。`--out` なしの場合はstdout。`domain resolve` は同じ可読フォーマットを使うので、`resolve > zone.txt` はそのままインポート可能です。テキスト構文のない種類(GEOROUTE、不明)はコメント付き警告としてエクスポートされます。黙って破棄されることは決してありません。
 
 `domain get` は `domain_id` と `valid_until` も表示します。
@@ -132,7 +132,7 @@ scone domain delegates clear example.uip --identity alice
 scone bench-pow --network mainnet [--seconds 5] [--cores N]
 ```
 
-出力:合計とワーカーごとのH/s、そして操作ごとの予想平均時間 — 譲渡/アサイン(一律レート)、プライベートTLDのオープン、TLD/ドメイン登録の下限(長さカーブ)。選択したネットワークがArgon2idパラメータを決めます(mainnet: 64 MiB、t=2 — 本来のコスト。testnet/devnet: 軽量プロファイル、ミリ秒のプルーフ)。各ワーカーは自分専用の64 MiB Argon2idレーンを確保します — 利用可能なRAMに合わせて `--cores` を調整してください。
+出力:合計とワーカーごとのH/s、そして操作ごとの予想平均時間 — 譲渡/アサイン(一律レート)、プライベートTLDのオープン、TLD/ドメイン登録の下限(長さカーブ)。選択したネットワークがArgon2idパラメータを決めます(mainnet: 64 MiB、t=2 — 本来のコスト。testnet/devnet: 軽量プロファイル、ミリ秒のプルーフ)。各ワーカーは自分専用のArgon2idレーンを確保します — mainnetプロファイルでは64 MiB、軽量なtestnet/devnetプロファイルでは8 KiB — 利用可能なRAMに合わせて `--cores` を調整してください。
 
 ## ビルド:dev対mainnet有効(mainnet-compile-gate)
 
@@ -142,6 +142,6 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 cargo build --release --features mainnet
 ```
 
-`scone --version` はそのようなビルドでは `+mainnet` を表示し、リレーの起動ログは `build: mainnet-enabled` と出力します。
+`scone --version` はそのようなビルドでは `+mainnet` を表示します。
 
 デフォルトの `--network` もビルドに従います。mainnet有効ビルドでは `mainnet`(公式バイナリはユーザーを本番ネットワークに導きます)、それ以外では `testnet` です。明示的な `--network` フラグや `SCONE_NETWORK` 環境変数が常に優先されます(clapの順序:フラグ > 環境変数 > デフォルト)。これは運用上のガードレール(うっかり実行、dev/CIバイナリ)であり、暗号論的な境界ではありません。敵対的なノードに対する防御は、コンセンサスルールが担い続けます。

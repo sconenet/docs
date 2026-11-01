@@ -8,8 +8,8 @@ O comitê da época N+1 é sorteado a partir da seed
 `next_seed(signing_hash(checkpoint N)) = blake3("SCONE-SEED-V1" || signing_hash(checkpoint N))`,
 sobre o **pool de elegibilidade congelado no bloco finalizado pelo
 checkpoint N**. `signing_hash` é o hash do **conteúdo** do checkpoint
-(época, altura, bloco, prev, raiz de estado — conjunto de assinaturas
-excluído): a seed é função pura do QUE foi finalizado, nunca
+(época, altura, recovery, bloco, prev, raiz de estado — conjunto de
+assinaturas excluído): a seed é função pura do QUE foi finalizado, nunca
 de QUAL subconjunto de quórum a assinou — duas visões detendo subconjuntos
 distintos (ambos válidos) do mesmo checkpoint elegem o mesmo comitê.
 

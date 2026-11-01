@@ -1,4 +1,4 @@
-# Servidor DNS UDP + TCP (M6 + M7b) — `scone dns`
+# Servidor DNS UDP + TCP (M6 + M7b) — `scone relay --dns`
 
 > Especificação normativa da superfície DNS do Scone.
 > Qualquer divergência doc/código = bug (corrigir a fonte da verdade).
@@ -13,11 +13,12 @@ Ele não detém nem chain, nem store, nem DHT: decisões de
 existência/expiração passam pelo **snapshot DNS autoritativo** (uma
 visão RAM publicada após cada bloco aplicado — ver abaixo), e as buscas
 de registros passam pelo relay (processo), via canal interno
-`RelayCommand`/`ResolveLocal` (em processo, um round
-trip) — o mesmo caminho verificado que a CLI.
+`RelayCommand`/`ResolveLocal` (em processo: um round
+trip, dois quando a primeira resposta é `pending` — ver o
+caminho de resolução) — o mesmo caminho verificado que a CLI.
 
 ```text
-              UDP+TCP :5353 (default 127.0.0.1)
+              UDP+TCP :5353 (sem valor = bind 0.0.0.0:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -32,8 +33,10 @@ trip) — o mesmo caminho verificado que a CLI.
                     │  │           chain + registro verificado (hash,
                     │  │           owner, sequence) → respostas
                     │  │        apex sem registro publicado → NODATA
-                    │  └─ NÃO → fallback upstream (se configurado)
-                    │           caso contrário REFUSED
+                    │  └─ NÃO → 1 ou > 16 labels → REFUSED (mesmo
+                    │           com upstreams); forma certa mas
+                    │           TLD estranho → fallback upstream
+                    │           (se configurado), senão REFUSED
                     │
                     │  orçamento de resposta:
                     │    UDP → 512 bytes (sem EDNS); overflow =
@@ -51,6 +54,12 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 1.1.1.1:53 \
             --dns-upstream 8.8.8.8:53       # + fallback recursivo
 ```
+
+`--dns` SEM valor faz bind em `0.0.0.0:5353` — TODAS as interfaces
+(alcançável de toda rede à qual a máquina está ligada; um padrão
+somente-loopback é um follow-up de segurança sinalizado). Passe um
+endereço explícito para fazer bind com precisão (`--dns
+127.0.0.1:5353` = apenas consultas locais).
 
 O relay anuncia o endereço efetivo no stdout
 (contrato legível por máquina, como `p2p:`): uma linha `dns: <addr>`
@@ -90,8 +99,9 @@ Cliente de validação: `dig <name> --dns 127.0.0.1:5353
    independentes com chave `hash(qname)` (o qtype compartilha o shard:
    localidade por nome). Um nome quente disputa com 1/16 do
    tráfego em vez de enfileirar atrás de um único mutex a milhares de
-   qps. Limites GLOBAIS (100.000 entradas / 64 MiB por padrão,
-   `--dns-cache-limit` / `--dns-cache-max-mem`) divididos por shard
+   qps. Limites GLOBAIS (100.000 entradas / 64 MiB — padrões fixos;
+   integradores da biblioteca podem sobrescrever os campos `Config`)
+   divididos por shard
    (pior caso documentado: fator 1 + N/shards). O tamanho REAL do
    rdata de cada entrada é contabilizado (~128 bytes de overhead por
    entrada) e a evacuação FIFO dispara no primeiro dos dois
@@ -122,11 +132,17 @@ Cliente de validação: `dig <name> --dns 127.0.0.1:5353
      (`0xC00C`) para a pergunta ecoada — a pergunta nunca é
      recodificada integralmente por registro.
 2. **Forma Scone?** Pré-filtro estrito: labels `[a-z0-9-_]`
-   (1..63), ≥ 2 labels, TLD 1..63 bytes `[a-z0-9-]` (ver
+   (1..63), **2..=16 labels** (forma a nível de parsing), TLD
+   1..63 bytes `[a-z0-9-]` (ver
    `TldName::MAX_LEN`), comprimento total ≤ 253 — **e TLD fora da
    raiz ICANN** (`is_icann_tld`, lista IANA congelada + RFC 2606:
-   `com`, `fr`, `org`… jamais pertencem ao Scone).
-   Um nome que NÃO PODE ser um nome Scone (por ex. `www.foo_bar`,
+   `com`, `fr`, `org`… jamais pertencem ao Scone). Um nome bem
+   formado FORA da forma 2..=16 (só TLD, mais de 16 labels) é
+   **RECUSADO incondicionalmente, antes de qualquer fallback —
+   mesmo com upstreams configurados** (um resolvedor stub ficaria
+   preso até seu timeout).
+   Um nome com a forma certa que NÃO PODE ser um nome Scone
+   (por ex. `www.foo_bar`,
    underscore no TLD) vai ao fallback; um possível nome Scone
    (`absent.uip`) é assunto da chain: não registrado → NXDOMAIN
    autoritativo, mesmo sem upstream. Um TLD ICANN (`example.com`)
@@ -138,7 +154,13 @@ Cliente de validação: `dig <name> --dns 127.0.0.1:5353
    (subnomes incluídos — comportamento curinga implícito, decisão
    aberta).
 4. **`resolve_local` (canal interno)**: um único round trip, nunca
-   um waiter DHT. Estado on-chain (`registered`, owner, sequence,
+   um waiter DHT. Exceção: uma primeira resposta carregando
+   `pending: true` (o registro está comprometido on-chain —
+   `record_hash` presente — mas o cache DHT local ainda está vazio:
+   um pull a um par acabou de ser emitido) dispara UMA repetição
+   automática após 300 ms, dando ao pull a chance de aterrissar —
+   dois round trips no máximo. Estado on-chain (`registered`, owner,
+   sequence,
    mutações) + registro do cache DHT local **re-verificado** (owner,
    sequence, record_hash == compromisso on-chain; a assinatura do
    registro pode vir do owner ou de um delegado de records — mesma
@@ -164,7 +186,10 @@ Cliente de validação: `dig <name> --dns 127.0.0.1:5353
 - Tipos servidos: A, AAAA, CNAME, NS, MX, TXT, **PTR, SRV, CAA**
   (+ Unknown recodificado verbatim; 9 tipos nativos no total, rdata
   codificado por RFC — 1035/2782/8659; CAA estrito: apenas bit
-  crítico 0x80, tags em minúsculas). Uma consulta A/AAAA inclui os
+  crítico 0x80, tags em minúsculas). Os tipos PRIVADOS de delegação
+  **NS4 = 32769 / NS6 = 32770** (nameserver por IPv4/IPv6) respondem
+  a consultas explícitas e são incluídos em ANY — nunca servidos
+  como o A/AAAA do domínio. Uma consulta A/AAAA inclui os
   CNAMEs do conjunto (perseguição de alias). Consulta ANY (255): o
   conjunto inteiro filtrado pelo codec.
 - Limites (M7b): **o orçamento de resposta depende do transporte** —
@@ -207,16 +232,23 @@ nomes): resoluções repetidas do mesmo nome dentro do TTL são
 **suprimidas** (contadas, nunca re-puxadas). Um scanner — ou um nome
 quente cujo owner nunca publicou — não pode mais ampliar uma
 consulta DNS num `GetRecord` por par da malha por consulta. A entrada
-negativa morre no TTL, na chegada de um registro (o pull bem-sucedido
-escreve no cache real), ou por ser empurrada para fora do teto FIFO.
+negativa morre no TTL ou por ser empurrada para fora do teto FIFO;
+na chegada de um registro ela NÃO é removida — o pull bem-sucedido
+escreve no cache real, que responde primeiro, de modo que a entrada
+simplesmente deixa de ser consultada até expirar.
 
 Contadores expostos (`scone_dht_negative_hits_total`,
-`_expired_total`, `_capped_total` — ver "Métricas" em `relay.md`).
+`_expired_total`, `_capped_total` — ver "Métricas" em `relay.md`):
+apenas `_hits_total` está ligado hoje; `_expired_total` e
+`_capped_total` são declarados mas não instrumentados
+(atualmente sempre 0).
 
 ## TCP (M7b, RFC 7766)
 
 Mesma porta que o UDP (segundo bind TCP no endereço `--dns`). O
-transporte segue a RFC 1035 §4.2.2: toda mensagem é prefixada por
+bind TCP é **best-effort**: em caso de falha o relay loga
+`dns tcp bind failed (udp only)` e continua servindo apenas UDP.
+O transporte segue a RFC 1035 §4.2.2: toda mensagem é prefixada por
 seu comprimento em **2 bytes** big-endian.
 
 - **Consulta**: prefixo de comprimento ≥ 1 e ≤ 512 bytes (uma
@@ -255,10 +287,10 @@ client                     server
 | Resposta TCP máxima | 65.535 bytes |
 | Conexões TCP concorrentes | 64 (semáforo, rejeição imediata) |
 | Timeout de leitura TCP | 5 s |
-| Cache | limites GLOBAIS 100.000 entradas / 64 MiB por padrão, divididos em 16 shards (`--dns-cache-limit` / `--dns-cache-max-mem`) |
+| Cache | limites GLOBAIS 100.000 entradas / 64 MiB (padrões fixos), divididos em 16 shards |
 | TTL autoritativo | **por registro** (`record.ttl`, limites 1..=2.592.000 s; a constante histórica de 60 s permanece apenas para respostas de serviço) |
 | TTL fallback (clamp) | 600 s |
-| Consultas UDP paralelas | 4.096 (`MAX_INFLIGHT_UDP`, semáforo; além: drop, o cliente repete) — ajustável `--dns-max-inflight` (mín 1) |
+| Consultas UDP paralelas | 4.096 (`MAX_INFLIGHT_UDP`, semáforo; padrão fixo — integradores da biblioteca podem sobrescrever o campo `Config`). Além disso: o loop de recepção aplica BACKPRESSURE (cada recepção aguarda um permit; o buffer de socket do kernel, depois os timeouts do cliente, absorvem o excesso) |
 | Cache negativo DHT | 30 s (`DHT_NEGATIVE_TTL_SECS`), teto FIFO 4.096 nomes |
 | Timeout por upstream | 2 s |
 
@@ -423,6 +455,18 @@ congelado).
 
 ### Seleção (resolução)
 
+> **Limitação do relay (binário atual)**: apenas os escopos
+> **World**, **Continent** e **Country** são de fato servidos pelo
+> resolvedor do `scone relay`. As rotas **Region**, **Asn** e
+> **IpPrefix** validam on-chain (decodificação wire, assinatura,
+> unicidade) e contam na ordenação canônica, mas o caminho de
+> serviço redecodifica os conjuntos de registros por uma forma JSON
+> que só conhece os três escopos v1: rotas carregando esses escopos
+> são descartadas antes da seleção e nunca eleitas. Um domínio cujas
+> ÚNICAS rotas carregam Region/Asn/IpPrefix cai no caminho DNS
+> clássico (tipicamente NODATA em A/AAAA). Follow-up de código
+> pendente.
+
 1. **Escopo** — especificidade decrescente, **6 níveis**:
    **prefixo IP mais longo correspondente → AS exato → país exato →
    região exata → continente → mundo**.
@@ -437,10 +481,13 @@ congelado).
      (numeração opaca, confiável apenas se o publicador e o
      localizador partilharem a mesma), mas mais que o continente
      (ela está contida no seu país, logo a fortiori no seu
-     continente).
-   - *Asn*: número AS exato do cliente.
+     continente) — **não servido** pelo relay atual (ver a
+     limitação acima).
+   - *Asn*: número AS exato do cliente (**não servido** pelo
+     relay atual — ver a limitação acima).
    - *Country*: país exato.
-   - *Region*: subdivisão exata (identificador opaco).
+   - *Region*: subdivisão exata (identificador opaco; **não
+     servido** pelo relay atual — ver a limitação acima).
    - *Continent*: fornecido pelo localizador **ou derivado do
      país** via tabela local (`continent_of_country`); um
      país desconhecido da tabela retorna ao continente explícito
@@ -489,9 +536,16 @@ congelado).
 
 A decisão de roteamento geo **NUNCA é cacheada** sob
 `(qname, qtype)`: ela depende do escopo do cliente do resolvedor, e
-tal chave serviria a rota US a um cliente TW. As respostas geo são
-recomputadas a cada consulta (custo: um select_scope + sorteio
-ponderado, µs) e contornam o cache. O cache clássico (qname, qtype)
+tal chave serviria a rota US a um cliente TW. Existe em vez disso um
+**mini-cache geo limitado** dedicado: chave
+`(qname, país do cliente)` (mesmo país + mesmo nome = mesma decisão
+de rota), limitado a 4.096 entradas, cada entrada expirando com seu
+próprio TTL limitado a 60 s (uma atualização de registro entra em
+vigor dentro desse limite mesmo sem evacuação). Ele só é preenchido
+quando o escopo vencedor de toda rota detém um único endpoint — uma
+decisão determinística; os escopos ponderados (multi-endpoint) são
+recomputados a cada consulta para que o nonce por requisição continue
+distribuindo a carga. O cache clássico (qname, qtype)
 permanece inalterado para todo o resto — incluindo o NODATA
 produzido quando o geo não decide nada. Os rcodes de erro permanecem
 nunca cacheados.
@@ -502,11 +556,16 @@ O owner de um domínio escolhe o modo de serviço por domínio:
 
 - **DHT (padrão)** — sem registro NS, a rede Scone serve os
   A/AAAA on-chain (relay `--dns`, ou a ponte NSD via export);
-- **NS independente** — o owner adiciona registros
+- **NS independente** — o owner PUBLICA um conjunto de registros
   `ns <ip-ou-nome>` (SEUS nameservers, IP direta ou hostname): o
-  domínio fica DELEGADO — a rede deixa de servir seu conteúdo
-  (A/AAAA → NODATA + autoridade NS), e quem resolve segue os NS do
-  owner. O limite: **12 NS distintos por domínio** (todas as
+  domínio fica DELEGADO. A rede não remove nada: ela serve o
+  conjunto assinado tal como está — um conjunto somente-NS
+  simplesmente deixa nenhum A/AAAA para responder (consultas de
+  endereço → NODATA, os registros NS carregam a autoridade), e quem
+  resolve segue os NS do
+  owner. Entradas NS-por-IP respondem apenas nos tipos privados
+  NS4 = 32769 / NS6 = 32770 — nunca como o endereço do domínio.
+  O limite: **12 NS distintos por domínio** (todas as
   formas, deduplicados por valor — espelho dos caps dos registros
   reais). Remover um NS libera o slot; remover todos restaura o
   modo DHT.
@@ -519,8 +578,11 @@ ordem dos registros é o mecanismo de failover).
 ### Segurança
 
 - Registros GEOROUTE são registros assinados como qualquer outro:
-  verificados contra a chain (owner, sequence, record_hash) antes de
-  qualquer uso. **Nenhuma confiança de rede sem validação** — um
+  verificados contra a chain antes de qualquer uso — owner,
+  sequence, record_hash, e uma quarta regra: **no máximo UM GEOROUTE
+  por escopo** (uma segunda rota com o mesmo escopo é rejeitada,
+  `geo_scopes_unique` — duas "zonas EU" tornariam a resolução
+  ambígua). **Nenhuma confiança de rede sem validação** — um
   GEOROUTE DHT não verificado nunca responde.
 - A posição do cliente vem do **circuito autodescoberto**: o
   relay se autolocaliza via seu endereço externo (STUN/AutoNAT/

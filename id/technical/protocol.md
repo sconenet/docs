@@ -9,16 +9,20 @@ Butir yang ditandai **(provisional)** belum final.
 
 ## Versi protokol
 
-- konstanta: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`);
+- konstanta: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`);
 - dibawa oleh `Hello.version` (handshake) dan `BlockHeader.version`;
 - aturan kompatibilitas:
   - versi yang diterima **lebih tinggi** dari versi lokal → tolak
     (`ProtocolError::UnsupportedVersion`); node tidak menebak
     format versi yang tidak dikenalnya;
   - versi `0` → tidak valid;
-  - hanya ada satu himpunan format: byte versi transaksi
-    (`0x01`) dan versi blok harus cocok dengan nilai lokal
-    secara **eksak**;
+  - blok harus **tepat** versi `2`: versi `1` (format blok
+    pra-tanda tangan, milestone M1) adalah format yang tidak
+    kompatibel, ditolak secara eksplisit daripada di-parse salah;
+  - `Hello` mentolerir versi `1..=2` (handshake saja — ia tidak
+    membawa blok);
+  - byte versi format transaksi (`0x01`) harus cocok dengan nilai
+    lokal secara **eksak**;
 - tanpa pemecahan mayor/minor pada tahap ini: satu integer,
   dinaikkan pada setiap pemutusan format wire.
 
@@ -38,8 +42,11 @@ Butir yang ditandai **(provisional)** belum final.
   significant first): endianness native tidak berlaku;
 - alamat IPv4/IPv6 dan identifier 32-byte: array byte mentah,
   tanpa prefiks panjang;
-- tidak ada integer lebar berukuran tetap dalam format: satu
-  aturan enkode integer saja.
+- satu-satunya pengecualian: body checkpoint 116-byte
+  (`CheckpointData`) adalah integer fixed-width
+  **little-endian**, bukan varint (lihat
+  [Checkpoint (M5)](#checkpoint-m5)); setiap integer lain
+  mengikuti aturan varint tunggal.
 
 ### Varint (LEB128 minimal)
 
@@ -81,11 +88,16 @@ memiliki satu urutan byte yang valid (enkode kanonik). Penolakan:
 | `RecordHash` | 32 byte mentah |
 | `BlockHash` | 32 byte mentah |
 | `MerkleRoot` | 32 byte mentah |
-| `DomainName` | `str` (≤ 253 byte, divalidasi ulang oleh `scone-core`) |
+| `DomainName` | `str` ≤ 253 byte (A-label ASCII kanonik), divalidasi ulang oleh `scone-core` |
 
 Derivasi (`BLAKE3-256` + prefiks `SCONE-DOMAIN-V1`, dsb.) tetap
 didefinisikan oleh `scone-core` (lihat
 `/docs/en/general/naming.md`).
+
+Nama wire — `DomainName` dan TLD dari sebuah `REGISTER_TLD` —
+adalah **A-label ASCII kanonik saja**: byte non-ASCII ditolak
+saat dekode (`NonCanonical`). Kanonisasi IDNA hanya ada pada saat
+konstruksi (input pengguna); ia tidak pernah berjalan di wire.
 
 ## Transaksi
 
@@ -103,7 +115,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-Setiap diskriminan adalah konstanta opaque arbitrer (tanpa urutan
+Tabel di atas adalah **subset** (7 dari 19 tipe transaksi). Setiap
+diskriminan adalah konstanta opaque arbitrer (tanpa urutan
 logis; `0x00` tidak pernah valid) — tabel normatif lengkap di
 `/docs/en/technical/transactions.md`.
 
@@ -146,7 +159,7 @@ byte.
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 Klaim atas TLD (registri terpisah dari registri domain, M7): TLD
@@ -157,7 +170,12 @@ secara konstruksi. Aturan state (M8b): TLD bebas + tidak
 ICANN-reserved (`IcannTldReserved` — TLD root ICANN tidak bisa
 diklaim siapa pun) + PoW pada kesulitan label **berdasarkan
 panjang** (kurva `pow_length` — lihat `blockchain.md`); yang
-diklaim tertutup (assign-only).
+diklaim tertutup (assign-only). `open` adalah boolean kanonik
+(`0x00`|`0x01`; byte lain adalah error dekode keras,
+`NonCanonical`): opsi owner untuk TLD **terbuka-saat-lahir**
+(`0x01` = terbuka untuk registrasi mandiri sejak kelahiran). Ia
+ditulis setelah `proof` yang panjangnya variabel, tepat sebelum
+kunci publik.
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -165,10 +183,14 @@ diklaim tertutup (assign-only).
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-Invarian diperiksa ulang saat dekode: `sequence > 0` dan `owner`
-== derivasi dari `public_key`. Tanpa `timestamp`: pengurutan
-lewat `sequence`. Transaksi hanya membawa referensi ringkas —
-konten DNS penuh tetap di DHT (lihat bawah).
+Invarian diperiksa ulang saat dekode: hanya `sequence > 0` —
+plus tanda tangan atas payload, diverifikasi terhadap
+`public_key` yang ditanam. Aturan otoritas (penandatangan harus
+owner domain atau salah satu record delegate-nya, paling banyak
+3) adalah aturan **state** yang ditegakkan `scone-blockchain`
+saat penerapan, bukan pemeriksaan wire. Tanpa `timestamp`:
+pengurutan lewat `sequence`. Transaksi hanya membawa referensi
+ringkas — konten DNS penuh tetap di DHT (lihat bawah).
 
 ## Record DNS (sisi DHT)
 
@@ -199,7 +221,14 @@ batas `MIN_TTL = 1` .. `MAX_TTL = 2.592.000` (30 hari; default
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (lihat bawah) |
+| 32769 | NS4 | 4 byte (alamat IPv4) |
+| 32770 | NS6 | 16 byte (alamat IPv6) |
 | lainnya | Unknown | code.v + `bytes` ≤ 4096 |
+
+Tipe 32769 (`NS4`) dan 32770 (`NS6`) adalah tipe privat Scone
+(rentang non-IANA, keluarga yang sama dengan `GEOROUTE`):
+delegasi ke nameserver yang ditunjuk alamat IPv4/IPv6, bukan
+nama.
 
 Contoh: `A 192.0.2.1` (TTL 86.400) → `01 80 a3 05 c0 00 02 01`
 (tipe, TTL varint, alamat).
@@ -328,19 +357,19 @@ sebaiknya tidak melebihi `MAX_MESSAGE_LEN` (1 MiB).
 | `0x0a` | `Checkpoint` | dua arah | `Checkpoint` | penandatangan ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | dua arah | — | — | jendela checkpoint |
 | `0x0c` | `GetStatus` | dua arah | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | dua arah | state node (jaringan, tip, tinggi, NAT, domain, mempool, peer, finalitas, operator segar) | — | — |
+| `0x0d` | `NodeStatus` | dua arah | state node (jaringan, tip, tinggi, NAT, domain, mempool, peer, epoch terfinalisasi, ukuran jendela checkpoint, operator segar) | — | — |
 | `0x0e` | `LookupName` | dua arah | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | dua arah | state on-chain nama + TLD, termasuk generasi CAS (penghitung mutasi, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | dua arah | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | dua arah | domain + TLD hidup milik owner | — | — |
-| `0x12` | `Error` | balasan | pesan error level aplikasi (`str`) | — | — |
+| `0x12` | `Error` | balasan | pesan error level aplikasi (`str`, ≤ 4096 byte, diperiksa saat enkode dan dekode) | — | — |
 
 ### Checkpoint (M5)
 
 Checkpoint teragregasi naik ke wire sebagai: tag `SCONE-CKPT-V1`
 || body `CheckpointData` (116 B, LE — identik dengan akhir
-preimage penandatanganan: `epoch(8) height(8) block_hash(32)
-prev_checkpoint_hash(32) state_root(32) recovery(4)`) ||
+preimage penandatanganan: `epoch(8) height(8) recovery(4)
+block_hash(32) prev_checkpoint_hash(32) state_root(32)`) ||
 `count.v` || `pk[32] ‖ sig[64]` per penandatangan, **terurut
 menaik per pk, tanpa duplikat**, `count ≤ 64`
 (`MAX_CHECKPOINT_SIGNERS`). Dekode ketat: pemotongan, tag salah,
@@ -428,12 +457,15 @@ objek kanonik → enkode biner kanonik → hash / tanda tangan
 | `InvalidVarint` | varint non-minimal, overflow atau terlalu panjang |
 | `IntegerOutOfRange` | integer tidak muat tipe targetnya |
 | `UnsupportedVersion` | versi nol atau lebih tinggi dari lokal |
+| `PowNotSignable` | bentuk pow-to-owner diarahkan lewat jalur tanda tangan (bentuk itu tidak pernah ditandatangani — bukti yang ditambang adalah otorisasinya) |
 | `UnknownDiscriminant` | diskriminan transaksi/pesan tak dikenal |
 | `LimitExceeded` | panjang atau jumlah melampaui batas |
 | `InvalidUtf8` | string non-UTF-8 |
+| `InvalidTransactionKey` | kunci publik Ed25519 yang ditanam bukan titik kurva yang valid |
 | `TrailingBytes` | byte tersisa setelah nilai lengkap |
 | `Validation` | pelanggaran invarian `scone-core` |
 | `NonCanonical` | enkode valid-per-field tetapi non-kanonik |
+| `InvalidDelegateSet` | himpunan record delegate di luar batas atau non-kanonik (≤ 3 kunci, menaik ketat, tanpa duplikat) |
 
 Dekode tidak pernah panic atas data jaringan.
 
@@ -445,7 +477,13 @@ Dekode tidak pernah panic atas data jaringan.
 - **transaksi chain**: setiap `RegisterDomain` / `RegisterTld` /
   `UpdateDomain` menanam `public_key` (32 B) + `signature` (64 B)
   atas payload
-  `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)`;
+  `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` —
+  `network_id` disuntikkan
+  sebagai field pertama transaksi terenkode (tepat setelah
+  diskriminan dan versi format), mengikat setiap tanda tangan ke
+  satu jaringan (wire itu sendiri tidak membawa field `network`,
+  lihat atas);
   spesifikasi normatif lengkap:
   `/docs/en/technical/transactions.md`;
 - **record DHT** (`SignedDnsRecord`): payload bertanda tangan

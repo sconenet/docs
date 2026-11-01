@@ -69,16 +69,18 @@ scone-core       ← protocol types (depends on scone-crypto)
 scone-protocol  ← wire/blockchain binary format
     ▲
 scone-blockchain← blockchain logic, canonical state (in memory)
-    ▲               └ scone-topology (pure engine, zero network/fs/
-                     async; fed by scone-network) — scone-genesis
-                     (one-shot mainnet genesis tool binary)
+    ▲
 scone-storage   ← local persistence: redb backend + verified snapshots
     ▲
 scone-network   ← p2p relay: libp2p/QUIC, mempool, sync, DHT, DNS
     ▲
-scone-keystore  ← encrypted `.sconekey` keyfiles (depends on scone-crypto)
-    ▲
 scone           ← binary / application
+
+scone-keystore  ← encrypted `.sconekey` keyfiles (depends on
+                     scone-crypto only); consumed by scone-network
+scone-topology  ← pure mesh engine, zero network/fs/async; fed by
+                     scone-network, which applies its decisions
+scone-genesis   ← one-shot mainnet genesis tool binary
 ```
 
 ### निर्णय: `scone-core`, `scone-crypto` पर निर्भर है
@@ -91,6 +93,9 @@ scone           ← binary / application
   (कुंजी निर्माण के लिए OS RNG के अतिरिक्त), शून्य कोर प्रकार,
   कोई नेटवर्क/फ़ाइलतंत्र/async निर्भरता नहीं → कोई चक्रीयता संभव नहीं;
 - `scone-core` इसका उपयोग केवल हैशिंग के लिए करता है;
+- `scone-core` `argon2` (रजिस्ट्रेशन PoW) और `idna` (अंतरराष्ट्रीयकृत
+  नाम) पर भी सीधे निर्भर करता है — शुद्ध निर्भरताएँ, परतीकरण
+  सम्मानित;
 - Ed25519 हस्ताक्षर और कुंजियाँ `scone-crypto` में रहती हैं और
   बाइट्स पर काम करती हैं (कैननिकल पेलोड `scone-protocol` द्वारा निर्मित)।
 
@@ -104,8 +109,7 @@ tokio/async, नेटवर्क, फ़ाइलें, OS, DNS सर्व�
 
 **scone-crypto** — क्रिप्टोग्राफ़िक प्रिमिटिव। आज: `hash256`
 (BLAKE3), Ed25519 हस्ताक्षर और कुंजियाँ (`SigningKey`,
-`PublicKey`, `Signature`, सख्त बैच सत्यापन), रिकॉर्ड समूहों का
-AEAD लिफ़ाफ़ा (XChaCha20-Poly1305)। योजनाबद्ध: मर्कल ट्री।
+`PublicKey`, `Signature`, सख्त बैच सत्यापन)। योजनाबद्ध: मर्कल ट्री।
 नियम: कोई स्वनिर्मित एल्गोरिद्म नहीं, केवल ऑडिट की गई निर्भरताएँ।
 
 **scone-protocol** — प्रोटोकॉल का बाइनरी प्रारूप: लेनदेन, DNS
@@ -143,7 +147,7 @@ Kademlia DHT, UDP+TCP DNS सर्वर (GeoDNS हमेशा चालू �
 एम्बेडेड GeoIP तालिका, रिकर्सिव फ़ॉलबैक), एंकरों का
 चेकपॉइंट/हार्टबीट लूप (CLI रिले से सीधे p2p QUIC बोलता है,
 अब कोई स्थानीय RPC नहीं)। पहुँच और खोज: AutoNAT
-v2 (reachable/NATed निर्णय), NATed नोड्स के लिए circuit-relay v2 + DCUtR
+v1 (reachable/NATed निर्णय), NATed नोड्स के लिए circuit-relay v2 + DCUtR
 और UPnP (राउटर द्वारा QUIC पोर्ट मैपिंग, ऑप्ट-इन)। `.env` फ़ाइल के माध्यम से विन्यास (देखें `.env.example`)।
 संदर्भ: `/docs/en/technical/relay.md`।
 
@@ -201,11 +205,13 @@ recent blocks H+1..H+k (relay, increasing height)
 synced — at boot, replay of ONLY the suffix above H
 ```
 
-दो नोड प्रोफ़ाइलें:
+नोड प्रोफ़ाइलें (योजनाबद्ध — आज ऐसा कोई ऑपरेटर फ़्लैग मौजूद नहीं है:
+प्रत्येक वर्तमान नोड सारे ब्लॉक रखता है, और ऊपर वर्णित ऑप्ट-इन
+स्नैपशॉट आयात ही एकमात्र रिटेंशन नियंत्रण है):
 
-- **आर्काइव नोड** (ऑपरेटर फ़्लैग): सारे ऐतिहासिक ब्लॉक रखता है,
+- **आर्काइव नोड** (योजनाबद्ध): सारे ऐतिहासिक ब्लॉक रखता है,
   उन्हें नेटवर्क को देता है, मौजूदा पथों से शुरू होता है;
-- **फ़ुल-स्टेट नोड**: H पर पूरी अवस्था और प्रत्यय रखता है,
+- **फ़ुल-स्टेट नोड** (योजनाबद्ध): H पर पूरी अवस्था और प्रत्यय रखता है,
   लेकिन H से नीचे का इतिहास नहीं — यह भविष्य के ब्लॉकों को सत्यापित करता है और
   अवस्था देता है, यह इतिहास नहीं देता।
 

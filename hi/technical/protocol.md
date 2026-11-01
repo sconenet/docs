@@ -9,16 +9,20 @@
 
 ## प्रोटोकॉल संस्करण
 
-- स्थिरांक: `PROTOCOL_VERSION: u32 = 1` (`scone-protocol`);
+- स्थिरांक: `PROTOCOL_VERSION: u32 = 2` (`scone-protocol`);
 - `Hello.version` (हैंडशेक) और `BlockHeader.version` द्वारा वहन किया जाता है;
 - संगति नियम:
   - प्राप्त संस्करण स्थानीय संस्करण से **अधिक** → अस्वीकृत
     (`ProtocolError::UnsupportedVersion`); नोड जिस संस्करण को नहीं जानता उसका
     प्रारूप अनुमान नहीं लगाता;
   - संस्करण `0` → अमान्य;
-  - केवल एक ही प्रारूप-समुच्चय है: लेनदेन संस्करण बाइट्स
-    (`0x01`) और ब्लॉक संस्करण को स्थानीय मानों से **ठीक-ठीक** मेल
-    खाना चाहिए;
+  - ब्लॉक **ठीक** संस्करण `2` होने चाहिए: संस्करण `1`
+    (प्री-हस्ताक्षर ब्लॉक प्रारूप, मील का पत्थर M1) एक असंगत
+    प्रारूप है, ग़लत-पार्स किए जाने के बजाय स्पष्ट रूप से अस्वीकृत;
+  - `Hello` संस्करण `1..=2` सहन करता है (केवल हैंडशेक — वह
+    कोई ब्लॉक नहीं लाता);
+  - लेनदेन प्रारूप संस्करण बाइट (`0x01`) स्थानीय मान से **ठीक-ठीक**
+    मेल खानी चाहिए;
 - इस चरण में कोई major/minor विभाजन नहीं: एक ही पूर्णांक, किसी भी
   वायर प्रारूप टूट पर बढ़ाया जाता है।
 
@@ -37,8 +41,10 @@
   पहले): देशी एंडियननेस लागू नहीं होती;
 - IPv4/IPv6 पते और 32-बाइट पहचानकर्ता: कच्चे बाइट सरणियाँ, कोई
   लंबाई प्रीफ़िक्स नहीं;
-- प्रारूप में कोई निश्चित-आकार विस्तृत पूर्णांक नहीं: एक ही पूर्णांक
-  एनकोडिंग नियम।
+- एकमात्र अपवाद: 116-बाइट चेकपॉइंट बॉडी (`CheckpointData`)
+  निश्चित-चौड़ाई **लिटिल-एंडियन** पूर्णांक रखती है, varint नहीं (देखें
+  [Checkpoint (M5)](#checkpoint-m5)); हर अन्य पूर्णांक एकल
+  varint नियम का अनुसरण करता है।
 
 ### Varint (न्यूनतम LEB128)
 
@@ -80,10 +86,15 @@
 | `RecordHash` | 32 कच्चे बाइट्स |
 | `BlockHash` | 32 कच्चे बाइट्स |
 | `MerkleRoot` | 32 कच्चे बाइट्स |
-| `DomainName` | `str` (≤ 253 बाइट, `scone-core` द्वारा पुनः सत्यापित) |
+| `DomainName` | `str` ≤ 253 बाइट (कैननिकल ASCII A-label), `scone-core` द्वारा पुनः सत्यापित |
 
 व्युत्पत्तियाँ (`BLAKE3-256` + `SCONE-DOMAIN-V1` प्रीफ़िक्स, इत्यादि)
 `scone-core` द्वारा ही परिभाषित रहती हैं (देखें `/docs/en/general/naming.md`)।
+
+वायर नाम — `DomainName` और किसी `REGISTER_TLD` का TLD — **केवल
+कैननिकल ASCII A-labels**: गैर-ASCII बाइट्स डिकोडिंग पर अस्वीकृत
+(`NonCanonical`)। IDNA कैननिकलकरण केवल निर्माण समय पर
+(उपयोगकर्ता इनपुट) मौजूद है; वह वायर पर कभी नहीं चलता।
 
 ## लेनदेन
 
@@ -101,7 +112,8 @@ Transaction = disc u8 || version u8 || payload
 | `0x93` | `RegisterTld` |
 | `0xC3` | `RenewDomainPow` |
 
-प्रत्येक डिस्क्रिमिनेंट एक मनमाना अपारदर्शी स्थिरांक है (कोई तार्किक
+ऊपर की तालिका एक **उपसमुच्चय** है (19 लेनदेन प्रकारों में से 7)। प्रत्येक
+डिस्क्रिमिनेंट एक मनमाना अपारदर्शी स्थिरांक है (कोई तार्किक
 क्रम नहीं; `0x00` कभी वैध नहीं) — पूरी नॉर्मेटिव तालिका
 `/docs/en/technical/transactions.md` में।
 
@@ -140,7 +152,7 @@ PoW वहन करता है (20 बाइट: nonce + epoch + difficulty �
 ### REGISTER_TLD (0x93)
 
 ```text
-tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) public_key[32] signature[64]
+tld(str ≤ 63) tld_id[32] owner[32] timestamp.v proof(bytes ≤ 256) open u8 (0x00|0x01) public_key[32] signature[64]
 ```
 
 TLD का दावा (डोमेन रजिस्ट्री से पृथक रजिस्ट्री, M7): TLD
@@ -150,7 +162,12 @@ TLD का दावा (डोमेन रजिस्ट्री से प�
 नियम (M8b): TLD खाली + ICANN-आरक्षित नहीं
 (`IcannTldReserved` — ICANN रूट TLD किसी के भी द्वारा दावा योग्य नहीं) + PoW
 लेबल की **लंबाई-आधारित** कठिनाई पर (`pow_length` वक्र —
-देखें `blockchain.md`); दावा किया गया बंद रहता है (केवल-assign)।
+देखें `blockchain.md`); दावा किया गया बंद रहता है (केवल-assign)। `open`
+एक कैननिकल boolean है (`0x00`|`0x01`; कोई अन्य बाइट कठोर
+decode त्रुटि है, `NonCanonical`): **खुला जन्मे** TLD के लिए
+स्वामी-विकल्प (`0x01` = जन्म पर स्व-सेवा पंजीकरण हेतु खुला)। वह
+परिवर्तनीय-लंबाई `proof` के बाद, सार्वजनिक कुंजी से ठीक पहले
+लिखा जाता है।
 
 ### UPDATE_DOMAIN (0x52)
 
@@ -158,8 +175,12 @@ TLD का दावा (डोमेन रजिस्ट्री से प�
 domain_id[32] owner[32] sequence.v record_hash[32] public_key[32] signature[64]
 ```
 
-डिकोडिंग पर पुनः जाँचा जाने वाला अपरिवर्तनीय नियम: `sequence > 0` और `owner` ==
-`public_key` की व्युत्पत्ति। कोई `timestamp` नहीं: क्रमण
+डिकोडिंग पर पुनः जाँचा जाने वाला अपरिवर्तनीय नियम: केवल `sequence > 0` —
+साथ में पेलोड पर हस्ताक्षर, एम्बेडेड
+`public_key` के विरुद्ध सत्यापित। प्राधिकरण नियम (हस्ताक्षरकर्ता डोमेन
+स्वामी या उसके record delegates में से एक हो, अधिकतम 3) `scone-blockchain`
+द्वारा अनुप्रयोग पर लागू किया गया **अवस्था** नियम है,
+वायर जाँच नहीं। कोई `timestamp` नहीं: क्रमण
 `sequence` से होता है। लेनदेन केवल सुसंगत संदर्भ वहन करता है — पूरी
 DNS सामग्री DHT में रहती है (नीचे देखें)।
 
@@ -192,7 +213,13 @@ varint) प्रकार कोड का अनुसरण करता ह�
 | 33 | SRV | `priority.v`, `weight.v`, `port.v`, `target(name)` |
 | 257 | CAA | `flags u8`, `tag` (1–15 B), `value` (`str` ≤ 4096) |
 | 32768 | GEOROUTE | GeoRoute (नीचे देखें) |
+| 32769 | NS4 | 4 बाइट (IPv4 पता) |
+| 32770 | NS6 | 16 बाइट (IPv6 पता) |
 | अन्य | Unknown | code.v + `bytes` ≤ 4096 |
+
+प्रकार 32769 (`NS4`) और 32770 (`NS6`) निजी सकोन प्रकार हैं
+(गैर-IANA श्रेणी, `GEOROUTE` जैसी ही परिवार): नाम के बजाय
+IPv4/IPv6 पते द्वारा नामित nameserver को प्रतिनिधित्व।
 
 उदाहरण: `A 192.0.2.1` (TTL 86,400) → `01 80 a3 05 c0 00 02 01`
 (प्रकार, TTL varint, पता)।
@@ -317,19 +344,19 @@ Message = disc u8 || payload
 | `0x0a` | `Checkpoint` | दोनों | `Checkpoint` | signers ≤ 64 | — |
 | `0x0b` | `GetCheckpoints` | दोनों | — | — | checkpoint window |
 | `0x0c` | `GetStatus` | दोनों | — | — | `NodeStatus` |
-| `0x0d` | `NodeStatus` | दोनों | नोड अवस्था (network, tip, height, NAT, domains, mempool, peers, finality, fresh operators) | — | — |
+| `0x0d` | `NodeStatus` | दोनों | नोड अवस्था (network, tip, height, NAT, domains, mempool, peers, finalized epoch, checkpoint window size, fresh operators) | — | — |
 | `0x0e` | `LookupName` | दोनों | `name(str)` | — | `NameState` |
 | `0x0f` | `NameState` | दोनों | नाम + TLD की ऑन-चेन अवस्था, CAS जनरेशन सहित (mutation काउंटर, registered_at) | — | — |
 | `0x10` | `GetOwnedNames` | दोनों | `owner[32]` | — | `OwnedNames` |
 | `0x11` | `OwnedNames` | दोनों | स्वामी के जीवित डोमेन + TLD | — | — |
-| `0x12` | `Error` | उत्तर | अनुप्रयोग-स्तरीय त्रुटि संदेश (`str`) | — | — |
+| `0x12` | `Error` | उत्तर | अनुप्रयोग-स्तरीय त्रुटि संदेश (`str`, ≤ 4096 बाइट, एनकोडिंग और डिकोडिंग पर जाँचा) | — | — |
 
 ### Checkpoint (M5)
 
 एक समुच्चित चेकपॉइंट वायर पर इस रूप में जाता है: टैग `SCONE-CKPT-V1` ||
 बॉडी `CheckpointData` (116 B, LE — हस्ताक्षर प्रीइमेज के अंत के समान:
-`epoch(8) height(8) block_hash(32) prev_checkpoint_hash(32)
-state_root(32) recovery(4)`) || `count.v` || प्रत्येक हस्ताक्षरकर्ता के लिए
+`epoch(8) height(8) recovery(4) block_hash(32)
+prev_checkpoint_hash(32) state_root(32)`) || `count.v` || प्रत्येक हस्ताक्षरकर्ता के लिए
 `pk[32] ‖ sig[64]`, **आरोही pk क्रम में, बिना प्रतिकृति**, `count ≤ 64`
 (`MAX_CHECKPOINT_SIGNERS`)। सख्त डिकोडिंग: कर्तन, गलत टैग,
 गैर-कैननिकल pk, प्रतिकृतियाँ या अक्रमबद्ध = अस्वीकृति (`None`), कभी
@@ -410,12 +437,15 @@ canonical object → canonical binary encoding → hash / signature
 | `InvalidVarint` | गैर-न्यूनतम, ओवरफ़्लोइंग या बहुत लंबा varint |
 | `IntegerOutOfRange` | पूर्णांक अपने लक्ष्य प्रकार में फिट नहीं |
 | `UnsupportedVersion` | शून्य या स्थानीय से ऊँचा संस्करण |
+| `PowNotSignable` | हस्ताक्षर पथ से गुज़रा pow-to-owner रूप (वे कभी हस्ताक्षरित नहीं होते — माइन किया प्रूफ ही प्राधिकरण है) |
 | `UnknownDiscriminant` | अज्ञात लेनदेन/संदेश डिस्क्रिमिनेंट |
 | `LimitExceeded` | सीमा से परे लंबाई या गिनती |
 | `InvalidUtf8` | गैर-UTF-8 स्ट्रिंग |
+| `InvalidTransactionKey` | एम्बेडेड Ed25519 सार्वजनिक कुंजी वैध curve बिंदु नहीं |
 | `TrailingBytes` | पूर्ण मान के बाद शेष बाइट्स |
 | `Validation` | किसी `scone-core` अपरिवर्तनीय नियम का उल्लंघन |
 | `NonCanonical` | प्रति-फ़ील्ड वैध लेकिन गैर-कैननिकल एनकोडिंग |
+| `InvalidDelegateSet` | record-delegate समुच्चय सीमा से बाहर या गैर-कैननिकल (≤ 3 कुंजियाँ, सख्ती से आरोही, बिना प्रतिकृति) |
 
 नेटवर्क डेटा पर डिकोडिंग कभी panic नहीं करती।
 
@@ -425,8 +455,13 @@ canonical object → canonical binary encoding → hash / signature
   (`ed25519-dalek`, `verify_strict` सत्यापन — मैलिएबल
   हस्ताक्षर और दुर्बल कुंजियाँ अस्वीकृत);
 - **चेन लेनदेन**: प्रत्येक `RegisterDomain` / `RegisterTld` /
-  `UpdateDomain` पेलोड `"SCONE-TX-SIG-V1" || canonical_encode(tx_without_signature)` पर
-  `public_key` (32 B) + `signature` (64 B) एम्बेड करता है;
+  `UpdateDomain` पेलोड `"SCONE-TX-SIG-V1" || disc || version ||
+  network_id(str ≤ 16) || body(tx_without_signature)` पर
+  `public_key` (32 B) + `signature` (64 B) एम्बेड करता है —
+  `network_id` एनकोडेड लेनदेन का पहला फ़ील्ड (डिस्क्रिमिनेंट और
+  प्रारूप संस्करण के ठीक बाद) के रूप में इंजेक्ट होता है,
+  प्रत्येक हस्ताक्षर को एक नेटवर्क से बाँधता है (वायर स्वयं कोई
+  `network` फ़ील्ड नहीं लाता, ऊपर देखें);
   पूरा नॉर्मेटिव विनिर्देश: `/docs/en/technical/transactions.md`;
 - **DHT रिकॉर्ड** (`SignedDnsRecord`): हस्ताक्षरित पेलोड
   `DnsRecord` की कैननिकल एनकोडिंग है; सत्यापन `record + owner + signature`

@@ -15,7 +15,7 @@
 ## अवलोकन
 
 - **KDF**: Argon2id (v0x13), डिफ़ॉल्ट पैरामीटर `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (`argon2` crate के डिफ़ॉल्ट)।
+  `t_cost` = 3, `p_cost` = 1 (scone-keystore डिफ़ॉल्ट)।
 - **एन्क्रिप्शन**: XChaCha20-Poly1305 (AEAD), KDF से व्युत्पन्न 32-बाइट
   कुंजी, प्रति फ़ाइल 24-बाइट यादृच्छिक nonce।
 - **एन्क्रिप्टेड सामग्री**: ठीक Ed25519 seed (32 बाइट); Poly1305
@@ -95,24 +95,32 @@ key = Argon2id(passphrase, salt, m_cost = m_cost_mib × 1024 KiB,
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-v1 में कोई संबद्ध डेटा (AAD) नहीं। प्रति फ़ाइल यादृच्छिक 24-बाइट
+दोनों संस्करणों में कोई संबद्ध डेटा (AAD) नहीं। प्रति फ़ाइल
+यादृच्छिक 24-बाइट
 nonce, nonce पुनःउपयोग जोखिम को नगण्य बनाता है (कीफ़ाइलें केवल
 एक बार लिखी जाती हैं)।
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — कोर फ़ंक्शन
 
 | फ़ंक्शन | भूमिका |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | कुंजी उत्पन्न करता है, एन्क्रिप्टेड कीफ़ाइल लिखता है (जनक निर्देशिकाएँ बनाता है); मौजूदा फ़ाइल को **अधिलेखित करने से इनकार** (`Error::KeyfileExists`); कुंजी मेमोरी में लौटाता है |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | वही, लेकिन स्पष्ट रूप से मौजूदा कीफ़ाइल बदलता है |
 | `open(path, passphrase) -> SigningKey` | डिक्रिप्ट कर हस्ताक्षर कुंजी लौटाता है |
-| `list(dir) -> Vec<KeyEntry>` | निर्देशिका में `*.sconekey` फ़ाइलें सूचीबद्ध करता है (नाम से क्रमबद्ध); गुम निर्देशिका = खाली सूची |
+| `list(dir) -> Vec<KeyEntry>` | निर्देशिका में `*.sconekey` फ़ाइलें सूचीबद्ध करता है (एक्सटेंशन मेल case-असंवेदनशील, नाम से क्रमबद्ध); गुम निर्देशिका = खाली सूची |
+
+वाक्यांश/लेबल वेरिएंट (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`) उसी
+सीलिंग को सार्वजनिक लेबल या कॉलर-प्रदत्त BIP39 वाक्यांश के साथ
+लपेटते हैं; वे ऊपर की कोर तालिका के बाहर रहते हैं।
 
 `GeneratedKey.signing_key` को `ed25519-dalek` द्वारा drop पर
-शून्यकृत किया जाता है (डिफ़ॉल्ट `zeroize` फ़ीचर)। व्युत्पन्न AEAD कुंजी,
-seed और डिक्रिप्ट किया गया प्लेनटेक्स्ट `zeroize::Zeroizing` में
-लिपटे हैं: Drop `?` द्वारा प्रचारित त्रुटियों सहित सभी निकास पथों को
-कवर करता है।
+शून्यकृत किया जाता है (डिफ़ॉल्ट `zeroize` फ़ीचर)। व्युत्पन्न AEAD कुंजी और
+डिक्रिप्ट किया गया प्लेनटेक्स्ट `zeroize::Zeroizing` में
+लिपटे हैं — Drop `?` द्वारा प्रचारित त्रुटियों सहित सभी निकास पथों को
+कवर करता है। सील पथ पर seed प्रतिलिपि क्षणिक है: सीलिंग कॉल के
+अंत में दायरे से बाहर निकलने वाला एक सादा स्टैक सरणी।
 
 ## फ़ाइल अनुमतियाँ
 
@@ -126,6 +134,7 @@ Unix पर कीफ़ाइल अनुमतियों `0600` (केव�
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -142,6 +151,14 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   शब्द)** ठीक एक बार दिखाता है — ताज़ा 256-बिट एन्ट्रॉपी, केवल शब्द
   वही कुंजी पुनर्जीवित करते हैं (`scone identity restore`); वे कहीं भी
   संग्रहीत नहीं होते।
+- `identity restore` वाक्यांश **कभी प्रक्रिया तर्क के रूप में नहीं**
+  पढ़ता (`ps` और shell history में दिखता है): मास्कड प्रॉम्प्ट,
+  `--phrase-file <file>` या `--phrase-env <VAR>`। वह मौजूदा
+  कीफ़ाइल को **डिफ़ॉल्ट रूप से अधिलेखित करने से इनकार** करता है
+  (`--force` स्पष्ट रूप से उसे बदलता है)।
+- रिले एंकर स्वतः-पहचान (`identity restore` नहीं): स्वतः-उत्पन्न
+  एंकर पासफ़्रेज़ `0600` पर लिखा जाता है और लेखन विफलता
+  रिपोर्ट होती है, कभी निगली नहीं जाती।
 - `identity generate` मौजूदा कीफ़ाइल को **अधिलेखित करने से इनकार**
   करता है; `--force` स्पष्ट रूप से उसे बदलता है (नया salt/nonce, नई
   कुंजी, नया वाक्यांश)।

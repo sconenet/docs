@@ -17,7 +17,9 @@
   termasuk milik relay — relay memang sudah log ke stderr sebelum
   migrasi.
 - Pesan error CLI yang menghadap pengguna (`scone: <error>`)
-  tetap di stderr: ini UX, bukan log.
+  tetap di stderr: ini UX, bukan log. Perintah yang gagal juga
+  mencetak baris stderr kedua, `[Failed: <error>]`, mencerminkan
+  baris status perintah yang berhasil.
 
 ## Level dan `--verbose` / `-v`
 
@@ -34,7 +36,7 @@ diterima sebelum atau sesudah subperintah (`scone -vv identity list`
 dan `scone identity list -vv` setara).
 
 **Mengapa `scone relay` tetap di INFO secara default**: relay
-adalah daemon — ia harus mencatat aktivitasnya (listening RPC/p2p,
+adalah daemon — ia harus mencatat aktivitasnya (listening p2p,
 blok yang diterima dan diproduksi, peer yang terhubung, penolakan)
 agar bisa dioperasikan, tanpa memerlukan flag. Perintah sekali
 jalan sebaliknya tetap diam (WARN) agar tidak mengotori terminal
@@ -71,8 +73,12 @@ flag CLI eksplisit  >  variabel .env  >  default bawaan
   lingkungan proses nyata — variabel sama, efek sama);
 - jika tidak, default bawaan clap.
 
-Variabel yang dapat diulang (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
-berakumulasi: satu baris per nilai di `.env` (dotenvy menambahkan).
+`.env` memegang SATU nilai per variabel: dotenvy menerapkan
+kemunculan PERTAMA sebuah variabel (duplikat dilewati diam-diam)
+dan tidak pernah mengakumulasi; lingkungan proses nyata juga
+menang atas berkas. Beberapa seed bootstrap atau DNS upstream
+karena itu memerlukan flag `--bootstrap` / `--dns-upstream` yang
+diulang di baris perintah.
 
 Tabel lengkap variabel `SCONE_*` (jaringan, listen P2P, bootstrap,
 genesis, UPnP, permukaan DNS, metrik, profil topologi,
@@ -83,14 +89,17 @@ berkomentarnya adalah `.env.example` di akar repositori (salin ke
 
 ## Semantik level (konvensi kode)
 
-- `error!`: kegagalan (tidak ada call site hari ini — kegagalan
+- `error!`: kegagalan lokal yang fatal (signer dinonaktifkan pada
+  state signer tak terbaca/terkorupsi, store tak terpakai,
+  kegagalan pemulihan deep-fork, passphrase anchor tidak
+  terpersist) — kegagalan
   jaringan ditelan sebagai `warn!` dan hanya kegagalan lokal yang
-  fatal muncul sebagai error bertipe dari `run()`);
+  fatal muncul sebagai error bertipe dari `run()`;
 - `warn!`: masukan jaringan permusuhan atau berbahaya yang
   ditolak, tx basi diusir dari mempool, tx bertentangan
   dijatuhkan saat produksi, kegagalan outbound/inbound,
   ketidakcocokan kunci DHT;
-- `info!`: blok diterima/diproduksi, listening RPC/p2p, peer
+- `info!`: blok diterima/diproduksi, listening p2p, peer
   terhubung, startup relay (checkpoint state);
 - `debug!`: detail internal (tx diterima, peer terputus, putaran
   RPC, daftar keystore, event kad di bawah `SCONE_KAD_DEBUG`);
@@ -109,8 +118,10 @@ membutuhkan lognya sejak boot).
   default; env `SCONE_PEER` atau `--peer` menggantikan.
 - **Tanpa `--identity`** saat keystore memegang satu identitas
   (dipakai diam-diam; beberapa → error mendaftarkannya).
-- Dihapus (stub menyarankan penggantinya): `show`, `submit`,
-  `lookup`, `owned`.
+- Dihapus: `show`, `submit`,
+  `lookup`, `owned` — tanpa stub; clap menolak nama-nama ini
+  dengan error generik "unrecognized subcommand" plus saran nama
+  terdekat.
 - Baru: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (record tunggal, tanpa berkas).
 
@@ -188,8 +199,8 @@ interop web/API permukaan lengkap tetap tersedia:
 
 setiap aksi memiliki tepat SATU jalur kanonik; alias root lama
 (`show`, `lookup`, `owned`, `renew`) telah dihapus
-(remove-cli-aliases), begitu juga `domain info` yang tidak
-pernah menjadi perintah nyata.
+(remove-cli-aliases); `domain
+info` tetap ada sebagai alias kompatibilitas `domain get`.
 
 Permukaan heks offline (`tx build|sign|verify`, subperintah
 `submit tx`) DIHAPUS (remove-tx-surface-v2): operasi M8b yang
@@ -198,8 +209,12 @@ dilayaninya kini perintah kelas satu —
 pembukaan ditambangkan untuk Anda), `scone tld transfer <tld>
 <owner>`, `scone tld revoke <tld>`, `scone domain assign <name>
 <owner>` (owner TLD, TLD privat) dan `scone domain transfer
-<name> <owner>`. Semuanya: baca state, tanda tangan, pengiriman,
-txid. Resolusi record DNS pindah ke `scone domain resolve <name>`
+<name> <owner>`. Semuanya: tanda tangan, pengiriman,
+txid. Jalur transfer (`tld transfer`, `domain transfer`) membaca
+dulu state on-chain di sisi klien — bukti transfer terikat pada
+generasi saat ini — sementara `tld open`, `tld revoke` dan
+`domain assign` tidak melakukan baca state sisi klien (node yang
+menegakkan). Resolusi record DNS pindah ke `scone domain resolve <name>`
 (dulu `record get`); kanal publikasi heks (`record put`) hilang —
 penyuntingan lewat `domain set` / `domain update`.
 - `scone domain mine <name>` — menambang HANYA bukti
@@ -225,8 +240,9 @@ penyuntingan lewat `domain set` / `domain update`.
   <tld> --to <pubkey>` mengirim bukti yang tantangannya
   mengikat kunci PENERIMA MANFAAT; `owner` on-chain dihitung
   ulang sebagai `hash(pubkey_dest)` (sebuah renew TIDAK
-  PERNAH berganti tangan). Tanpa `--proof`, perintah
-  menambang buktinya sendiri; dengan `--proof -`/FILE ia
+  PERNAH berganti tangan). Perintah `--to` selalu menambang
+  buktinya di tempat — `--proof` ada HANYA pada
+  `domain register --to`: dengan `--proof -`/FILE ia
   mengonsumsi payload `scone-domain-pow-to-v1` dan menolak
   bukti yang ditambang untuk penerima manfaat LAIN. Gaya
   pipe: `scone domain mine n.tld --mine-for <pubkey> |
@@ -258,8 +274,9 @@ pembukaan TLD privat, dan lantai registrasi TLD/domain (kurva
 panjang). Jaringan yang dipilih menentukan parameter Argon2id
 (mainnet: 64 MiB, t=2 — biaya sebenarnya; testnet/devnet:
 profil ringan, bukti milidetik). Setiap worker mengalokasikan
-jalur Argon2id 64 MiB-nya sendiri — sesuaikan `--cores` dengan
-RAM yang tersedia.
+jalur Argon2id-nya sendiri — 64 MiB pada profil mainnet,
+8 KiB pada profil ringan testnet/devnet — sesuaikan `--cores`
+dengan RAM yang tersedia.
 
 ## Build: dev vs mainnet-aktif (mainnet-compile-gate)
 
@@ -272,8 +289,7 @@ didistribusikan dibangun dengan:
 cargo build --release --features mainnet
 ```
 
-`scone --version` menunjukkan `+mainnet` pada build demikian, dan
-log startup relay mengatakan `build: mainnet-enabled`.
+`scone --version` menunjukkan `+mainnet` pada build demikian.
 
 Default `--network` mengikuti build juga: `mainnet` pada build
 mainnet-aktif (biner resmi mendaratkan pengguna di jaringan

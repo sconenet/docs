@@ -17,7 +17,7 @@
                     │              scone relay               │
   P2P (libp2p)      │                                        │
   QUIC (udp,        │  Swarm libp2p                          │
-  ephemeral port    │  ├─ identify  (address discovery)      │
+  fixed port 4001   │  ├─ identify  (address discovery)      │
   by default) ◄─────┤  ├─ ping      (liveness)               │
                     │  ├─ kad       (record DHT)             │
                     │  └─ reqres    (scone-prot. messages)   │
@@ -63,8 +63,6 @@ storage) समकालिक और शुद्ध रहता है।
 
 1. **स्पष्ट seeds** (`--bootstrap`, पूर्ण multiaddrs) — सदा
    प्राथमिकता लेते हैं; ग़ैर-रिक्त सूची देना बाकी सब को बदल देता है।
-   `--no-builtin-seeds` 100% निजी परिनियोजन के लिए एम्बेडेड seeds
-   खाली करता है।
 2. **एम्बेडेड seeds** (`scone-network/src/config.rs` में
    `builtin_seeds(network)`) — प्रत्येक आधिकारिक बाइनरी
    रिलीज़ पर जमे, प्रति नेटवर्क। बिना विन्यस्त रिले नेटवर्क से
@@ -95,9 +93,9 @@ UPnP **डिफ़ॉल्ट रूप से अक्षम** रहता 
 (`config.rs` में `enable_upnp` = `false`): सार्वजनिक परिनियोजन
 सहमति के बिना किसी राउटर से बात नहीं करता। **mDNS खोज हटा दी
 गई** (remove-mdns-discovery, 2026-10-22): peering केवल स्पष्ट
-bootstrap, बिल्ट-इन seeds और Kademlia से आता है — पुराना
-`--mdns`/`SCONE_MDNS` flag बिना प्रभाव स्वीकार किया जाता है
-(स्क्रिप्ट संगतता, `--rpc` जैसा ही व्यवहार)।
+bootstrap, बिल्ट-इन seeds और Kademlia से आता है — पुराने
+`--mdns`/`SCONE_MDNS` फ़्लैग हटा दिए गए: उन्हें देना आज एक
+clap त्रुटि है (ऐसा कोई तर्क मौजूद नहीं)।
 
 ### स्थानीय टोपोलॉजी अनुकूलन (हमेशा चालू)
 
@@ -176,11 +174,13 @@ threshold `[0,1]` — `NaN` सहित —, शून्य अंतराल
 (`only_global_ips = false`): एक LAN मेश अपनी LAN पहुँच
 परीक्षण करता है।
 
-पहुँच योग्य रिले circuit-relay v2 **hop** सक्षम करता है (यह
+प्रत्येक रिले circuit-relay v2 **hop** चलाता है (यह
 NATed पीयरों के लिए ट्रैफ़िक रिले कर सकता है) और **DCUtR**
 (hole-punching: circuit से जुड़े दो नोड सीधा कनेक्शन आज़माकर
-रिले मुक्त करते हैं)। NATed माना गया रिले स्वचालित रूप से
-पहले ज्ञात पहुँच योग्य पीयर से आरक्षण माँगता है और उसके द्वारा
+रिले मुक्त करते हैं)
+अस्वतंत्र रूप से; केवल NATed पक्ष का आरक्षण अनुरोध निर्णय-द्वारा
+गेटेड है: NATed माना गया रिले स्वचालित रूप से
+पहले CONNECTED पहुँच योग्य पीयर से आरक्षण माँगता है और उसके द्वारा
 सुनता है (पता `/p2p/<relay>/p2p-circuit`)।
 
 उत्पादन नियम: रिले होकर NATed नोड ब्लॉक
@@ -241,8 +241,9 @@ NATed पीयरों के लिए ट्रैफ़िक रिले 
    [पीयर खोज](#पीयर-खोज)): स्पष्ट `--bootstrap`
    (`/p2p/<peer-id>` पर समाप्त होना चाहिए) अन्यथा नेटवर्क के
    एम्बेडेड seeds अन्यथा सीखी निर्देशिका (`peers.json`);
-5. प्रत्येक multiaddr dial कर Kademlia तालिका में पंजीकृत करें
-   (मृत dial उपेक्षित — बाकी नेटवर्क बनाते हैं)।
+5. प्रत्येक seed multiaddr स्वॉर्म और Kademlia तालिका दोनों में
+   पंजीकृत करें (dial स्वयं Kademlia के स्वचालित bootstrap द्वारा
+   किए जाते हैं; मृत पीयर का केवल उत्तर कभी नहीं आता)।
 
 ### लेनदेन प्राप्त करना (P2P या CLI जमा)
 
@@ -267,6 +268,13 @@ NATed पीयरों के लिए ट्रैफ़िक रिले 
    हस्ताक्षरकर्ता; `AssignDomain` → TLD स्वामी + खाली नाम;
    `RenewTld` → ज्ञात निजी TLD + स्वामी, निश्चित अवधि पुनर्व्युत्पन्न, अनुग्रह-विंडो पूर्वजाँच; `RenewDomain` → ज्ञात डोमेन + स्वामी, नवीनीकरण PoW पूर्वजाँच
    (वर्तमान समाप्ति से बंधी) अगली ऊँचाई पर;
+   `TransferDomain` → ज्ञात डोमेन + स्वामी; `SetRecordDelegates`,
+   `SetTldOperator`, `SetDomainOperator` → स्वामी + CAS
+   `state_binding` = वर्तमान जनरेशन; pow-to-owner परिवार
+   (`RegisterTldPow`/`RenewTldPow`/`RegisterDomainPow`/
+   `RenewDomainPow`) → नाम/प्रूफ आकार पूर्वजाँच (कोई
+   हस्ताक्षरकर्ता नहीं, कोई हस्ताक्षर नहीं); `Slash`/`Heartbeat` →
+   पास-थ्रू (पूर्ण सत्यापन push समय पर);
 4. मेमपूल प्रविष्टि (निश्चित क्षमता, `TxId` से dedup —
    पूल में मौजूद tx दोबारा जमा करना no-op);
 5. पीयरों को प्रसारण (प्रेषक को छोड़कर)।
@@ -362,6 +370,10 @@ feed पर **प्राधिकारी DNS स्नैपशॉट** प�
 - **फ़ाइनलिटी कैच-अप**: जिस रिले का बेस खाली हो (नए नोड का
   बूट) हर tick पर पीयर से `GetCheckpoints` माँगता है जब तक
   बेस बहाल न हो जाए;
+- **proof-of-service हार्टबीट**: प्रत्येक epoch सीमा पर रिले
+  अपना `Heartbeat` लेनदेन स्वतः जारी करता है (एंकर-कुंजी-हस्ताक्षरित,
+  प्रति epoch अधिकतम एक, केवल तब जब पहचान के पास जीवित सीट हो)
+  सामान्य मेमपूल पथ से;
 - बिना एंकर कुंजी वाला रिले **निष्क्रिय** रहता है: संचित
   करता है, फ़ाइनल करता है, रिले करता है, पर कभी हस्ताक्षर नहीं;
 - `GetCheckpoints` → `checkpoint_window()` विंडू सेव;
@@ -374,9 +386,11 @@ feed पर **प्राधिकारी DNS स्नैपशॉट** प�
 एक ही ऊँचाई का बहन ब्लॉक, या जिसका जनक वर्तमान tip नहीं
 (`ParentNotTip`/`UnknownParent`), कभी खोया नहीं जाता:
 वह **पार्क** होता है (सीमित map, `PARKED_CAP = 2048` ब्लॉक, प्रत्येक
-~KiB — बदतम स्थिति RAM सीमित; भरा पार्किंग नए
-आने वालों को मौन से उपेक्षित करता है)। `accept_block` को
-पहले दिए गए हैश dedup होते हैं (`seen_blocks`): दोबारा
+~KiB — बदतम स्थिति RAM सीमित; भरा पार्किंग सबसे कम
+`(height, hash)` प्रविष्टि निकालकर ताज़ा ब्लॉक डालता है — नए
+आने वाले को कभी उपेक्षित नहीं करता)। `accept_block` को
+पहले दिए गए हैश dedup होते हैं (`seen_blocks` — 32,000 प्रविष्टियों
+की सीमित FIFO): दोबारा
 gossip किया हारा ब्लॉक पुनर्मूल्यांकित नहीं होता।
 
 प्रत्येक `Produce` tick पर, `reconsider_parked`:
@@ -391,6 +405,15 @@ gossip किया हारा ब्लॉक पुनर्मूल्य�
 हारने वाला पक्ष अपनाया: जीता ब्लॉक, एक बार दिया फिर इनकारा,
 नियमित रूप से पुनर्मूल्यांकित होता है बजाय हमेशा के लिए भूले
 जाने के (खोज chaos-30: 15 ms के अंतर पर दो बहन ब्लॉक)।
+
+**गहरे-फ़ॉर्क ठहराव संसूचक**: ब्लॉक किए गए नोड पर (पार्किंग
+ग़ैर-रिक्त या शाखा अपनाना `BlockPruned` खंडित-विंडो त्रुटि पर
+टकराता) बिना कैननिकल प्रगति के 40 लगातार उत्पादन ticks
+`recover_deep_fork` ट्रिगर करते हैं: RAM चेन और पार्किंग रीसेट,
+चेन store से फिर बूट, और रिले पीयरों से पुनः-सिंक — RAM
+विंडो से लंबे विभाजन का ईमानदार अंतिम उपाय (लॉग होता, स्व-
+बहाल; इसके बिना अटका नोड मैनुअल पुनरारंभ तक split-brained
+रहता)।
 
 **Reorg स्थिरता**: दूसरी शाखा अपनाना एकदिष्ट जोड़
 (`NonMonotonicHeight`) से नहीं जा सकता। रिले
@@ -407,8 +430,22 @@ gossip किया हारा ब्लॉक पुनर्मूल्य�
 `Block` जो अपेक्षित ऊँचाई ठीक पूरी करे, अगली ऊँचाई का
 अनुरोध ट्रिगर करता है, तक कि समाप्ति (`Pong` = कुछ और नहीं) या
 `MAX_SYNC_ROUNDS` (10,000) बैच — झूठे पीयर के विरुद्ध भी
-पूर्ण सीमा। प्राप्त ब्लॉक पूर्ण सत्यापन से गुज़रते हैं: दुर्भावनापूर्ण
+पूर्ण सीमा। **अनाथ-ट्रिगर्ड पश्च पुल**: `UnknownParent` पर
+पार्क हुआ प्राप्त ब्लॉक (उसका जनक स्थानीय रूप से अज्ञात — जैसे
+कोई फ़ॉर्क जो हमारे वियोजित रहने के दौरान बढ़ा) उसी पीयर को तुरंत
+`GetBlocks(start_height = block.height − 1)` ट्रिगर करता है;
+गुम फ़ॉर्क खंड सामग्री बनता है और पार्क किया ब्लॉक बाद के
+`reconsider_parked` निकास पर जुड़ जाता है। सीमित: प्रति अनाथ एक
+पुल, पुनः-प्रस्तुति पर `seen_blocks` द्वारा dedup। प्राप्त ब्लॉक
+पूर्ण सत्यापन से गुज़रते हैं: दुर्भावनापूर्ण
 पीयर कुछ भी अमान्य स्वीकृत नहीं करवा सकता।
+
+प्रत्येक उत्पादन tick एक आवधिक पुनः-जाँच भी चलाता है
+(`recheck_sync`): पहले से बराबरी पर पहुँचा हर जुड़ा पीयर एक सीमित
+`GetBlocks(local height + 1)` पाता है (प्रति पीयर प्रति tick एक
+अनुरोध; नया कुछ न होने पर उत्तर तुरंत `Pong`)। यही विभाजित
+द्वीपों को जोड़ता है: पूर्ति पूरी कर चुका पीयर भी बाद में
+उत्पादित ब्लॉकों के बारे में जानता है।
 
 ### रिकॉर्ड DHT
 
@@ -429,6 +466,17 @@ gossip किया हारा ब्लॉक पुनर्मूल्य�
   (`domain_info`) फिर बिना नई DHT क्वेरी सेव करते हैं।
 - Kademlia सर्वर मोड में चलता है, बिना रिकॉर्ड TTL (चेन
   वैधता शासित करती है, समय नहीं)।
+- रिकॉर्ड gossip प्लंबिंग (सीमित, एंटी-स्टॉर्म):
+  (a) प्रत्येक उत्पादन tick स्थानीय स्थायी कैश का एक PAGE जुड़े
+  पीयरों को gossip करता है (256 रिकॉर्ड, ticks के पार cursor चाल —
+  प्रति tick सीमित RAM, कैश आकार चाहे जो हो कई ticks में पूर्ण
+  कवरेज);
+  (b) प्राप्त `Record` संदेश अन्य पीयरों को तभी पुनः-gossip होता
+  है जब वह नया या स्थानीय कैश से भिन्न हो (अन्यथा हर प्राप्तकर्ता
+  हमेशा के लिए आगे भेजता रहता);
+  (c) प्रकाशन **12 मेमी NS nameservers** से अधिक वाला रिकॉर्ड
+  अस्वीकार करती है (`MAX_NS_PER_DOMAIN`, सभी रूप — hostname,
+  v4, v6)।
 
 ### रिकॉर्ड सत्यापन ("चेन ही प्राधिकार है" नियम)
 
@@ -470,15 +518,18 @@ gossip किया हारा ब्लॉक पुनर्मूल्य�
 प्रभावी bind stdout पर घोषित (machine-readable
 अनुबंध, `p2p:` जैसा): सुनते ही `metrics: <addr>` पंक्ति।
 
-**19 काउंटर** (`counter`, एकदिष्ट — हॉट पथ:
+**27 काउंटर श्रृंखलाएँ** (`counter`, एकदिष्ट — हॉट पथ:
 साझा `Arc<Metrics>` पर `fetch_add(Relaxed)`, कभी
-सहमति इनपुट नहीं):
+सहमति इनपुट नहीं), साथ में दो लेबल वाली geo श्रृंखलाएँ (सादे
+काउंटरों से पहले रेंडर, प्रति लेबल एक पंक्ति — वही नाम, भिन्न
+लेबल समुच्चय; केवल ग़ैर-रिक्त होने पर एक बार जारी):
 
 | समूह | श्रृंखलाएँ |
 |---|---|
 | Chain | `scone_blocks_applied_total`, `scone_blocks_rejected_total`, `scone_checkpoints_signed_total`, `scone_checkpoint_sigs_received_total` |
-| Mempool | `scone_txs_admitted_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
-| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total` |
+| Mempool | `scone_txs_admitted_total`, `scone_txs_duplicate_total`, `scone_txs_rejected_total`, `scone_txs_evicted_grace_total`, `scone_txs_included_total` |
+| DNS | `scone_dns_queries_total`, `scone_dns_cache_hits_total`, `scone_dns_cache_misses_total`, `scone_dns_local_chain_total`, `scone_dns_dht_answers_total`, `scone_dns_rejected_unverified_total`, `scone_dns_geo_answers_total` |
+| Geo (लेबलित) | `scone_dns_geo_by_continent_total{continent}` (UN M49 कोड), `scone_dns_geo_by_country_total{country}` (ISO 3166-1 कोड) |
 | DHT | `scone_dht_pulls_issued_total`, `scone_dht_negative_hits_total`, `scone_dht_negative_expired_total`, `scone_dht_negative_capped_total`, `scone_dht_cache_evictions_total` |
 | Peer network | `scone_peer_connections_established_total`, `scone_peer_connections_closed_total`, `scone_peer_connections_incoming_total`, `scone_peer_dial_failures_total`, `scone_peer_blocks_received_total`, `scone_peer_transactions_received_total` |
 
@@ -518,8 +569,8 @@ axum पुल) p2p प्रोटोकॉल **सीधे** बोलते
 - अनुप्रयोग अस्वीकृति → `Message::Error(msg)` (क्लाइंट तक
   पठनीय संदेश, EOF नहीं)।
 
-क्लाइंट एक न्यूनतम libp2p स्वॉर्म उठाता है (request-response +
-identify), 30 s कॉल टाइमआउट (20 s round trip)। डिफ़ॉल्ट `--peer`:
+क्लाइंट एक न्यूनतम libp2p स्वॉर्म उठाता है (request-response
+केवल — identify नहीं), 30 s कॉल टाइमआउट (20 s round trip)। डिफ़ॉल्ट `--peer`:
 `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/12D3KooW…` (स्थानीय dev नोड;
 वास्तविक peer id सहित पूर्ण multiaddr रिले
 stdout पर `p2p:` पंक्ति से घोषित)।
@@ -554,10 +605,13 @@ scone domain resolve NAME [--peer MULTIADDR]
 
 प्रत्येक नियंत्रण कमांड रिले के multiaddr (`--peer`, डिफ़ॉल्ट
 स्थानीय नोड — RPC→p2p एकीकरण, अब कोई JSON TCP चैनल नहीं) से
-सीधे QUIC बोलती है। रिले अनुपस्थित → स्पष्ट संदेश "p2p node
-unreachable — is a relay running?", ग़ैर-शून्य exit। `--rpc`
-फ़्लैग बचा है पर **अप्रचलित और उपेक्षित** (RPC सर्वर हटा;
-केवल स्क्रिप्ट संगति)।
+सीधे QUIC बोलती है। रिले अनुपस्थित → ग़ैर-शून्य exit पठनीय
+संदेश के साथ: `--peer`/`SCONE_PEER` दिया हो तो "p2p node
+unreachable — is a relay running? (...)"; स्थानीय-रिले डिफ़ॉल्ट पर
+"no local relay found — start one (`scone relay`) or point at it:
+`scone … --peer /ip4/HOST/udp/PORT/quic-v1/p2p/PEER_ID` (या
+`SCONE_PEER` सेट करें)"। पुराना `--rpc` फ़्लैग हटा दिया गया:
+उसे देना आज एक clap त्रुटि है (ऐसा कोई तर्क मौजूद नहीं)।
 
 ### वातावरण विन्यास (`.env`)
 
@@ -580,16 +634,12 @@ explicit CLI flag  >  .env variable  >  built-in default
 |---|---|---|
 | `SCONE_NETWORK` | `--network` | `testnet` (डिफ़ॉल्ट), `mainnet`, `devnet` |
 | `SCONE_DATA_DIR` | `--data-dir` | data निर्देशिका (डिफ़ॉल्ट `~/.scone/<network>/`) |
-| `SCONE_LISTEN` | `--listen` | P2P सुनने का multiaddr (डिफ़ॉल्ट: सभी इंटरफ़ेस, अल्पकालिक पोर्ट) |
-| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds, **दोहराने योग्य** (प्रति मान एक पंक्ति — dotenvy जमा करता है); builtin seeds बदलता है |
+| `SCONE_LISTEN` | `--listen` | P2P सुनने का multiaddr (डिफ़ॉल्ट: `/ip4/0.0.0.0/udp/4001/quic-v1`) |
+| `SCONE_BOOTSTRAP` | `--bootstrap` | bootstrap seeds — कई के लिए **CLI फ़्लैग दोहराएँ** (`--bootstrap A --bootstrap B`); `.env` में प्रति वेरिएबल एक ही मान (dotenvy पहली उपस्थिति रखता है, जमा नहीं करता); builtin seeds बदलता है |
 | `SCONE_GENESIS` | `--genesis` | जेनेसिस फ़ाइल (संस्थापक नोड) |
-| `SCONE_MDNS` | `--mdns` | (पुराना — mDNS खोज हटा दी गई; स्वीकृत, उपेक्षित) |
 | `SCONE_UPNP` | `--upnp` | UPnP पोर्ट मैपिंग (`true` = सक्षम) |
 | `SCONE_DNS_ADDR` | `--dns` | UDP DNS सर्वर bind पता |
-| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | रिकर्सिव फ़ॉलबैक, **दोहराने योग्य** |
-| `SCONE_DNS_CACHE_LIMIT` | `--dns-cache-limit` | DNS कैश प्रविष्टि सीमा |
-| `SCONE_DNS_CACHE_MAX_MEM` | `--dns-cache-max-mem` | DNS कैश मेमोरी सीमा (उदा. `64MB`) |
-| `SCONE_DNS_MAX_INFLIGHT` | `--dns-max-inflight` | समवर्ती DNS प्रश्न सीमा |
+| `SCONE_DNS_UPSTREAM` | `--dns-upstream` | रिकर्सिव फ़ॉलबैक — कई के लिए **CLI फ़्लैग दोहराएँ** (`--dns-upstream A --dns-upstream B`); `.env` में प्रति वेरिएबल एक मान |
 | `SCONE_METRICS_ADDR` | `--metrics-addr` | metrics endpoint address (`ADDR:PORT`)|
 | `SCONE_METRICS_TOKEN` | `--metrics-token` | metrics endpoint bearer token |
 | `SCONE_TOPOLOGY_PROFILE` | `--topology-profile` | टोपोलॉजी profile (`tiny`/`small`/`default`/`high`/`very-high`/`devtest`; डिफ़ॉल्ट `default`) |
@@ -733,7 +783,7 @@ TXT free text (spaces normalized)
 |---|---|
 | P2P फ़्रेम | पार्सिंग से पहले `MAX_MESSAGE_LEN` (1 MiB) |
 | मेमपूल | 4096 tx (आगे टाइप्ड इनकार); प्रति डोमेन `MAX_PENDING_PER_DOMAIN = 4` लंबित txs |
-| मेमपूल अनुग्रह | `MAX_GRACE_ATTEMPTS = 10` ग़ैर-निश्चित कारण से बहे tx के पुनःनिवेश (40 s/चक्र पर ≈ 7 मिनट), फिर निष्कासन |
+| मेमपूल अनुग्रह | `MAX_GRACE_ATTEMPTS = 10` ग़ैर-निश्चित कारण से बहे tx के पुनःनिवेश (डिफ़ॉल्ट 2 s उत्पादन tick पर ≈ 20 s), फिर निष्कासन |
 | फ़ॉर्क पार्किंग | `PARKED_CAP = 2048` प्रतिस्पर्धी ब्लॉक |
 | संचित चेकपॉइंट | `MAX_PENDING_CHECKPOINTS = 256` (निष्कासन: सबसे छोटा डेटा हैश) |
 | समवर्ती DHT waiters | `MAX_DHT_WAITERS` (256); DHT खोज 30 s तक सीमित (`DHT_LOOKUP_TIMEOUT`) |
@@ -741,6 +791,11 @@ TXT free text (spaces normalized)
 | DHT रिकॉर्ड | `MAX_DHT_CACHE_ENTRY` (64 KiB) |
 | स्थायी DHT कैश (डिस्क) | दोहरी LRU सीमा: `DHT_CACHE_MAX_ENTRIES` (100,000 प्रविष्टियाँ) और `DHT_CACHE_MAX_BYTES` (2 GiB) — जो पहले छुए वह कुंजी क्रम से निकालता; GC निष्कासन ब्लॉक के उसी लेनदेन में (चेन GC द्वारा मारा डोमेन कभी अनाथ प्रविष्टि नहीं छोड़ता) |
 | DHT निगेटिव कैश | `DHT_NEGATIVE_TTL_SECS` (30 s), FIFO cap `DHT_NEGATIVE_CAP` (4,096) |
+| req-res अनुरोध timeout | प्रति अनुरोध 10 s, 64 समवर्ती streams (रिले पक्ष) |
+| Kademlia क्वेरी timeout | 10 s |
+| निष्क्रिय कनेक्शन timeout | 300 s |
+| Metrics endpoint | 64 समवर्ती scrapes; हेडर पढ़ने पर 5 s deadline |
+| पता पुस्तिका (RAM) | सहेजी क्षमता के 2× पर निवेश रक्षक (सहेजी क्षमता: 2,000 प्रविष्टियाँ) |
 | RAM में चेन | जेनेसिस + tip खिड़की (इतिहास store से सेव) |
 
 एंटी-लूप नियम (H2): लेनदेन केवल तभी पुनःप्रसारित जब वह

@@ -16,7 +16,9 @@
 - **सारे लॉग stderr पर जाते हैं** (सुसंहत `tracing` प्रारूप), रिले के
   भी — रिले माइग्रेशन से पहले से ही stderr पर लॉग करता था।
 - CLI के उपयोगकर्ता-सम्मुख त्रुटि संदेश (`scone: <error>`)
-  stderr पर रहते हैं: यह UX है, लॉग नहीं।
+  stderr पर रहते हैं: यह UX है, लॉग नहीं। विफल कमांड दूसरी
+  stderr पंक्ति भी छापता है, `[Failed: <error>]`, सफल कमांडों
+  की स्थिति पंक्तियों का प्रतिबिंब।
 
 ## स्तर और `--verbose` / `-v`
 
@@ -33,7 +35,7 @@ subcommand से पहले या बाद में स्वीकृत 
 और `scone identity list -vv` समतुल्य हैं)।
 
 **`scone relay` डिफ़ॉल्ट रूप से INFO पर क्यों रहता है**: रिले एक
-डेमन है — उसे संचालन योग्य होने के लिए अपनी गतिविधि (RPC/p2p
+डेमन है — उसे संचालन योग्य होने के लिए अपनी गतिविधि (p2p
 सुनना, स्वीकृत और उत्पादित ब्लॉक, जुड़े पीयर, अस्वीकृतियाँ) लॉग करना
 चाहिए, बिना फ़्लैग माँगे। वन-शॉट कमांड इसके विपरीत
 मौन (WARN) रहते हैं ताकि टर्मिनल या स्क्रिप्ट को प्रदूषित न करें।
@@ -68,8 +70,12 @@ explicit CLI flag  >  .env variable  >  built-in default
   प्रक्रिया वातावरण में सेट हो — वही वेरिएबल, वही प्रभाव);
 - अन्यथा clap का अंतर्निहित डिफ़ॉल्ट।
 
-दोहराने योग्य वेरिएबल (`SCONE_BOOTSTRAP`, `SCONE_DNS_UPSTREAM`)
-जमा होते हैं: `.env` में प्रति मान एक पंक्ति (dotenvy append करता है)।
+`.env` प्रति वेरिएबल एक ही मान रखता है: dotenvy वेरिएबल की
+पहली उपस्थिति लागू करता है (डुप्लिकेट मौन रूप से छोड़े जाते
+हैं) और कभी जमा नहीं करता; वास्तविक प्रक्रिया वातावरण भी
+फ़ाइल पर भारी रहता है। अतः कई bootstrap seeds या DNS
+upstreams के लिए कमांड लाइन पर बार-बार `--bootstrap` /
+`--dns-upstream` फ़्लैग चाहिए।
 
 `SCONE_*` वेरिएबलों की पूरी तालिका (नेटवर्क, P2P listen,
 bootstrap, genesis, UPnP, DNS सतह, metrics, topology
@@ -80,13 +86,15 @@ profile, anchor) और प्रत्येक की semantics
 
 ## स्तर semantics (कोड परंपरा)
 
-- `error!`: विफलताएँ (आज कोई call site नहीं — नेटवर्क विफलताएँ `warn!`
+- `error!`: घातक स्थानीय विफलताएँ (अपठनीय/दूषित signer अवस्था पर
+  signer अक्षम, अनुपयोगी store, गहरे-फ़ॉर्क recovery विफलता,
+  सहेजा न गया anchor passphrase) — नेटवर्क विफलताएँ `warn!`
   के रूप में निगली जाती हैं और केवल घातक स्थानीय विफलताएँ `run()` से
-  टाइप्ड त्रुटि के रूप में सतह पर आती हैं);
+  टाइप्ड त्रुटि के रूप में सतह पर आती हैं;
 - `warn!`: दूर किए गए शत्रुतापूर्ण या दुर्भावनापूर्ण नेटवर्क प्रविष्टियाँ,
   मेमपूल से निकाले गए बासी txs, उत्पादन के दौरान छोड़े गए
   परस्पर विरोधी txs, outbound/inbound विफलताएँ, DHT कुंजी बेमेल;
-- `info!`: ब्लॉक स्वीकृत/उत्पादित, RPC/p2p सुनना, पीयर
+- `info!`: ब्लॉक स्वीकृत/उत्पादित, p2p सुनना, पीयर
   जुड़ा, रिले स्टार्टअप (अवस्था checkpoints);
 - `debug!`: आंतरिक विवरण (tx स्वीकृत, पीयर विच्छिन्न, RPC
   round trip, keystore सूचीकरण, `SCONE_KAD_DEBUG` के अंतर्गत kad
@@ -105,8 +113,10 @@ profile, anchor) और प्रत्येक की semantics
   बात करते हैं; `SCONE_PEER` env या `--peer` बदल देता है।
 - **कोई `--identity` ज़रूरी नहीं** जब कीस्टोर में एक ही पहचान हो (मौन
   रूप से उपयोग; कई → त्रुटि उन्हें सूचीबद्ध करती है)।
-- हटाए गए (stubs विकल्प सुझाते हैं): `show`, `submit`,
-  `lookup`, `owned`।
+- हटाए गए: `show`, `submit`,
+  `lookup`, `owned` — कोई stubs नहीं; clap इन नामों को अपनी
+  सामान्य "unrecognized subcommand" त्रुटि और निकटतम-नाम
+  सुझाव के साथ अस्वीकार करता है।
 - नए: `scone domain renew <name>`, `scone domains`, `scone domain
   get|set` (एकल रिकॉर्ड, कोई फ़ाइल नहीं)।
 
@@ -179,9 +189,8 @@ mutation काउंटर बढ़ाता है (CAS एंटी-री�
 इंटरऑप के लिए पूरी सतह उपलब्ध रहती है:
 
 प्रत्येक क्रिया का ठीक एक ही मानक पथ है; पुराने रूट उपनाम (`show`,
-`lookup`, `owned`, `renew`) हटा दिए गए हैं (remove-cli-aliases),
-साथ ही `domain info` का उल्लेख भी, जो कभी किसी वास्तविक कमांड से
-मेल नहीं खाता था।
+`lookup`, `owned`, `renew`) हटा दिए गए हैं (remove-cli-aliases);
+`domain info` `domain get` का संगति उपनाम रहता है।
 
 ऑफ़लाइन हेक्स सतह (`tx build|sign|verify`, `submit tx`
 subcommands) हटा दी गई (remove-tx-surface-v2): जिन M8b
@@ -190,7 +199,11 @@ subcommands) हटा दी गई (remove-tx-surface-v2): जिन M8b
 PoW आपके लिए माइन), `scone tld transfer <tld> <owner>`,
 `scone tld revoke <tld>`, `scone domain assign <name> <owner>`
 (TLD स्वामी, निजी TLD) और `scone domain transfer <name>
-<owner>`। प्रत्येक: अवस्था पढ़ना, हस्ताक्षर, जमा, txid। DNS रिकॉर्ड
+<owner>`। प्रत्येक: हस्ताक्षर, जमा, txid। स्थानांतरण पथ
+(`tld transfer`, `domain transfer`) ऑन-चेन अवस्था क्लाइंट-पक्ष
+पर पहले पढ़ते हैं — cession प्रमाण वर्तमान जनरेशन से बंधा होता
+है — जबकि `tld open`, `tld revoke` और `domain assign` कोई
+क्लाइंट-पक्ष अवस्था पढ़ाई नहीं करते (नोड लागू करता है)। DNS रिकॉर्ड
 रिज़ॉल्यूशन `scone domain resolve <name>` में चला गया (पूर्व-`record
 get`); हेक्स प्रकाशन चैनल (`record put`) गायब —
 संपादन `domain set` / `domain update` से होता है।
@@ -216,8 +229,10 @@ get`); हेक्स प्रकाशन चैनल (`record put`) गा�
   <tld> --to <pubkey>` ऐसा प्रूफ जमा करते हैं जिसका challenge
   लाभार्थी की कुंजी को बाँधता है; ऑन-चेन `owner` को
   `hash(pubkey_dest)` के रूप में पुनर्गणना किया जाता है (एक
-  renew कभी हाथ नहीं बदलता)। `--proof` के बिना कमांड स्वयं
-  प्रूफ माइन करती है; `--proof -`/FILE के साथ वह
+  renew कभी हाथ नहीं बदलता)। `--to` कमांड सदा अपना प्रूफ
+  स्थानीय रूप से माइन करती हैं — `--proof` केवल
+  `domain register --to` पर मौजूद है: `--proof
+  -`/FILE के साथ वह
   `scone-domain-pow-to-v1` पेलोड उपभोग करती है और किसी दूसरे
   लाभार्थी के लिए माइन किए प्रूफ को अस्वीकार करती है। पाइप
   शैली: `scone domain mine n.tld --mine-for <pubkey> | scone
@@ -247,8 +262,9 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 पंजीकरण फ़्लोर (लंबाई वक्र)। चयनित नेटवर्क Argon2id पैरामीटर
 निर्धारित करता है (मेननेट: 64 MiB, t=2 — वास्तविक लागत;
 testnet/devnet: हल्की प्रोफ़ाइल, मिलीसेकंड प्रूफ)। प्रत्येक
-वर्कर अपना अलग 64 MiB Argon2id लेन आवंटित करता है — उपलब्ध RAM
-के अनुसार `--cores` साइज़ करें।
+वर्कर अपना अलग Argon2id लेन आवंटित करता है — mainnet
+प्रोफ़ाइल पर 64 MiB, हल्की testnet/devnet प्रोफ़ाइल पर 8 KiB —
+उपलब्ध RAM के अनुसार `--cores` साइज़ करें।
 
 ## Builds: dev बनाम mainnet-सक्षम (mainnet-compile-gate)
 
@@ -261,8 +277,7 @@ mainnet` (और `SCONE_NETWORK=mainnet` वाले registrar services)
 cargo build --release --features mainnet
 ```
 
-ऐसी builds पर `scone --version` `+mainnet` दिखाता है, और
-रिले स्टार्टअप लॉग `build: mainnet-enabled` कहता है।
+ऐसी builds पर `scone --version` `+mainnet` दिखाता है।
 
 डिफ़ॉल्ट `--network` भी build का अनुसरण करता है: mainnet-सक्षम
 builds पर `mainnet` (आधिकारिक बाइनरी उपयोगकर्ताओं को

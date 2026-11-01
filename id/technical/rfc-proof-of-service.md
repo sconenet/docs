@@ -50,7 +50,7 @@ Heartbeat {
 Body bertanda tangan (wire, `scone-protocol`):
 `operator[32] ‖ owner[32] ‖ tip_seen[32] ‖ height_seen.v ‖
 timestamp.v ‖ operator[32]` (kunci penandatangan muncul di ekor
-body, seperti setiap tx) `‖ signature[64]`, yaitu ~230 byte
+body, seperti setiap tx) `‖ signature[64]`, yaitu ~200–215 byte
 terenkode — **tanpa PoW**: biayanya adalah kehadiran kontinu
 (satu heartbeat per epoch, berbulan-bulan).
 
@@ -314,5 +314,5 @@ replayability chain (jendela/pembersihan) atau pemilihan
 | 1 | core + protocol | `Heartbeat`, `SetTldOperator`, `SetDomainOperator`, wire, validasi | selesai |
 | 2 | blockchain | jendela geser (terjurnal), pool terfilter, pemilihan, ~15 test | selesai |
 | 3 | network | emisi otomatis, relay tx | selesai |
-| 4 | CLI | `tx build heartbeat`, tampilan `fresh operators` di `scone status` | selesai |
+| 4 | CLI | emisi otomatis oleh relay (§7); tampilan `fresh operators` di `scone status`; builder offline dihapus (cli-simplify-v1) | selesai |
 | 5 | docs | RFC ini dikonsolidasikan ke bentuk normatif, cermin fr/en | selesai |

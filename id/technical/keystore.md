@@ -15,7 +15,7 @@ di-zeroize di memori setelah dipakai.
 ## Ringkasan
 
 - **KDF**: Argon2id (v0x13), parameter default `m_cost` = 64 MiB,
-  `t_cost` = 3, `p_cost` = 1 (default crate `argon2`).
+  `t_cost` = 3, `p_cost` = 1 (default scone-keystore).
 - **Enkripsi**: XChaCha20-Poly1305 (AEAD), kunci 32-byte yang
   diturunkan dari KDF, nonce acak 24-byte per berkas.
 - **Konten terenkripsi**: tepat seed Ed25519 (32 byte); tag
@@ -97,24 +97,32 @@ Kemudian:
 ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 ```
 
-Tanpa associated data (AAD) di v1. Nonce 24-byte, acak per berkas,
-membuat risiko reuse nonce dapat diabaikan (keyfile hanya
-ditulis sekali).
+Tanpa associated data (AAD) di kedua versi. Nonce 24-byte, acak
+per berkas, membuat risiko reuse nonce dapat diabaikan (keyfile
+hanya ditulis sekali).
 
-## API (`scone-keystore`)
+## API (`scone-keystore`) — fungsi inti
 
 | Fungsi | Peran |
 |---|---|
 | `create(path, passphrase) -> GeneratedKey` | Menghasilkan kunci, menulis keyfile terenkripsi (membuat direktori induk); **menolak menimpa** berkas yang ada (`Error::KeyfileExists`); mengembalikan kunci di memori |
 | `create_overwriting(path, passphrase) -> GeneratedKey` | Sama, tetapi secara eksplisit mengganti keyfile yang ada |
 | `open(path, passphrase) -> SigningKey` | Mendekripsi dan mengembalikan kunci penandatangan |
-| `list(dir) -> Vec<KeyEntry>` | Mendaftar berkas `*.sconekey` dalam sebuah direktori (diurutkan per nama); direktori hilang = daftar kosong |
+| `list(dir) -> Vec<KeyEntry>` | Mendaftar berkas `*.sconekey` dalam sebuah direktori (pencocokan ekstensi tidak peka huruf besar/kecil, diurutkan per nama); direktori hilang = daftar kosong |
+
+Varian phrase/label (`create_labeled`,
+`create_overwriting_labeled`, `create_with_phrase`,
+`create_with_phrase_overwriting`, `restore_from_phrase`)
+membungkus penyegelan yang sama dengan label publik atau frasa
+BIP39 yang diberikan pemanggil; mereka berada di luar tabel inti
+di atas.
 
 `GeneratedKey.signing_key` di-zeroize saat drop oleh
-`ed25519-dalek` (fitur `zeroize` default). Kunci AEAD turunan,
-seed, dan plaintext terdekripsi dibungkus
-`zeroize::Zeroizing`: Drop mencakup semua jalur keluar, termasuk
-error yang diteruskan `?`.
+`ed25519-dalek` (fitur `zeroize` default). Kunci AEAD turunan
+dan plaintext terdekripsi dibungkus `zeroize::Zeroizing` —
+Drop mencakup semua jalur keluar, termasuk error yang diteruskan
+`?`. Pada jalur seal, salinan seed bersifat transien: array stack
+biasa yang keluar dari cakupan pada akhir panggilan penyegelan.
 
 ## Izin berkas
 
@@ -128,6 +136,7 @@ menimpa diam-diam.
 
 ```bash
 scone identity generate <n> [--dir <directory>] [--passphrase-env VAR] [--force]
+scone identity restore <name> [--phrase-file <file>] [--phrase-env VAR] [--dir <directory>] [--passphrase-env VAR] [--force]
 scone identity list [--dir <directory>]
 scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
 ```
@@ -144,6 +153,14 @@ scone identity show <n> [--dir <directory>] [--passphrase-env VAR]
   kata)** tepat sekali — entropi 256-bit segar, kata-kata itu saja
   meregenerasi kunci yang sama (`scone identity restore`); ia
   tidak pernah disimpan di mana pun.
+- `identity restore` membaca frasa **tidak pernah sebagai argumen
+  proses** (terlihat via `ps` dan riwayat shell): prompt
+  tersamar, `--phrase-file <file>` atau `--phrase-env <VAR>`. Ia
+  **menolak menimpa** keyfile yang ada secara default
+  (`--force` menggantinya secara eksplisit).
+- Identitas otomatis anchor relay (bukan `identity restore`):
+  passphrase anchor yang dihasilkan otomatis ditulis `0600` dan
+  kegagalan tulis dilaporkan, tidak pernah ditelan diam-diam.
 - `identity generate` **menolak menimpa** keyfile yang ada;
   `--force` secara eksplisit menggantinya (salt/nonce baru, kunci
   baru, frasa baru).
