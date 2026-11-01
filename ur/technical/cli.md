@@ -97,7 +97,8 @@ explicit CLI flag  >  .env variable  >  built-in default
   mempool سے نکالے گئے پرانے txs، پیداوار کے دوران چھوڑے گئے
   متضاد txs، آؤٹ باؤنڈ/ان باؤنڈ ناکامیاں، DHT کلید بے میلانی؛
 - `info!`: بلاک قبول/پیدا، p2p سننا، پیر
-  جڑا، ریلے اسٹارٹ اپ (اسٹیٹ چیک پوائنٹس)؛
+  جڑا، ریلے اسٹارٹ اپ (اسٹیٹ چیک پوائنٹس) اور بلڈ
+  فلیور لائن (`build: mainnet-enabled` / `build: standard`)؛
 - `debug!`: اندرونی تفصیلات (tx قبول، پیر الگ، RPC
   راؤنڈ ٹرپ، keystore فہرست، `SCONE_KAD_DEBUG` کے تحت kad
   واقعات)؛
@@ -269,6 +270,10 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 مطابق `--cores` سائز کریں۔
 
 ## بلڈز: dev بمقابلہ mainnet-کندہ (mainnet-compile-gate)
+
+ریلے اسٹارٹ اپ لاگ کا آغاز بلڈ فلیور
+(`build: mainnet-enabled` / `build: standard`) سے ہوتا ہے —
+`+mainnet` ورژن مارکر کا رن ٹائم ہم منصب۔
 
 ڈیفالٹ بلڈز میں **کوئی مین نیٹ نہیں**: `scone relay --network
 mainnet` (اور `SCONE_NETWORK=mainnet` کے ساتھ رجسٹرار خدمات)

@@ -233,6 +233,9 @@ scone relay --topology-profile tiny
 
 ### اسٹارٹ اپ
 
+اسٹارٹ اپ لاگ کا آغاز بلڈ فلیور
+(`build: mainnet-enabled` / `build: standard`) سے ہوتا ہے۔
+
 0. نیٹ ورک حل (`--network testnet|mainnet|devnet`، جبکہ پروجیکٹ
    dev میں ہے ڈیفالٹ ٹیسٹ نیٹ — M8b)۔ ڈیٹا ڈائر **فی
    نیٹ ورک** ہے (`~/.scone/<network>/`): غیر خالی اسٹور جو کسی
