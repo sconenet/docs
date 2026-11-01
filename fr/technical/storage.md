@@ -344,13 +344,12 @@ relais + store) :
    désapprend des clés, des upserts seuls garderaient les fantômes
    de la branche perdante). L'index de noms
    (`names_v3`/`name_reverse_v3`) et les planchers TLD vivants
-   (`tld_floors_v1`) ne sont PAS réécrits par cette étape.
-   **Limitation connue (suivi code en attente)** : après une réorg,
-   des entrées fantômes de l'index de noms et des lignes de
-   planchers périmées de la branche perdante peuvent persister
-   jusqu'à ce que les propres deltas du suffixe ré-ajouté les
-   écrasent ou qu'une reconstruction (`rebuild_name_index`, replay)
-   s'exécute ;
+   (`tld_floors_v1`) sont réécrits dans la MÊME transaction : les
+   entrées fantômes de la branche perdante et les lignes de
+   planchers périmées sont supprimées (delta contre l'état
+   post-réorg) — aucune entrée fantôme ni plancher périmé ne
+   survit à la réorg ; la `rebuild_name_index`/replay au démarrage
+   reste le filet de sécurité en cas de crash ;
 3. ré-ajout monotone du suffixe adopté (deltas ordinaires).
 
 Un échec de persistance sur ce chemin est journalisé et dégradé (le

@@ -103,7 +103,9 @@ vers `.env`, ne jamais le committer — `.env` est gitignored).
   conflictuelles abandonnées pendant la production, échecs
   sortants/entrants, discordance de clé DHT ;
 - `info!` : bloc accepté/produit, écoute p2p, pair connecté,
-  démarrage du relais (points de contrôle de l'état) ;
+  démarrage du relais (points de contrôle de l'état) et la ligne
+  de flavor de build au démarrage —
+  `build: mainnet-enabled` / `build: standard` ;
 - `debug!` : détails internes (transaction acceptée, pair
   déconnecté, aller-retour RPC, listing du coffre de clés,
   événements kad sous `SCONE_KAD_DEBUG`) ;
@@ -286,6 +288,10 @@ profil léger testnet/devnet — dimensionnez `--cores` sur la RAM
 disponible.
 
 ## Builds : dev vs mainnet-activé (mainnet-compile-gate)
+
+Le journal de démarrage du relais s'ouvre sur la flavor de build
+(`build: mainnet-enabled` / `build: standard`) — l'équivalent
+exécutable du marqueur `+mainnet` de `--version`.
 
 Les builds par défaut n'embarquent **pas de mainnet** : `scone
 relay --network mainnet` (et les services du registrar avec

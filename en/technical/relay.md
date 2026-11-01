@@ -227,6 +227,9 @@ bounded: never more than one block in flight per peer.
 
 ### Startup
 
+The startup log opens with the build flavor
+(`build: mainnet-enabled` / `build: standard`).
+
 0. network resolution (`--network testnet|mainnet|devnet`, testnet default
    while the project is in dev — M8b). The data-dir is **per
    network** (`~/.scone/<network>/`): a non-empty store that holds a

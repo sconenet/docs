@@ -18,7 +18,7 @@ trip, two when the first answer is `pending` — see the
 resolution path) — the same verified path as the CLI.
 
 ```text
-              UDP+TCP :5353 (no value = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (no value = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -55,11 +55,10 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + recursive fallback
 ```
 
-`--dns` WITHOUT a value binds `0.0.0.0:5353` — ALL interfaces
-(reachable from every network the host is attached to; a
-loopback-only default is a flagged security follow-up). Pass an
-explicit address to bind precisely (`--dns 127.0.0.1:5353` =
-local queries only).
+`--dns` WITHOUT a value binds `127.0.0.1:5353` — secure by
+default (local queries only). Public exposure is opt-in: pass an
+explicit address (`--dns 0.0.0.0:5353` = ALL interfaces, reachable
+from every network the host is attached to).
 
 The relay announces the effective address on stdout
 (machine-readable contract, like `p2p:`): a `dns: <addr>` line as
@@ -444,21 +443,15 @@ decoder meeting a discriminant ≥ `0x03` already failed strictly
 
 ### Selection (resolution)
 
-> **Relay limitation (current binary)**: only the **World**,
-> **Continent** and **Country** scopes are actually served by the
-> `scone relay` resolver. **Region**, **Asn** and **IpPrefix**
-> routes validate on-chain (wire decode, signature, uniqueness)
-> and count in the canonical sort, but the serving path re-decodes
-> record sets through a JSON form that only knows the three v1
-> scopes: routes carrying those scopes are dropped before
-> selection and never elected. A domain whose ONLY routes carry
-> Region/Asn/IpPrefix falls back to the classic DNS path
-> (typically NODATA on A/AAAA). Code follow-up pending.
+All six wire scopes are served by the resolver: the serving path
+decodes the same scope set the wire accepts (world, continent,
+country, region, asn, ipPrefix) — a route validated on-chain is
+never dropped before selection.
 
 1. **Scope** — decreasing specificity, **6 levels**:
    **longest matching IP prefix → exact AS → exact country →
    exact region → continent → world**.
-   - *IpPrefix*: among the routes whose prefix matches the
+    - *IpPrefix*: among the routes whose prefix matches the
      client's IP (as known to the locator: `client_ip`, otherwise
      the known origin prefixes), the **longest** (`len` max)
      wins; on equal `len`, the first in canonical order (the
@@ -468,14 +461,11 @@ decoder meeting a discriminant ≥ `0x03` already failed strictly
      (opaque numbering, reliable only if the publisher and the
      locator share the same one), but more than the continent
      (it is contained in its country, hence a fortiori in its
-     continent) — **not served** by the current relay (see the
-     limitation above).
-   - *Asn*: exact AS number of the client (**not served** by the
-     current relay — see the limitation above).
-   - *Country*: exact country.
-   - *Region*: exact subdivision (opaque identifier; **not
-     served** by the current relay — see the limitation above).
-   - *Continent*: provided by the locator **or derived from the
+      continent).
+    - *Asn*: exact AS number of the client.
+    - *Country*: exact country.
+    - *Region*: exact subdivision (opaque identifier).
+    - *Continent*: provided by the locator **or derived from the
      country** via the local table (`continent_of_country`); a
      country unknown to the table falls back to the explicit
      continent or world.

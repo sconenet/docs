@@ -232,6 +232,9 @@ C'est délibérément borné : jamais plus d'un bloc en vol par pair.
 
 ### Démarrage
 
+Le journal de démarrage s'ouvre sur la flavor de build
+(`build: mainnet-enabled` / `build: standard`).
+
 0. résolution du réseau (`--network testnet|mainnet|devnet`, testnet par
    défaut tant que le projet est en dev — M8b). Le data-dir est **par
    réseau** (`~/.scone/<network>/`) : un store non vide contenant une

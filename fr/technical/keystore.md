@@ -124,12 +124,10 @@ du tableau du cœur ci-dessus.
 
 `GeneratedKey.signing_key` est zéroisée au drop par
 `ed25519-dalek` (fonctionnalité `zeroize` par défaut). La clé
-AEAD dérivée et le clair déchiffré sont enveloppés dans
-`zeroize::Zeroizing` — le Drop couvre tous les chemins de
-sortie, y compris les erreurs propagées par `?`. Sur le chemin
-de scellement, la copie de la seed est transitoire : un simple
-tableau en pile qui sort de portée à la fin de l'appel de
-scellement.
+AEAD dérivée, le clair déchiffré et la copie de la seed du
+chemin de scellement sont enveloppés dans `zeroize::Zeroizing`
+— le Drop couvre tous les chemins de sortie, y compris les
+erreurs propagées par `?`.
 
 ## Permissions des fichiers
 

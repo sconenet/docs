@@ -115,11 +115,10 @@ same sealing with a public label or a caller-supplied BIP39
 phrase; they sit outside the core table above.
 
 `GeneratedKey.signing_key` is zeroized on drop by `ed25519-dalek`
-(default `zeroize` feature). The derived AEAD key and the
-decrypted plaintext are wrapped in `zeroize::Zeroizing` — Drop
-covers all exit paths, including errors propagated by `?`. On the
-seal path the seed copy is transient: a plain stack array that
-goes out of scope at the end of the sealing call.
+(default `zeroize` feature). The derived AEAD key, the decrypted
+plaintext and the seal path's seed copy are wrapped in
+`zeroize::Zeroizing` — Drop covers all exit paths, including
+errors propagated by `?`.
 
 ## File permissions
 

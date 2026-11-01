@@ -337,11 +337,11 @@ relay + store):
    keys (clear-then-write — a rollback un-learns keys, so upserts
    alone would keep the losing branch's phantoms). The name index
    (`names_v3`/`name_reverse_v3`) and the live TLD floors
-   (`tld_floors_v1`) are NOT rewritten by this step. **Known
-   limitation (code follow-up pending)**: after a reorg, ghost
-   name-index entries and stale floor rows of the losing branch
-   can linger until the re-appended suffix's own deltas overwrite
-   them or a rebuild (`rebuild_name_index`, replay) runs;
+   (`tld_floors_v1`) are rewritten in the SAME transaction: ghost
+   entries of the losing branch and stale floor rows are removed
+   (delta against the post-reorg state), so no ghost binding or
+   stale floor survives the reorg; the boot-time
+   `rebuild_name_index`/replay remain the crash-repair safety net;
 3. monotonic re-append of the adopted suffix (ordinary deltas).
 
 A persistence failure on this path is logged and degraded (the

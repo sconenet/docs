@@ -18,7 +18,7 @@ aller-retour, deux quand la première réponse est `pending` — voir le
 chemin de résolution) — le même chemin vérifié que le CLI.
 
 ```text
-              UDP+TCP :5353 (no value = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (no value = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -55,11 +55,11 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + recursive fallback
 ```
 
-`--dns` SANS valeur lie `0.0.0.0:5353` — TOUTES les interfaces
-(joignable depuis chaque réseau auquel l'hôte est attaché ; un
-défaut loopback-only est un suivi sécurité signalé). Passez une
-adresse explicite pour lier précisément (`--dns 127.0.0.1:5353` =
-requêtes locales uniquement).
+`--dns` SANS valeur lie `127.0.0.1:5353` — sûr par défaut
+(requêtes locales uniquement). L'exposition publique est
+explicite : passez une adresse (`--dns 0.0.0.0:5353` = TOUTES
+les interfaces, joignables depuis chaque réseau auquel l'hôte
+est attaché).
 
 Le relais annonce l'adresse effective sur stdout (contrat
 lisible par machine, comme `p2p:`) : une ligne `dns: <addr>` dès que
@@ -458,17 +458,11 @@ l'identique (voir le test `geo_known_bytes`, gelé).
 
 ### Sélection (résolution)
 
-> **Limitation du relais (binaire actuel)** : seules les portées
-> **World**, **Continent** et **Country** sont réellement servies par
-> le résolveur `scone relay`. Les routes **Region**, **Asn** et
-> **IpPrefix** valident on-chain (décodage wire, signature,
-> unicité) et comptent dans le tri canonique, mais le chemin de
-> service re-décode les jeux d'enregistrements via une forme JSON
-> qui ne connaît que les trois portées v1 : les routes portant ces
-> portées sont abandonnées avant la sélection et jamais élues. Un
-> domaine dont TOUTES les routes portent Region/Asn/IpPrefix
-> retombe sur le chemin DNS classique (typiquement NODATA sur
-> A/AAAA). Suivi code en attente.
+Les six portées acceptées par le wire sont servies par le
+résolveur : le chemin de service décode le même ensemble de
+portées que le wire (world, continent, country, region, asn,
+ipPrefix) — une route validée on-chain n'est jamais abandonnée
+avant la sélection.
 
 1. **Portée** — spécificité décroissante, **6 niveaux** : **plus long
    préfixe IP correspondant → AS exact → pays exact → région exacte →
@@ -482,15 +476,10 @@ l'identique (voir le test `geo_known_bytes`, gelé).
      identifient le réseau exact) et moins que le pays (numérotation
      opaque, fiable seulement si l'éditeur et le localisateur
      partagent la même), mais plus que le continent (elle est
-     contenue dans son pays, donc a fortiori dans son continent) —
-     **non servie** par le relais actuel (voir la limitation
-     ci-dessus).
-   - *Asn* : numéro d'AS exact du client (**non servie** par le
-     relais actuel — voir la limitation ci-dessus).
+     contenue dans son pays, donc a fortiori dans son continent).
+   - *Asn* : numéro d'AS exact du client.
    - *Country* : pays exact.
-   - *Region* : subdivision exacte (identifiant opaque ; **non
-     servie** par le relais actuel — voir la limitation
-     ci-dessus).
+   - *Region* : subdivision exacte (identifiant opaque).
    - *Continent* : fourni par le localisateur **ou dérivé du pays**
      via la table locale (`continent_of_country`) ; un pays inconnu
      de la table retombe sur le continent explicite ou le monde.

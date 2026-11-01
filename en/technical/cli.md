@@ -96,7 +96,8 @@ to `.env`, never commit it — `.env` is gitignored).
   stale txs evicted from the mempool, conflicting txs dropped
   during production, outbound/inbound failures, DHT key mismatch;
 - `info!`: block accepted/produced, p2p listening, peer
-  connected, relay startup (state checkpoints);
+  connected, relay startup (state checkpoints) and the build
+  flavor line (`build: mainnet-enabled` / `build: standard`);
 - `debug!`: internal details (tx accepted, peer disconnected, RPC
   round trip, keystore listing, kad events under
   `SCONE_KAD_DEBUG`);
@@ -263,6 +264,10 @@ millisecond proofs). Each worker allocates its own Argon2id lane
 testnet/devnet profile — size `--cores` to the available RAM.
 
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
+
+The relay startup log opens with the build flavor
+(`build: mainnet-enabled` / `build: standard`) — the runtime
+counterpart of the `+mainnet` version marker.
 
 Default builds carry **no mainnet**: `scone relay --network
 mainnet` (and registrar services with `SCONE_NETWORK=mainnet`)
