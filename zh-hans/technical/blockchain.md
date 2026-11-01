@@ -634,14 +634,16 @@ canonical chain
 3. `version` **恰好** == `PROTOCOL_VERSION`
    （任何其他版本 —— 更低或更高 —— 都被
    拒绝，而不是被重新解释）；
-3bis. **链时间窗口**：父区块的时间戳是链**唯一的**
+3bis. **链时间策略**：父区块的时间戳是链**唯一的**
    时间来源（过期 GC、`valid_until` 截止时间）——
    区块必须满足 `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS`（10 年；类型化错误
-   `InvalidTimestamp`）。高度 1、即链时间的原点，
-   按原样提交自己的时间戳，但必须在 `u64::MAX`
-   之下留出同样的余量，使任何单个区块都永远
-   无法开启一个覆盖整个时间空间的 GC 窗口；
+   MAX_BLOCK_TIME_STEP_SECS`（600 秒；类型化错误
+   `InvalidTimestamp`）。链时间是单调的（从不倒退），
+   其验证从不读取节点的墙上时钟。高度 1、即链
+   时间的原点，按原样提交自己的时间戳，但必须
+   在 `u64::MAX` 之下留出同样的余量。该步长限定
+   了单个区块可消耗的过期范围：大规模过期需要
+   持续的多数出块份额；
 4. 交易数 ≤ `MAX_TXS_PER_BLOCK`（4096）；
 5. 在区块顺序上对交易重算 `tx_root`；
 6. 共识钩子（`validate_header`、`validate_tx`）；

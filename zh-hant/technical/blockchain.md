@@ -613,14 +613,16 @@ canonical chain
 2. `height` == 尖端高度 + 1；
 3. `version` **恰好** == `PROTOCOL_VERSION`（任何其他
    版本 — 較低或較高 — 都被拒絕，不被重新解釋）；
-3bis. **鏈時間窗口**：父區塊的時間戳是鏈唯一的
+3bis. **鏈時間政策**：父區塊的時間戳是鏈唯一的
    時間來源（到期 GC、`valid_until` 期限）— 區塊必須
    滿足 `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS`（10 年；型別化錯誤
-   `InvalidTimestamp`）。高度 1（鏈時間原點）照樣
-   承諾自己的時間戳，但必須在 `u64::MAX` 之下留下
-   相同的餘裕，因此任何單一區塊都無法開啟覆蓋
-   整個時間空間的 GC 窗口；
+   MAX_BLOCK_TIME_STEP_SECS`（600 秒；型別化錯誤
+   `InvalidTimestamp`）。鏈時間是單調的（絕不
+   倒退），且其驗證絕不讀取節點的本機時鐘。
+   高度 1（鏈時間原點）照樣承諾自己的時間戳，
+   但必須在 `u64::MAX` 之下留下相同的餘裕。此
+   步長限制了單一區塊可消耗的到期視界：大規模
+   到期需要持續的多數產出份額；
 4. 交易數 ≤ `MAX_TXS_PER_BLOCK`（4096）；
 5. 對區塊順序中的交易重新計算 `tx_root`；
 6. 共識掛鉤（`validate_header`、`validate_tx`）；

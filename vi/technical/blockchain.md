@@ -620,14 +620,17 @@ giờ được lấy theo mặt chữ:
 3. `version` == `PROTOCOL_VERSION` **chính xác** (mọi phiên bản
    khác — thấp hơn hay cao hơn — đều bị từ chối, không diễn giải
    lại);
-3bis. **cửa sổ thời gian chuỗi**: timestamp của khối cha là nguồn
+3bis. **chính sách thời gian chuỗi**: timestamp của khối cha là nguồn
    thời gian DUY NHẤT của chuỗi (GC hết hạn, các hạn chót
    `valid_until`) — khối phải thỏa `parent_time ≤ timestamp ≤
-   parent_time + MAX_TIMESTAMP_DRIFT_SECS` (10 năm; lỗi có kiểu
-   `InvalidTimestamp`). Chiều cao 1, gốc thời gian chuỗi, cam kết
+   parent_time + MAX_BLOCK_TIME_STEP_SECS` (600 s; lỗi có kiểu
+   `InvalidTimestamp`). Thời gian chuỗi là đơn điệu (không bao giờ
+   chạy ngược) và việc xác thực của nó không bao giờ đọc đồng hồ
+   tường của nút. Chiều cao 1, gốc thời gian chuỗi, cam kết
    timestamp của nó nguyên trạng nhưng phải để lại cùng khoảng
-   trống phía dưới `u64::MAX`, nên không khối đơn nào có thể mở
-   một cửa sổ GC phủ toàn bộ không gian thời gian;
+   trống phía dưới `u64::MAX`. Bước này giới hạn chân trời hết hạn
+   mà một khối đơn có thể tiêu thụ: hết hạn hàng loạt đòi hỏi một
+   tỷ trọng produce đa số được duy trì;
 4. số giao dịch ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` tính lại trên các giao dịch theo thứ tự khối;
 6. các móc đồng thuận (`validate_header`, `validate_tx`);
