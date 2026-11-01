@@ -115,11 +115,10 @@ mesma selagem com um label público ou uma frase BIP39 fornecida
 pelo chamador; elas ficam fora da tabela central acima.
 
 `GeneratedKey.signing_key` é zerado no drop por `ed25519-dalek`
-(feature `zeroize` padrão). A chave AEAD derivada e o texto claro
-descriptografado são envoltos em `zeroize::Zeroizing` — o Drop
-cobre todos os caminhos de saída, incluindo erros propagados por
-`?`. No caminho de selagem a cópia da seed é transitória: um array
-simples de pilha que sai de escopo ao final da chamada de selagem.
+(feature `zeroize` padrão). A chave AEAD derivada, o texto claro
+descriptografado e a cópia da seed do caminho de selagem são
+envoltos em `zeroize::Zeroizing` — o Drop cobre todos os caminhos
+de saída, incluindo erros propagados por `?`.
 
 ## Permissões de arquivo
 

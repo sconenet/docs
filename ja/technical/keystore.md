@@ -70,7 +70,7 @@ ciphertext || tag = XChaCha20-Poly1305-Seal(key, nonce, plaintext = seed)
 
 フレーズ/ラベル版(`create_labeled`、`create_overwriting_labeled`、`create_with_phrase`、`create_with_phrase_overwriting`、`restore_from_phrase`)は、公開ラベルまたは呼び出し側が供給するBIP39フレーズ付きで同じ封印を包みます。上のコア表の外に位置します。
 
-`GeneratedKey.signing_key` は `ed25519-dalek` によってドロップ時にゼロ化されます(デフォルトの `zeroize` 機能)。導出されたAEADキーと復号された平文は `zeroize::Zeroizing` に包まれます — ドロップは、`?` で伝播するエラーを含むすべての出口パスをカバーします。封印パスではシードのコピーは一時的です: 封印呼び出しの終わりでスコープを出る通常のスタック配列です。
+`GeneratedKey.signing_key` は `ed25519-dalek` によってドロップ時にゼロ化されます(デフォルトの `zeroize` 機能)。導出されたAEADキー、復号された平文、そして封印パスのシードコピーは `zeroize::Zeroizing` に包まれます — ドロップは、`?` で伝播するエラーを含むすべての出口パスをカバーします。
 
 ## ファイル権限
 

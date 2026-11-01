@@ -239,6 +239,9 @@ blok in flight per peer.
 
 ### Startup
 
+Log startup dibuka dengan flavor build
+(`build: mainnet-enabled` / `build: standard`).
+
 0. resolusi jaringan (`--network testnet|mainnet|devnet`,
    default testnet selama proyek dalam dev — M8b). Data-dir
    **per jaringan** (`~/.scone/<network>/`): store tak-kosong

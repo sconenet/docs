@@ -138,6 +138,8 @@ scone relay --topology-profile tiny
 
 ### 起動
 
+起動ログはビルドフレーバーで始まります(`build: mainnet-enabled` / `build: standard`)。
+
 0. ネットワーク解決(`--network testnet|mainnet|devnet`、プロジェクトが開発中の間はtestnetがデフォルト — M8b)。データディレクトリはネットワークごとです(`~/.scone/<network>/`): 別のネットワークのチェーンを保持する非空のストアは拒否されます(`Corrupted`)。
 1. redbストアをオープン/作成(`<data-dir>/chain.redb`)。
 2. `load_chain(store, network)`: O(1)チップ + ページ化されたドメイン状態(RAMウィンドウ: ジェネシス + チップ)。

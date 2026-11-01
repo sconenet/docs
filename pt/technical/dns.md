@@ -18,7 +18,7 @@ trip, dois quando a primeira resposta é `pending` — ver o
 caminho de resolução) — o mesmo caminho verificado que a CLI.
 
 ```text
-              UDP+TCP :5353 (sem valor = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (sem valor = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -55,11 +55,10 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + fallback recursivo
 ```
 
-`--dns` SEM valor faz bind em `0.0.0.0:5353` — TODAS as interfaces
-(alcançável de toda rede à qual a máquina está ligada; um padrão
-somente-loopback é um follow-up de segurança sinalizado). Passe um
-endereço explícito para fazer bind com precisão (`--dns
-127.0.0.1:5353` = apenas consultas locais).
+`--dns` SEM valor faz bind em `127.0.0.1:5353` — seguro por
+padrão (apenas consultas locais). Exposição pública é opt-in:
+passe um endereço explícito (`--dns 0.0.0.0:5353` = TODAS as
+interfaces, alcançável de toda rede à qual a máquina está ligada).
 
 O relay anuncia o endereço efetivo no stdout
 (contrato legível por máquina, como `p2p:`): uma linha `dns: <addr>`
@@ -455,17 +454,10 @@ congelado).
 
 ### Seleção (resolução)
 
-> **Limitação do relay (binário atual)**: apenas os escopos
-> **World**, **Continent** e **Country** são de fato servidos pelo
-> resolvedor do `scone relay`. As rotas **Region**, **Asn** e
-> **IpPrefix** validam on-chain (decodificação wire, assinatura,
-> unicidade) e contam na ordenação canônica, mas o caminho de
-> serviço redecodifica os conjuntos de registros por uma forma JSON
-> que só conhece os três escopos v1: rotas carregando esses escopos
-> são descartadas antes da seleção e nunca eleitas. Um domínio cujas
-> ÚNICAS rotas carregam Region/Asn/IpPrefix cai no caminho DNS
-> clássico (tipicamente NODATA em A/AAAA). Follow-up de código
-> pendente.
+Todos os seis escopos wire são servidos pelo resolvedor: o caminho
+de serviço decodifica o mesmo conjunto de escopos que o wire aceita
+(world, continent, country, region, asn, ipPrefix) — uma rota
+validada on-chain nunca é descartada antes da seleção.
 
 1. **Escopo** — especificidade decrescente, **6 níveis**:
    **prefixo IP mais longo correspondente → AS exato → país exato →
@@ -481,13 +473,10 @@ congelado).
      (numeração opaca, confiável apenas se o publicador e o
      localizador partilharem a mesma), mas mais que o continente
      (ela está contida no seu país, logo a fortiori no seu
-     continente) — **não servido** pelo relay atual (ver a
-     limitação acima).
-   - *Asn*: número AS exato do cliente (**não servido** pelo
-     relay atual — ver a limitação acima).
+     continente).
+   - *Asn*: número AS exato do cliente.
    - *Country*: país exato.
-   - *Region*: subdivisão exata (identificador opaco; **não
-     servido** pelo relay atual — ver a limitação acima).
+   - *Region*: subdivisão exata (identificador opaco).
    - *Continent*: fornecido pelo localizador **ou derivado do
      país** via tabela local (`continent_of_country`); um
      país desconhecido da tabela retorna ao continente explícito

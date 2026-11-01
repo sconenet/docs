@@ -100,7 +100,8 @@ berkomentarnya adalah `.env.example` di akar repositori (salin ke
   dijatuhkan saat produksi, kegagalan outbound/inbound,
   ketidakcocokan kunci DHT;
 - `info!`: blok diterima/diproduksi, listening p2p, peer
-  terhubung, startup relay (checkpoint state);
+  terhubung, startup relay (checkpoint state) dan baris flavor
+  build (`build: mainnet-enabled` / `build: standard`);
 - `debug!`: detail internal (tx diterima, peer terputus, putaran
   RPC, daftar keystore, event kad di bawah `SCONE_KAD_DEBUG`);
 - `trace!`: dicadangkan untuk payload (tidak ada call site hari
@@ -279,6 +280,10 @@ jalur Argon2id-nya sendiri — 64 MiB pada profil mainnet,
 dengan RAM yang tersedia.
 
 ## Build: dev vs mainnet-aktif (mainnet-compile-gate)
+
+Log startup relay dibuka dengan flavor build
+(`build: mainnet-enabled` / `build: standard`) — padanan runtime
+dari penanda versi `+mainnet`.
 
 Build default **tanpa mainnet**: `scone relay --network
 mainnet` (dan layanan registrar dengan `SCONE_NETWORK=mainnet`)

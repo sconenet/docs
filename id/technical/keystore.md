@@ -118,11 +118,10 @@ BIP39 yang diberikan pemanggil; mereka berada di luar tabel inti
 di atas.
 
 `GeneratedKey.signing_key` di-zeroize saat drop oleh
-`ed25519-dalek` (fitur `zeroize` default). Kunci AEAD turunan
-dan plaintext terdekripsi dibungkus `zeroize::Zeroizing` —
-Drop mencakup semua jalur keluar, termasuk error yang diteruskan
-`?`. Pada jalur seal, salinan seed bersifat transien: array stack
-biasa yang keluar dari cakupan pada akhir panggilan penyegelan.
+`ed25519-dalek` (fitur `zeroize` default). Kunci AEAD turunan,
+plaintext terdekripsi dan salinan seed jalur seal dibungkus
+`zeroize::Zeroizing` — Drop mencakup semua jalur keluar,
+termasuk error yang diteruskan `?`.
 
 ## Izin berkas
 

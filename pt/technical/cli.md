@@ -96,7 +96,8 @@ para `.env`, nunca comitar — `.env` é gitignored).
   txs velhas evacuadas do mempool, txs conflitantes descartadas
   durante a produção, falhas de saída/entrada, divergência de chave DHT;
 - `info!`: bloco aceito/produzido, escuta p2p, par
-  conectado, partida do relay (checkpoints de estado);
+  conectado, partida do relay (checkpoints de estado) e a linha de
+  flavor de build (`build: mainnet-enabled` / `build: standard`);
 - `debug!`: detalhes internos (tx aceita, par desconectado, ida e volta
   RPC, listagem do keystore, eventos kad sob
   `SCONE_KAD_DEBUG`);
@@ -268,6 +269,10 @@ leve testnet/devnet — dimensione `--cores` pela RAM
 disponível.
 
 ## Builds: dev vs mainnet-enabled (mainnet-compile-gate)
+
+O log de partida do relay abre com o flavor de build
+(`build: mainnet-enabled` / `build: standard`) — a contraparte em
+runtime do marcador de versão `+mainnet`.
 
 Os builds padrão **não carregam mainnet**: `scone relay --network
 mainnet` (e serviços registradores com `SCONE_NETWORK=mainnet`)

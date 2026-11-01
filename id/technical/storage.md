@@ -351,12 +351,12 @@ minoritas-lengket, relay + store):
    pembelajaran kunci, sehingga upsert saja akan mempertahankan
    hantu cabang yang kalah). Indeks nama
    (`names_v3`/`name_reverse_v3`) dan lantai TLD hidup
-   (`tld_floors_v1`) TIDAK ditulis ulang oleh langkah ini.
-   **Keterbatasan yang diketahui (tindak-lanjut kode tertunda)**:
-   setelah reorg, entri name-index hantu dan baris lantai usang
-   cabang yang kalah bisa tersisa sampai delta akhiran yang
-   di-append ulang menimpanya atau pembangunan ulang
-   (`rebuild_name_index`, replay) berjalan;
+   (`tld_floors_v1`) ditulis ulang dalam transaksi YANG SAMA:
+   entri hantu cabang yang kalah dan baris lantai usang dihapus
+   (delta terhadap state pasca-reorg), sehingga tidak ada
+   ikatan hantu atau lantai usang yang bertahan dari reorg;
+   `rebuild_name_index`/replay saat boot tetap menjadi jaring
+   pengaman perbaikan pasca-crash;
 3. re-append monotonik akhiran yang diadopsi (delta biasa).
 
 Kegagalan persistensi pada jalur ini dicatat dan didegradasi

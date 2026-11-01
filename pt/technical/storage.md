@@ -352,12 +352,12 @@ sticky-minority, relay + store):
    chaves, então upserts sozinhos manteriam os fantasmas do ramo
    perdedor). O índice de nomes
    (`names_v3`/`name_reverse_v3`) e os pisos vivos de TLD
-   (`tld_floors_v1`) NÃO são reescritos por esta etapa.
-   **Limitação conhecida (follow-up de código pendente)**: após uma
-   reorg, entradas fantasmas do índice de nomes e linhas de pisos
-   obsoletos do ramo perdedor podem persistir até que os deltas do
-   próprio sufixo re-anexado os sobrescrevam ou que uma reconstrução
-   (`rebuild_name_index`, replay) rode;
+   (`tld_floors_v1`) são reescritos na MESMA transação: as entradas
+   fantasmas do ramo perdedor e as linhas de pisos obsoletos são
+   removidas (delta contra o estado pós-reorg), de modo que nenhuma
+   associação fantasma nem piso obsoleto sobreviva à reorg; a
+   `rebuild_name_index`/replay executados no boot permanecem a rede
+   de segurança de reparo pós-crash;
 3. re-append monotônico do sufixo adotado (deltas ordinários).
 
 Uma falha de persistência neste caminho é logada e degradada (o

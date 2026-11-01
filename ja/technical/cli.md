@@ -54,7 +54,7 @@ RUST_LOG=scone_network=trace,info scone relay   # ターゲットごと
 
 - `error!`:致命的なローカルの失敗(読めない/破損した署名者状態による署名者の無効化、使用不能なストア、深いフォークのリカバリ失敗、永続化されなかったアンカーパスフレーズ)— ネットワークの失敗は `warn!` として飲み込まれ、致命的なローカルの失敗だけが `run()` からの型付きエラーとして表面化します。
 - `warn!`:拒否された敵対的または悪意のあるネットワーク入力、メモリプールから追い出された古いtx、生成中に破棄された競合tx、アウトバウンド/インバウンドの失敗、DHTキーの不一致。
-- `info!`:ブロックの受理/生成、p2pのリッスン、ピア接続、リレー起動(状態チェックポイント)。
+- `info!`:ブロックの受理/生成、p2pのリッスン、ピア接続、リレー起動(状態チェックポイント)、そしてビルドフレーバー行(`build: mainnet-enabled` / `build: standard`)。
 - `debug!`:内部詳細(tx受理、ピア切断、RPCラウンドトリップ、キーストア一覧、`SCONE_KAD_DEBUG` 配下のkadイベント)。
 - `trace!`:ペイロード用に予約(現在の呼び出し箇所はなし)。
 
@@ -135,6 +135,8 @@ scone bench-pow --network mainnet [--seconds 5] [--cores N]
 出力:合計とワーカーごとのH/s、そして操作ごとの予想平均時間 — 譲渡/アサイン(一律レート)、プライベートTLDのオープン、TLD/ドメイン登録の下限(長さカーブ)。選択したネットワークがArgon2idパラメータを決めます(mainnet: 64 MiB、t=2 — 本来のコスト。testnet/devnet: 軽量プロファイル、ミリ秒のプルーフ)。各ワーカーは自分専用のArgon2idレーンを確保します — mainnetプロファイルでは64 MiB、軽量なtestnet/devnetプロファイルでは8 KiB — 利用可能なRAMに合わせて `--cores` を調整してください。
 
 ## ビルド:dev対mainnet有効(mainnet-compile-gate)
+
+リレーの起動ログはビルドフレーバーで始まります(`build: mainnet-enabled` / `build: standard`)— `+mainnet` バージョンマーカーの実行時における対応物です。
 
 デフォルトのビルドには**mainnetが含まれません**。`scone relay --network mainnet`(および `SCONE_NETWORK=mainnet` のレジストラサービス)は、再ビルドのヒントとともに即座に失敗します。公式配布バイナリは次でビルドされます:
 

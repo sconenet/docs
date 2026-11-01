@@ -20,7 +20,7 @@ relay (proses), via kanal internal `RelayCommand`/`ResolveLocal`
 dengan CLI.
 
 ```text
-              UDP+TCP :5353 (tanpa nilai = bind 0.0.0.0:5353)
+              UDP+TCP :5353 (tanpa nilai = bind 127.0.0.1:5353)
                     │
              scone relay --dns 127.0.0.1:5353
                     │  ┌────────────────────────────────┐
@@ -57,11 +57,10 @@ scone relay --dns 0.0.0.0:53 \
             --dns-upstream 8.8.8.8:53       # + fallback rekursif
 ```
 
-`--dns` TANPA nilai mengikat `0.0.0.0:5353` — SEMUA antarmuka
-(dapat dijangkau dari setiap jaringan tempat host terhubung;
-default khusus-loopback adalah tindak-lanjut keamanan yang
-ditandai). Berikan alamat eksplisit untuk mengikat secara presisi
-(`--dns 127.0.0.1:5353` = kueri lokal saja).
+`--dns` TANPA nilai mengikat `127.0.0.1:5353` — aman secara
+default (hanya kueri lokal). Eksposur publik bersifat opt-in:
+berikan alamat eksplisit (`--dns 0.0.0.0:5353` = SEMUA antarmuka,
+dapat dijangkau dari setiap jaringan tempat host terhubung).
 
 Relay mengumumkan alamat efektif di stdout (kontrak
 dapat-dibaca-mesin, seperti `p2p:`): baris `dns: <addr>` begitu
@@ -459,17 +458,10 @@ test `geo_known_bytes`, dibekukan).
 
 ### Pemilihan (resolusi)
 
-> **Batasan relay (biner saat ini)**: hanya scope **World**,
-> **Continent** dan **Country** yang benar-benar dilayani oleh
-> resolver `scone relay`. Rute **Region**, **Asn** dan
-> **IpPrefix** tervalidasi on-chain (dekode wire, tanda tangan,
-> keunikan) dan dihitung dalam sort kanonik, tetapi jalur
-> pelayanan mendekode ulang himpunan record melalui bentuk JSON
-> yang hanya mengenal tiga scope v1: rute yang membawa scope itu
-> dibuang sebelum pemilihan dan tidak pernah terpilih. Domain
-> yang SEMUA rutennya membawa Region/Asn/IpPrefix jatuh ke jalur
-> DNS klasik (biasanya NODATA pada A/AAAA). Tindak-lanjut kode
-> tertunda.
+Keenam scope wire dilayani oleh resolver: jalur pelayanan
+mendekode himpunan scope yang sama yang diterima wire (world,
+continent, country, region, asn, ipPrefix) — rute yang
+tervalidasi on-chain tidak pernah dibuang sebelum pemilihan.
 
 1. **Scope** — spesifisitas menurun, **6 level**:
    **prefiks IP terpanjang yang cocok → AS eksak → negara eksak
@@ -483,14 +475,10 @@ test `geo_known_bytes`, dibekukan).
      mengidentifikasi jaringan eksak) dan kurang dari negara
      (penomoran opaque, andal hanya jika penerbit dan locator
      berbagi yang sama), tetapi lebih dari benua (ia terkandung
-     dalam negaranya, maka a fortiori dalam benuanya) —
-     **tidak dilayani** oleh relay saat ini (lihat batasan di
-     atas).
-   - *Asn*: nomor AS eksak klien (**tidak dilayani** oleh relay
-     saat ini — lihat batasan di atas).
+     dalam negaranya, maka a fortiori dalam benuanya).
+   - *Asn*: nomor AS eksak klien.
    - *Country*: negara eksak.
-   - *Region*: subdivisi eksak (identifier opaque; **tidak
-     dilayani** oleh relay saat ini — lihat batasan di atas).
+   - *Region*: subdivisi eksak (identifier opaque).
    - *Continent*: diberikan locator **atau diturunkan dari
      negara** via tabel lokal (`continent_of_country`); negara
      yang tak dikenal tabel jatuh ke benua eksplisit atau

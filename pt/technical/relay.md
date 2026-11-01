@@ -232,6 +232,9 @@ deliberadamente limitado: nunca mais que um bloco em voo por par.
 
 ### Partida
 
+O log de partida abre com o flavor de build
+(`build: mainnet-enabled` / `build: standard`).
+
 0. resolução de rede (`--network testnet|mainnet|devnet`, testnet padrão
    enquanto o projeto está em dev — M8b). O data-dir é **por
    rede** (`~/.scone/<network>/`): um store não vazio contendo uma

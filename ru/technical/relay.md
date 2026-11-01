@@ -243,6 +243,9 @@ scone relay --topology-profile tiny
 
 ### Запуск
 
+Журнал старта открывается вариантом сборки
+(`build: mainnet-enabled` / `build: standard`).
+
 0. разрешение сети (`--network testnet|mainnet|devnet`, testnet
    по умолчанию, пока проект в разработке — M8b). Data-dir
    **на сеть** (`~/.scone/<network>/`): непустое хранилище,
