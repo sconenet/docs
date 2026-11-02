@@ -168,11 +168,13 @@ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) et
 `assign_pow_difficulty` pour la création sous TLD privé
 (`AssignDomain`, challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ nom` — plate par
 décision : l'exclusivité du namespace a été payée à la création du
-TLD, pas de taxation par longueur). Valeurs indicatives : 16 bits
-mainnet (calibration bench-pow 2026-10-23 : ≈ 1.7 h par
-cession/assign sur UN cœur à 10.6 H/s mesurés, référence
+TLD, pas de taxation par longueur). Valeurs indicatives : cessions
+16 bits mainnet (calibration bench-pow 2026-10-23 : ≈ 1.7 h par
+cession sur UN cœur à 10.6 H/s mesurés, référence
 11.4 H/s ; ≈ 25 min à 4 cœurs — coûteux à industrialiser,
-travail ordinaire pour un owner honnête), 4 bits testnet,
+travail ordinaire pour un owner honnête), assigns 22 bits mainnet
+(audit V6 : ≈ 12.8 h sur la référence à 8 cœurs — un TLD privé ne
+doit pas être une usine à sièges amortie), 4 bits testnet,
 1 bit devnet. Fonction pure (déterminisme).
 
 La genèse est une constante de protocole **par réseau**, reproductible
@@ -438,7 +440,7 @@ bloc entier (journal d'annulation).
 - le domaine doit être libre (même règle de grâce que REGISTER) ;
 - **PoW obligatoire** (anti-spam, plat) : la preuve mine le challenge
   `SCONE-DOMAIN-ASSIGN-V1 ‖ nom canonique` à la difficulté plate du
-  réseau `assign_pow_difficulty` (16 bits mainnet / 4 bits testnet /
+  réseau `assign_pow_difficulty` (22 bits mainnet / 4 bits testnet /
   1 bit devnet) — mêmes sel d'époque et fenêtre que les
   enregistrements (plat par décision : l'exclusivité du namespace a
   été payée à la création du TLD, pas de double taxation par
@@ -629,15 +631,18 @@ pris pour argent comptant :
 3. `version` == `PROTOCOL_VERSION` **exactement** (toute autre
    version — inférieure ou supérieure — est rejetée, pas
    réinterprétée) ;
-3bis. **fenêtre de temps-chaîne** : l'horodatage du bloc parent est
+3bis. **politique de temps-chaîne** : l'horodatage du bloc parent est
    l'UNIQUE source de temps de la chaîne (GC d'expiration,
    échéances `valid_until`) — le bloc doit satisfaire
    `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS` (10 ans ; erreur typée
-   `InvalidTimestamp`). La hauteur 1, origine du temps-chaîne,
-   engage son horodatage tel quel mais doit laisser la même marge
-   sous `u64::MAX`, si bien qu'aucun bloc ne peut jamais ouvrir une
-   fenêtre GC couvrant tout l'espace temporel ;
+   MAX_BLOCK_TIME_STEP_SECS` (600 s ; erreur typée
+   `InvalidTimestamp`). Le temps-chaîne est monotone (ne recule
+   jamais) et sa validation ne lit jamais l'horloge d'un nœud.
+   La hauteur 1, origine du temps-chaîne, engage son horodatage
+   tel quel mais doit laisser la même marge sous `u64::MAX`. Le
+   pas borne l'horizon d'expiration qu'un seul bloc peut
+   consommer : une expiration massive exige une part majoritaire
+   durable de la production ;
 4. nombre de transactions ≤ `MAX_TXS_PER_BLOCK` (4096) ;
 5. `tx_root` recalculé sur les transactions dans l'ordre du bloc ;
 6. hooks de consensus (`validate_header`, `validate_tx`) ;

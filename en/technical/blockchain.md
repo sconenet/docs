@@ -168,11 +168,13 @@ binding — see `transactions.md`, The mutation counter) and
 creation under a private TLD (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flat by decision: the namespace's
 exclusivity was paid at TLD creation, no per-length double taxation).
-Indicative values: 16-bit mainnet (bench-pow 2026-10-23
-calibration: ≈ 1.7 h per cession/assign on ONE core at the
-measured 10.6 H/s, reference 11.4 H/s; ≈ 25 min at 4 cores —
-costly to industrialize, ordinary work for an honest owner),
-4-bit testnet, 1-bit devnet. Pure function (determinism).
+Indicative values: cessions 16-bit mainnet (bench-pow 2026-10-23
+calibration: ≈ 1.7 h per cession on ONE core at the measured
+10.6 H/s, reference 11.4 H/s; ≈ 25 min at 4 cores — costly to
+industrialize, ordinary work for an honest owner), assigns 22-bit
+mainnet (audit V6: ≈ 12.8 h on the 8-core reference — a private
+TLD must not be an amortized seat factory), 4-bit testnet, 1-bit
+devnet. Pure function (determinism).
 
 Genesis is a protocol constant **per network**, reproducible from the
 constants alone (no randomness, no local clock, no network):
@@ -421,7 +423,7 @@ block (undo-log).
 - the domain must be free (same grace rule as REGISTER);
 - **mandatory PoW** (anti-spam, flat): the proof mines the challenge
   `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` at the network's flat
-  `assign_pow_difficulty` (16 bits mainnet / 4 bits testnet /
+  `assign_pow_difficulty` (22 bits mainnet / 4 bits testnet /
   1 bit devnet) — same epoch salt and window as the registrations
   (flat by decision: the namespace's exclusivity was paid at TLD
   creation, no per-length double taxation);
@@ -604,14 +606,16 @@ value:
 2. `height` == tip height + 1;
 3. `version` == `PROTOCOL_VERSION` **exactly** (any other version —
    lower or higher — is rejected, not reinterpreted);
-3bis. **chain-time window**: the parent block's timestamp is the
+3bis. **chain-time policy**: the parent block's timestamp is the
    chain's ONLY time source (expiry GC, `valid_until` deadlines) —
    the block must satisfy `parent_time ≤ timestamp ≤ parent_time +
-   MAX_TIMESTAMP_DRIFT_SECS` (10 years; typed error
-   `InvalidTimestamp`). Height 1, the chain-time origin, commits
-   its timestamp as-is but must leave the same headroom below
-   `u64::MAX`, so no single block can ever open a GC window
-   covering the whole time space;
+   MAX_BLOCK_TIME_STEP_SECS` (600 s; typed error
+   `InvalidTimestamp`). Chain time is monotonic (never runs
+   backwards) and its validation never reads a node's wall clock.
+   Height 1, the chain-time origin, commits its timestamp as-is
+   but must leave the same headroom below `u64::MAX`. The step
+   bounds the expiry horizon a single block can consume: mass
+   expiration requires a sustained majority production share;
 4. transaction count ≤ `MAX_TXS_PER_BLOCK` (4096);
 5. `tx_root` recomputed over the transactions in block order;
 6. consensus hooks (`validate_header`, `validate_tx`);

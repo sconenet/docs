@@ -218,9 +218,12 @@ what belongs to someone. Normative summary:
 
 ### Domain under a private TLD
 
-- **Birth — the TLD owner's PoS**: only the owner (or its delegated
-  operator) grants (`assign`) — the signature is the authority, no
-  PoW.
+- **Birth — the TLD owner's PoS + a flat anti-spam PoW**: only the
+  owner (or its delegated operator) grants (`assign`) — the
+  signature is the authority, and the assign carries the flat
+  `assign_pow_difficulty` proof (22 bits mainnet — audit V6: a
+  private-namespace domain costs at least a self-service public
+  one; spam-dissuasive, registrar-viable).
 - **Renewal — the TLD owner's PoS**: signed by the TLD owner, empty
   `proof` field.
 - **Death**: grace then GC; re-claiming goes through the owner's

@@ -227,9 +227,13 @@ ce qui appartient à quelqu'un. Résumé normatif :
 
 ### Domaine sous un TLD privé
 
-- **Naissance — le PoS du propriétaire du TLD** : seul le
-  propriétaire (ou son opérateur délégué) accorde (`assign`) — la
-  signature est l'autorité, pas de PoW.
+- **Naissance — le PoS du propriétaire du TLD + un PoW anti-spam
+  plat** : seul le propriétaire (ou son opérateur délégué) accorde
+  (`assign`) — la signature est l'autorité, et l'assign porte la
+  preuve plate `assign_pow_difficulty` (22 bits mainnet — audit
+  V6 : un domaine de l'espace privé coûte au moins autant qu'un
+  domaine auto-service public ; dissuasif pour le spam, viable
+  pour un registrar).
 - **Renouvellement — le PoS du propriétaire du TLD** : signé par le
   propriétaire du TLD, champ `proof` vide.
 - **Mort** : grâce puis GC ; la re-réclamation repasse par
