@@ -169,12 +169,15 @@ namespace — xem `transactions.md`, Bộ đếm biến đổi) và
 cho việc tạo dưới một TLD riêng tư (`AssignDomain`, challenge
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — phẳng một cách có chủ đích:
 tính độc quyền của namespace đã được trả lúc tạo TLD, không
-thuế kép theo chiều dài). Giá trị tham khảo: 16 bit mainnet
-(hiệu chuẩn bench-pow 2026-10-23: ≈ 1,7 h cho mỗi chuyển
-nhượng/gán trên MỘT nhân ở 10,6 H/s đo được, tham chiếu
+thuế kép theo chiều dài). Giá trị tham khảo: chuyển nhượng 16 bit
+mainnet (hiệu chuẩn bench-pow 2026-10-23: ≈ 1,7 h cho mỗi chuyển
+nhượng trên MỘT nhân ở 10,6 H/s đo được, tham chiếu
 11,4 H/s; ≈ 25 phút ở 4 nhân — đắt để công nghiệp hóa, công
-việc bình thường của một chủ sở hữu trung thực), 4 bit testnet,
-1 bit devnet. Hàm thuần túy (tất định).
+việc bình thường của một chủ sở hữu trung thực), gán 22 bit
+mainnet (audit V6: ≈ 12,8 h trên máy tham chiếu 8 nhân — một
+TLD riêng tư không được phép là một nhà máy ghế với chi phí
+phân bổ dần), 4 bit testnet, 1 bit devnet. Hàm thuần túy
+(tất định).
 
 Genesis là một hằng số giao thức **theo từng mạng**, tái lập được
 chỉ từ các hằng số (không ngẫu nhiên, không đồng hồ cục bộ,
@@ -431,7 +434,7 @@ cả khối (undo-log).
 - **PoW bắt buộc** (chống thư rác, phẳng): bằng chứng đào
   challenge
   `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` ở độ khó phẳng
-  `assign_pow_difficulty` của mạng (16 bit mainnet / 4 bit
+  `assign_pow_difficulty` của mạng (22 bit mainnet / 4 bit
   testnet / 1 bit devnet) — cùng muối epoch và cửa sổ với các
   đăng ký (phẳng một cách có chủ đích: tính độc quyền của
   namespace đã được trả lúc tạo TLD, không thuế kép theo chiều

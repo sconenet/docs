@@ -170,12 +170,15 @@ epoch 鹽和窗口）：`transfer_pow_difficulty`
 （`AssignDomain`、挑戰 `SCONE-DOMAIN-ASSIGN-V1 ‖
 name` — 刻意為平：命名空間的排他性已在 TLD
 建立時付費、無按長度的重複課稅）。指示性
-數值：16-bit mainnet（bench-pow 2026-10-23
-校準：在實測 10.6 H/s 的單核上、每次讓與／
-指派約 1.7 小時、參考 11.4 H/s；4 核約
+數值：讓與 16-bit mainnet（bench-pow 2026-10-23
+校準：在實測 10.6 H/s 的單核上、每次讓與
+約 1.7 小時、參考 11.4 H/s；4 核約
 25 分鐘 — 對工業化而言昂貴、對誠實的
-擁有者則是平常的工作）、4-bit testnet、
-1-bit devnet。純函數（決定性）。
+擁有者則是平常的工作）、指派 22-bit
+mainnet（audit V6：在 8 核參考機上約
+12.8 小時 — 私有 TLD 不應成為可攤銷的
+席位工廠）、4-bit testnet、1-bit devnet。
+純函數（決定性）。
 
 創世是**每網路**的協定常數，僅由
 常數即可重現（無隨機性、無本機時鐘、無網路）：
@@ -433,7 +436,7 @@ ChainState   = NetworkParams                  (bound network, M8b)
 - 網域必須空閒（與 REGISTER 相同的寬限規則）；
 - **強制 PoW**（反濫發、平式）：證明挖出挑戰
   `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name`，難度為網路的
-  平 `assign_pow_difficulty`（16 bits mainnet／4 bits testnet／
+  平 `assign_pow_difficulty`（22 bits mainnet／4 bits testnet／
   1 bit devnet）— 與註冊相同的 epoch 鹽與窗口
   （刻意為平：命名空間的排他性已在 TLD 建立時
   付費、無按長度的重複課稅）；

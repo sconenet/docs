@@ -221,9 +221,13 @@ thuộc về ai đó. Tóm tắt chuẩn:
 
 ### Tên miền dưới một TLD tư nhân
 
-- **Sinh — PoS của chủ TLD**: chỉ chủ sở hữu (hoặc vận hành viên
-  được ủy quyền của họ) mới cấp (`assign`) — chữ ký là thẩm quyền,
-  không có PoW.
+- **Sinh — PoS của chủ TLD + một PoW chống thư rác phẳng**: chỉ
+  chủ sở hữu (hoặc vận hành viên được ủy quyền của họ) mới cấp
+  (`assign`) — chữ ký là thẩm quyền, và phép gán mang theo bằng
+  chứng phẳng `assign_pow_difficulty` (22 bit mainnet — audit V6:
+  một tên miền dưới namespace riêng tư ít nhất phải đắt bằng một
+  tên miền công khai tự phục vụ; ngăn chặn thư rác, khả thi cho
+  registrar).
 - **Gia hạn — PoS của chủ TLD**: ký bởi chủ TLD, trường `proof`
   rỗng.
 - **Chết**: thời gian hoãn rồi GC; việc tuyên bố lại phải đi qua
