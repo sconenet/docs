@@ -219,9 +219,12 @@ o que pertence a alguém. Resumo normativo:
 
 ### Domínio sob um TLD privado
 
-- **Nascimento — PoS do owner do TLD**: somente o owner (ou seu operador
-  delegado) concede (`assign`) — a assinatura é a autoridade, sem
-  PoW.
+- **Nascimento — PoS do owner do TLD + um PoW anti-spam plano**: somente o
+  owner (ou seu operador delegado) concede (`assign`) — a assinatura é a
+  autoridade, e o assign carrega a prova plana `assign_pow_difficulty`
+  (22 bits mainnet — auditoria V6: um domínio de namespace privado custa
+  ao menos tanto quanto um público em autoatendimento; dissuasivo de
+  spam, viável para um registrar).
 - **Renovação — PoS do owner do TLD**: assinada pelo owner do TLD, campo
   `proof` vazio.
 - **Morte**: carência depois GC; a reassunção passa novamente pelo `assign`

@@ -170,10 +170,13 @@ a criação sob um TLD privado (`AssignDomain`, desafio
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — plana por decisão: a
 exclusividade do namespace foi paga na criação do TLD, sem dupla
 tributação por comprimento). Valores indicativos: 16 bits mainnet
-(calibração bench-pow 2026-10-23: ≈ 1.7 h por cessão/assign em UM
-núcleo aos 10.6 H/s medidos, referência 11.4 H/s; ≈ 25 min em 4
-núcleos — caro de industrializar, trabalho ordinário para um owner
-honesto), 4 bits testnet, 1 bit devnet. Função pura (determinismo).
+para as cessões (calibração bench-pow 2026-10-23: ≈ 1.7 h por
+cessão em UM núcleo aos 10.6 H/s medidos, referência 11.4 H/s;
+≈ 25 min em 4 núcleos — caro de industrializar, trabalho ordinário
+para um owner honesto), 22 bits mainnet para os assigns (auditoria
+V6: ≈ 12.8 h na máquina de referência de 8 núcleos — um TLD
+privado não deve ser uma fábrica de assentos amortizados), 4 bits
+testnet, 1 bit devnet. Função pura (determinismo).
 
 A gênese é uma constante de protocolo **por rede**, reproduzível a partir
 das constantes sozinhas (nenhuma aleatoriedade, nenhum relógio local,
@@ -433,7 +436,7 @@ bloco inteiro (undo-log).
 - o domínio deve estar livre (mesma regra de carência que REGISTER);
 - **PoW obrigatório** (anti-spam, plano): a prova mina o desafio
   `SCONE-DOMAIN-ASSIGN-V1 ‖ nome canônico` na
-  `assign_pow_difficulty` plana da rede (16 bits mainnet /
+  `assign_pow_difficulty` plana da rede (22 bits mainnet /
   4 bits testnet / 1 bit devnet) — mesmo sal de época e janela que
   os registros (plana por decisão: a exclusividade do namespace foi
   paga na criação do TLD, sem dupla tributação por comprimento);

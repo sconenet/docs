@@ -172,11 +172,14 @@ mutasi) dan
 (`AssignDomain`, tantangan `SCONE-DOMAIN-ASSIGN-V1 ‖ name` —
 datar memang disengaja: eksklusivitas namespace sudah dibayar
 saat penciptaan TLD, tanpa pajak ganda per-panjang). Nilai
-indikatif: 16 bit mainnet (kalibrasi bench-pow 2026-10-23: ≈
-1,7 jam per transfer/assign pada SATU inti pada 10,6 H/s
+indikatif: transfer 16 bit mainnet (kalibrasi bench-pow
+2026-10-23: ≈ 1,7 jam per transfer pada SATU inti pada 10,6 H/s
 terukur, referensi 11,4 H/s; ≈ 25 menit pada 4 inti — mahal
 untuk diindustrialisasi, kerja biasa bagi owner yang jujur),
-4 bit testnet, 1 bit devnet. Fungsi murni (determinisme).
+assign 22 bit mainnet (audit V6: ≈ 12,8 jam pada mesin
+referensi 8-inti — TLD privat tidak boleh menjadi pabrik kursi
+yang diamortisasi), 4 bit testnet, 1 bit devnet. Fungsi murni
+(determinisme).
 
 Genesis adalah konstanta protokol **per jaringan**, dapat
 direproduksi dari konstanta saja (tanpa keacakan, tanpa jam
@@ -441,7 +444,7 @@ sebagai blok keseluruhan (undo-log).
 - domain harus bebas (aturan masa tenggang sama dengan REGISTER);
 - **PoW wajib** (anti-spam, datar): buktinya menambang tantangan
   `SCONE-DOMAIN-ASSIGN-V1 ‖ canonical name` pada
-  `assign_pow_difficulty` datar jaringan (16 bit mainnet / 4 bit
+  `assign_pow_difficulty` datar jaringan (22 bit mainnet / 4 bit
   testnet / 1 bit devnet) — salt epoch dan jendela sama dengan
   registrasi (datar memang disengaja: eksklusivitas namespace
   sudah dibayar saat penciptaan TLD, tanpa pajak ganda

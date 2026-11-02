@@ -230,9 +230,12 @@ yang dimiliki seseorang. Ringkasan normatif:
 
 ### Domain di bawah TLD privat
 
-- **Lahir — PoS owner TLD**: hanya owner (atau operator
-  yang didelegasikan) yang memberi (`assign`) — tanda tangan adalah
-  otoritasnya, tanpa PoW.
+- **Lahir — PoS owner TLD + PoW anti-spam datar**: hanya owner
+  (atau operator yang didelegasikan) yang memberi (`assign`) —
+  tanda tangan adalah otoritasnya, dan assign membawa bukti datar
+  `assign_pow_difficulty` (22 bit mainnet — audit V6: domain di
+  namespace privat berbiaya minimal sama dengan domain publik
+  mandiri; menahan spam, tetap layak bagi registrar).
 - **Perpanjangan — PoS owner TLD**: ditandatangani oleh owner TLD,
   field `proof` kosong.
 - **Mati**: masa tenggang lalu GC; klaim ulang kembali melalui
