@@ -34,17 +34,29 @@ Asset table, by criticality order:
 - `cargo clippy --workspace --all-targets -- -D warnings`
   (already green; keep as a pre-merge local barrier — no CI
   exists yet).
-- No fuzz harness exists yet: the first deliverable is the
-  `fuzz/` crate targeting the five decoders (`decode_complete`,
-  `parse_query`, `extract_answers`, record file parser, keyfile
-  parser).
-- Fuzzing the decoding boundaries (days 2-3):
-  `cargo-fuzz` on `scone_protocol::decode_complete` (Message,
-  Transaction, Block, SignedDnsRecord, Checkpoint) — this is THE
-  surface where "never panic on untrusted data" must hold.
-  Budget: 24 h of continuous fuzzing, corpus seeded from existing
-  tests. Exit criterion: zero crashes, zero timeouts, coverage of
-  decoding branches > 95%.
+- **Fuzz harness EXISTS (2026-11, `fuzz/` workspace crate)**: a
+  std-only DETERMINISTIC mutation runner (seeded SplitMix64 PRNG —
+  the same seed replays the exact same input sequence) over the
+  five decoders: `decode_complete::<Message>` (wire frames),
+  `parse_query`, `extract_answers`, the record-file parser
+  (`scone::record_file`, the CLI's own parser exposed through the
+  `scone` lib surface) and the keyfile bytes parse/open. Panic =
+  bug: the crashing input is saved under
+  `fuzz/artifacts/<target>/` and the run exits non-zero. 10k-
+  iteration smoke tests run in `cargo test --workspace` (`cargo
+  test -p fuzz`); the LONG runs (≥ 50k, e.g. 1M iters/target) are
+  the operator's manual pre-mainnet step — usage, targets and the
+  cost model in `fuzz/README.md`. No nightly toolchain, no
+  libFuzzer, no new dependency.
+- Fuzzing escalation (days 2-3): the `cargo-fuzz` migration stays
+  the follow-up and is deliberately mechanical — every target is
+  already a plain `fn(data: &[u8])`, i.e. a ready
+  `LLVMFuzzerTestOneInput`, and the built-in corpora are reusable
+  as libFuzzer seed dirs. This is THE surface where "never panic
+  on untrusted data" must hold. Budget: 24 h of continuous
+  coverage-guided fuzzing, corpus seeded from the built-in
+  corpora. Exit criterion: zero crashes, zero timeouts, coverage
+  of decoding branches > 95%.
 - Fuzzing the DNS wire parser (dns.rs `parse_query`,
   `extract_answers`) and the record file parser (domain.rs).
 
@@ -134,7 +146,10 @@ requirements specification — this is a real cost advantage.
 
 ## 5. Exit criteria (mainnet go/no-go)
 
-- [ ] cargo-fuzz 24 h without crash on the 5 decoders
+- [ ] cargo-fuzz 24 h without crash on the 5 decoders (done at the
+      deterministic-runner level: `fuzz/` crate green, long manual
+      runs ≥ 50k iters/target documented — coverage-guided
+      escalation remains the go criterion)
 - [ ] Review 2.2 complete: each tx variant has its sheet
       (ownership/replay/time/effects) signed off by the reviewer
 - [ ] 30-node mesh including hostile ones: 48 h without tip

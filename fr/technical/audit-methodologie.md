@@ -34,17 +34,32 @@ Table des actifs, par ordre de criticité :
 - `cargo clippy --workspace --all-targets -- -D warnings`
   (déjà vert ; garder comme barrière locale pré-merge — pas de CI
   pour l'instant).
-- Pas encore de harnais de fuzz : le premier livrable est la crate
-  `fuzz/` ciblant les cinq décodeurs (`decode_complete`,
-  `parse_query`, `extract_answers`, analyseur de fichier
-  d'enregistrements, analyseur de keyfile).
-- Fuzzing des frontières de décodage (jours 2-3) :
-  `cargo-fuzz` sur `scone_protocol::decode_complete` (Message,
-  Transaction, Block, SignedDnsRecord, Checkpoint) — c'est LA
-  surface où « jamais de panic sur données non fiables » doit tenir.
-  Budget : 24 h de fuzzing continu, corpus amorcé depuis les tests
-  existants. Critère de sortie : zéro crash, zéro timeout, couverture
-  des branches de décodage > 95 %.
+- **Le harnais de fuzz EXISTE (2026-11, crate `fuzz/` du
+  workspace)** : un runner de mutation DÉTERMINISTE std-only (PRNG
+  SplitMix64 amorcé — la même seed rejoue exactement la même
+  séquence d'entrées) sur les cinq décodeurs :
+  `decode_complete::<Message>` (trames wire), `parse_query`,
+  `extract_answers`, l'analyseur de fichier d'enregistrements
+  (`scone::record_file`, l'analyseur du CLI exposé via la surface
+  lib de `scone`) et l'analyse/ouverture des keyfiles en bytes.
+  Panic = bug : l'entrée fautive est sauvegardée sous
+  `fuzz/artifacts/<target>/` et le run sort non-zéro. Les smoke
+  tests de 10 000 itérations tournent dans `cargo test --workspace`
+  (`cargo test -p fuzz`) ; les LONGS runs (≥ 50k, p. ex. 1M
+  iters/cible) restent l'étape manuelle de l'opérateur avant
+  mainnet — usage, cibles et modèle de coût dans `fuzz/README.md`.
+  Pas d'outil nightly, pas de libFuzzer, pas de nouvelle
+  dépendance.
+- Escalade du fuzzing (jours 2-3) : la migration `cargo-fuzz`
+  reste le follow-up et est délibérément mécanique — chaque cible
+  est déjà une simple `fn(data: &[u8])`, c'est-à-dire un
+  `LLVMFuzzerTestOneInput` prêt à l'emploi, et les corpus intégrés
+  se réutilisent comme répertoires de seeds libFuzzer. C'est LA
+  surface où « jamais de panic sur données non fiables » doit
+  tenir. Budget : 24 h de fuzzing continu guidé par couverture,
+  corpus amorcé depuis les corpus intégrés. Critère de sortie :
+  zéro crash, zéro timeout, couverture des branches de décodage
+  > 95 %.
 - Fuzzing de l'analyseur wire DNS (dns.rs `parse_query`,
   `extract_answers`) et de l'analyseur de fichier d'enregistrements
   (domain.rs).
@@ -138,7 +153,10 @@ spécification des exigences — un vrai gain de coût.
 
 ## 5. Critères de sortie (go/no-go mainnet)
 
-- [ ] cargo-fuzz 24 h sans crash sur les 5 décodeurs
+- [ ] cargo-fuzz 24 h sans crash sur les 5 décodeurs (fait au niveau
+      du runner déterministe : crate `fuzz/` verte, longs runs
+      manuels ≥ 50k iters/cible documentés — l'escalade guidée par
+      couverture reste le critère de go)
 - [ ] Revue 2.2 complète : chaque variante de tx a sa fiche
       (propriété/replay/temps/effets) signée par le relecteur
 - [ ] Maillage 30 nœuds incluant des hostiles : 48 h sans divergence
