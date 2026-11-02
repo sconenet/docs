@@ -174,11 +174,13 @@ tld_id` / `SCONE-DOMAIN-XFER-V1 ‖ domain_id`) und
 (`AssignDomain`, Challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — flach
 per Entscheidung: die Exklusivität des Namespace wurde bei der
 TLD-Erstellung bezahlt, keine Doppelbesteuerung nach Länge).
-Orientierungswerte: 16 Bits Mainnet (bench-pow-Kalibrierung
-2026-10-23: ≈ 1,7 h pro Abtretung/Assign auf EINEM Kern bei
+Orientierungswerte: Abtretungen 16 Bits Mainnet (bench-pow-
+Kalibrierung 2026-10-23: ≈ 1,7 h pro Abtretung auf EINEM Kern bei
 gemessenen 10.6 H/s, Referenz 11.4 H/s; ≈ 25 min bei 4 Kernen —
 teuer zu industrialisieren, gewöhnliche Arbeit für einen ehrlichen
-Owner), 4 Bits Testnet, 1 Bit Devnet. Reine Funktion
+Owner), Assigns 22 Bits Mainnet (Audit V6: ≈ 12,8 h auf der
+8-Kern-Referenz — eine private TLD darf keine amortisierte
+Sitz-Fabrik sein), 4 Bits Testnet, 1 Bit Devnet. Reine Funktion
 (Determinismus).
 
 Die Genesis ist eine Protokollkonstante **pro Netzwerk**,
@@ -452,7 +454,7 @@ Vorbedingung existiert, wird als ganzer Block abgelehnt (Undo-Log).
 - die Domain muss frei sein (gleiche Karenz-Regel wie REGISTER);
 - **obligatorisches PoW** (Anti-Spam, flach): das Proof mint die
   Challenge `SCONE-DOMAIN-ASSIGN-V1 ‖ kanonischer Name` auf der
-  flachen `assign_pow_difficulty` des Netzwerks (16 Bits Mainnet /
+  flachen `assign_pow_difficulty` des Netzwerks (22 Bits Mainnet /
   4 Bits Testnet / 1 Bit Devnet) — dasselbe Epochen-Salz und
   Fenster wie die Registrierungen (flach per Entscheidung: die
   Exklusivität des Namespace wurde bei der TLD-Erstellung bezahlt,

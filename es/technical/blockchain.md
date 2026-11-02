@@ -172,12 +172,14 @@ registros): `transfer_pow_difficulty` para las cesiones
 para la creación bajo un TLD privativo (`AssignDomain`, reto
 `SCONE-DOMAIN-ASSIGN-V1 ‖ name` — plana por decisión: la
 exclusividad del espacio de nombres se pagó en la creación del
-TLD, sin doble tasación por longitud). Valores indicativos: 16 bits
-mainnet (calibración bench-pow 2026-10-23: ≈ 1,7 h por
-cesión/assign en UN núcleo a los 10,6 H/s medidos, referencia
+TLD, sin doble tasación por longitud). Valores indicativos: cesiones
+16 bits mainnet (calibración bench-pow 2026-10-23: ≈ 1,7 h por
+cesión en UN núcleo a los 10,6 H/s medidos, referencia
 11,4 H/s; ≈ 25 min a 4 núcleos — costoso de industrializar,
-trabajo ordinario para un propietario honesto), 4 bits testnet,
-1 bit devnet. Función pura (determinismo).
+trabajo ordinario para un propietario honesto), assigns 22 bits
+mainnet (auditoría V6: ≈ 12,8 h en la referencia de 8 núcleos —
+un TLD privativo no debe ser una fábrica de asientos amortizada),
+4 bits testnet, 1 bit devnet. Función pura (determinismo).
 
 El génesis es una constante de protocolo **por red**, reproducible
 a partir de las constantes solas (sin aleatoriedad, sin reloj
@@ -448,7 +450,7 @@ precondición se rechaza como bloque entero (undo-log).
 - el dominio debe estar libre (misma regla de gracia que REGISTER);
 - **PoW obligatorio** (antispam, plano): la prueba mina el reto
   `SCONE-DOMAIN-ASSIGN-V1 ‖ nombre canónico` a la dificultad plana
-  de la red `assign_pow_difficulty` (16 bits mainnet / 4 bits
+  de la red `assign_pow_difficulty` (22 bits mainnet / 4 bits
   testnet / 1 bit devnet) — misma sal de época y ventana que los
   registros (plana por decisión: la exclusividad del espacio de
   nombres se pagó en la creación del TLD, sin doble tasación por

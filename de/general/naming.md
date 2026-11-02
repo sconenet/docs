@@ -232,9 +232,13 @@ was jemandem gehört. Normative Zusammenfassung:
 
 ### Domain unter einer privaten TLD
 
-- **Geburt — das PoS des TLD-Eigentümers**: nur der Eigentümer (oder
-  sein delegierter Betreiber) vergibt (`assign`) — die Signatur ist
-  die Autorität, kein PoW.
+- **Geburt — das PoS des TLD-Eigentümers + ein flaches
+  Anti-Spam-PoW**: nur der Eigentümer (oder sein delegierter
+  Betreiber) vergibt (`assign`) — die Signatur ist die Autorität,
+  und das Assign trägt das flache `assign_pow_difficulty`-Proof
+  (22 Bits Mainnet — Audit V6: eine Domain im privaten Namespace
+  kostet mindestens so viel wie eine öffentliche Self-Service-Domain;
+  Spam-abschreckend, Registrar-tauglich).
 - **Verlängerung — das PoS des TLD-Eigentümers**: vom TLD-Eigentümer
   signiert, leeres `proof`-Feld.
 - **Tod**: Karenz dann GC; Neubesetzung läuft erneut über das

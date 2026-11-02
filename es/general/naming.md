@@ -232,9 +232,13 @@ gobierna lo que pertenece a alguien. Resumen normativo:
 
 ### Dominio bajo un TLD privativo
 
-- **Nacimiento — el PoS del propietario del TLD**: solo el
-  propietario (o su operador delegado) concede (`assign`) — la firma
-  es la autoridad, sin PoW.
+- **Nacimiento — el PoS del propietario del TLD + un PoW antispam
+  plano**: solo el propietario (o su operador delegado) concede
+  (`assign`) — la firma es la autoridad, y el assign lleva la prueba
+  plana `assign_pow_difficulty` (22 bits mainnet — auditoría V6: un
+  dominio de espacio de nombres privativo cuesta al menos tanto como
+  uno público en autoservicio; disuasivo de spam, viable para un
+  registrar).
 - **Renovación — el PoS del propietario del TLD**: firmada por el
   propietario del TLD, campo `proof` vacío.
 - **Muerte**: gracia y luego GC; la nueva reclamación pasa de nuevo
