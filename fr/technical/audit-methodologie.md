@@ -34,32 +34,35 @@ Table des actifs, par ordre de criticité :
 - `cargo clippy --workspace --all-targets -- -D warnings`
   (déjà vert ; garder comme barrière locale pré-merge — pas de CI
   pour l'instant).
-- **Le harnais de fuzz EXISTE (2026-11, crate `fuzz/` du
-  workspace)** : un runner de mutation DÉTERMINISTE std-only (PRNG
-  SplitMix64 amorcé — la même seed rejoue exactement la même
-  séquence d'entrées) sur les cinq décodeurs :
+- **Le harnais de fuzz EXISTE (2026-11 ; désormais deux couches —
+  voir `technical/fuzzing.md`)** : le runner de mutation
+  DÉTERMINISTE std-only (PRNG SplitMix64 amorcé — la même seed
+  rejoue exactement la même séquence d'entrées) vit dans
+  `fuzz-smoke/` (membre du workspace) sur les cinq décodeurs :
   `decode_complete::<Message>` (trames wire), `parse_query`,
   `extract_answers`, l'analyseur de fichier d'enregistrements
   (`scone::record_file`, l'analyseur du CLI exposé via la surface
   lib de `scone`) et l'analyse/ouverture des keyfiles en bytes.
   Panic = bug : l'entrée fautive est sauvegardée sous
-  `fuzz/artifacts/<target>/` et le run sort non-zéro. Les smoke
-  tests de 10 000 itérations tournent dans `cargo test --workspace`
-  (`cargo test -p fuzz`) ; les LONGS runs (≥ 50k, p. ex. 1M
-  iters/cible) restent l'étape manuelle de l'opérateur avant
-  mainnet — usage, cibles et modèle de coût dans `fuzz/README.md`.
-  Pas d'outil nightly, pas de libFuzzer, pas de nouvelle
-  dépendance.
-- Escalade du fuzzing (jours 2-3) : la migration `cargo-fuzz`
-  reste le follow-up et est délibérément mécanique — chaque cible
-  est déjà une simple `fn(data: &[u8])`, c'est-à-dire un
-  `LLVMFuzzerTestOneInput` prêt à l'emploi, et les corpus intégrés
-  se réutilisent comme répertoires de seeds libFuzzer. C'est LA
-  surface où « jamais de panic sur données non fiables » doit
-  tenir. Budget : 24 h de fuzzing continu guidé par couverture,
-  corpus amorcé depuis les corpus intégrés. Critère de sortie :
-  zéro crash, zéro timeout, couverture des branches de décodage
-  > 95 %.
+  `fuzz-smoke/artifacts/<target>/` et le run sort non-zéro. Les
+  smoke tests de 10 000 itérations tournent dans
+  `cargo test --workspace` (`cargo test -p fuzz-smoke`) ; les
+  LONGS runs (≥ 50k, p. ex. 1M iters/cible) restent l'étape
+  manuelle de l'opérateur avant mainnet — usage, cibles et modèle
+  de coût dans `technical/fuzzing.md`. Pas d'outil nightly, pas de
+  libFuzzer, pas de nouvelle dépendance.
+- Escalade du fuzzing (LIVRÉE 2026-11, commit 0456960) : la couche
+  `cargo-fuzz` existe désormais sous `fuzz/`, délibérément HORS du
+  workspace (nightly + ASan + g++) pour que ses exigences ne
+  fuient jamais dans la CI — la migration est restée mécanique,
+  comme prévu : chaque cible est déjà une simple `fn(data: &[u8])`,
+  c'est-à-dire un `LLVMFuzzerTestOneInput` prêt à l'emploi, et les
+  corpus intégrés se réutilisent comme répertoires de seeds
+  libFuzzer. C'est LA surface où « jamais de panic sur données non
+  fiables » doit tenir. Budget : 24 h de fuzzing continu guidé par
+  couverture, corpus amorcé depuis les corpus intégrés. Critère de
+  sortie : zéro crash, zéro timeout, couverture des branches de
+  décodage > 95 %.
 - Fuzzing de l'analyseur wire DNS (dns.rs `parse_query`,
   `extract_answers`) et de l'analyseur de fichier d'enregistrements
   (domain.rs).

@@ -34,23 +34,26 @@ Asset table, by criticality order:
 - `cargo clippy --workspace --all-targets -- -D warnings`
   (already green; keep as a pre-merge local barrier — no CI
   exists yet).
-- **Fuzz harness EXISTS (2026-11, `fuzz/` workspace crate)**: a
-  std-only DETERMINISTIC mutation runner (seeded SplitMix64 PRNG —
-  the same seed replays the exact same input sequence) over the
-  five decoders: `decode_complete::<Message>` (wire frames),
-  `parse_query`, `extract_answers`, the record-file parser
-  (`scone::record_file`, the CLI's own parser exposed through the
-  `scone` lib surface) and the keyfile bytes parse/open. Panic =
-  bug: the crashing input is saved under
-  `fuzz/artifacts/<target>/` and the run exits non-zero. 10k-
-  iteration smoke tests run in `cargo test --workspace` (`cargo
-  test -p fuzz`); the LONG runs (≥ 50k, e.g. 1M iters/target) are
-  the operator's manual pre-mainnet step — usage, targets and the
-  cost model in `fuzz/README.md`. No nightly toolchain, no
-  libFuzzer, no new dependency.
-- Fuzzing escalation (days 2-3): the `cargo-fuzz` migration stays
-  the follow-up and is deliberately mechanical — every target is
-  already a plain `fn(data: &[u8])`, i.e. a ready
+- **Fuzz harness EXISTS (2026-11; now two layers — see
+  `technical/fuzzing.md`)**: the std-only DETERMINISTIC mutation
+  runner (seeded SplitMix64 PRNG — the same seed replays the exact
+  same input sequence) lives in `fuzz-smoke/` (workspace member)
+  over the five decoders: `decode_complete::<Message>` (wire
+  frames), `parse_query`, `extract_answers`, the record-file
+  parser (`scone::record_file`, the CLI's own parser exposed
+  through the `scone` lib surface) and the keyfile bytes
+  parse/open. Panic = bug: the crashing input is saved under
+  `fuzz-smoke/artifacts/<target>/` and the run exits non-zero.
+  10k-iteration smoke tests run in `cargo test --workspace`
+  (`cargo test -p fuzz-smoke`); the LONG runs (≥ 50k, e.g. 1M
+  iters/target) are the operator's manual pre-mainnet step —
+  usage, targets and the cost model in `technical/fuzzing.md`. No
+  nightly toolchain, no libFuzzer, no new dependency.
+- Fuzzing escalation (DELIVERED 2026-11, commit 0456960): the
+  `cargo-fuzz` layer now exists as `fuzz/`, deliberately OUTSIDE
+  the workspace (nightly + ASan + g++) so its requirements never
+  leak into CI — the migration stayed mechanical, as planned:
+  every target is a plain `fn(data: &[u8])`, i.e. a ready
   `LLVMFuzzerTestOneInput`, and the built-in corpora are reusable
   as libFuzzer seed dirs. This is THE surface where "never panic
   on untrusted data" must hold. Budget: 24 h of continuous
