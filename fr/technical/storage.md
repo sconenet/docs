@@ -367,21 +367,28 @@ backend sans état persisté par bloc). Il offre un démarrage en
 
 ### Écriture
 
-- **Intervalle** : `SNAPSHOT_INTERVAL = 64` (constante publique de
-  `scone-storage`). Le déclencheur est l'ajout du bloc
-  `k·SNAPSHOT_INTERVAL + 1` : cette transaction fige l'état des tables
-  vivantes **tel qu'il est avant l'application de ce bloc**, c'est-à-dire
-  l'état canonique après le bloc `k·SNAPSHOT_INTERVAL`.
-- **Jamais au sommet** : le snapshot se situe donc à `tip − 1` au plus
-  près, toujours strictement sous le sommet au moment de son écriture.
-  Un crash juste après ne peut jamais laisser un snapshot « au-dessus »
-  de la chaîne persistée.
-- **Atomique** : le gel (vidage + copie des tables `domains`/`tlds`
-  vers `snapshot_v1_*`, copie des `tld_floors_v1` vivants vers
-  `snapshot_v1_floors`, et écriture de `snapshot_v1_meta`) se produit dans
-  la MÊME transaction redb que l'ajout du bloc déclencheur — un crash
-  laisse soit l'ancien snapshot intact, soit le nouveau complet avec
-  son bloc (WAL redb).
+- **Déclencheur (aligné sur les checkpoints)** : le gel se produit
+  lorsqu'un POINT DE CONTRÔLE EST ACCEPTÉ — l'état figé se situe
+  exactement à la hauteur du checkpoint, une hauteur portant la
+  `state_root` signée par le quorum (snapshot-network-pull : c'est
+  ce qui rend l'état figé servable sur le réseau). Le comportement
+  historique (gel à chaque 64ᵉ bloc) est retiré ; les lignes
+  héritées aux hauteurs multiples de 64 sont sans conséquence et
+  sont écrasées à la première acceptation de checkpoint.
+- **À ou sous le sommet** : la hauteur figée est finalisée par
+  construction (acceptation JIT) et retarde typiquement le sommet
+  d'au plus une epoch plus le lag de gossip. Un crash juste après
+  ne peut jamais laisser un snapshot incohérent avec la chaîne
+  persistée.
+- **Atomique + idempotent** : le gel (vidage + copie des tables
+  `domains`/`tlds` vers `snapshot_v1_*`, copie des `tld_floors_v1`
+  vivants vers `snapshot_v1_floors`, et écriture de
+  `snapshot_v1_meta`) se produit dans SA PROPRE transaction redb au
+  site d'acceptation — un crash laisse soit l'ancien snapshot
+  intact, soit le nouveau complet (WAL redb) ; une ré-acceptation
+  de la même hauteur de checkpoint est un no-op (idempotent par
+  hauteur), et le gel est best-effort (un échec de gel est
+  journalisé, jamais fatal à la finalité).
 - **Slot unique** : chaque snapshot REMPLACE le précédent (tables
   vidées puis recopiées) — pas d'accumulation, pas d'élagage à gérer,
   l'empreinte disque est bornée par ~2× l'état.
@@ -419,9 +426,10 @@ backend sans état persisté par bloc). Il offre un démarrage en
    les tables `snapshot_v1_*`) se charge à l'identique,
    `snapshot_meta()` étant `None`.
 
-Le suffixe rejoué est borné par `SNAPSHOT_INTERVAL` (au plus 64 blocs
-au moment du déclenchement + les blocs minés depuis) : le démarrage
-est O(sommet − H) avec H garanti récent.
+Le suffixe rejoué est borné par une epoch plus le lag de gossip (la
+hauteur du snapshot est le dernier checkpoint accepté ; l'acceptation
+retarde le sommet d'au plus cela) : le démarrage est O(sommet − H)
+avec H garanti récent.
 
 ## Index anti-replay TXID reconstruit au démarrage (M8)
 
@@ -663,12 +671,12 @@ vie des TLDs figés à la hauteur du snapshot (symétrie export/import :
 l'export omettait historiquement les planchers — corrigé, test de
 régression `export_carries_tld_lifetime_floors`). Prérequis : le store
 détient un snapshot M6b persisté (`snapshot_v1_*`) exactement à la
-hauteur du point de contrôle (la fenêtre
-`CHECKPOINT_KEEP`/`SNAPSHOT_INTERVAL` garantit qu'un tel état est
-régulièrement disponible) ; l'ancre du bloc est RECALCULÉE depuis les
+hauteur du point de contrôle (le gel aligné sur les checkpoints
+garantit qu'un tel état existe à CHAQUE checkpoint accepté) ;
+l'ancre du bloc est RECALCULÉE depuis les
 octets stockés et doit égaler `checkpoint.data.block_hash`. Sinon →
 `StorageError::SnapshotUnavailable` (l'export est une action
-explicite : attendre le prochain intervalle/point de contrôle).
+explicite : attendre la prochaine acceptation de point de contrôle).
 
 ### Import (`import_verified_snapshot(store, checkpoint, manifest, pages)`)
 
@@ -849,14 +857,17 @@ Chaque test utilise son propre tmpfile redb (`tempfile`). Couverture :
 - concurrence : lectures depuis deux threads sur des handles clonés ;
 - base corrompue : fichier tronqué / poubelle → erreur typée, pas de
   panic (`catch_unwind`) ;
-- M6b : snapshot écrit à l'intervalle, strictement sous le sommet ;
+- M6b : snapshot écrit à la hauteur de chaque checkpoint accepté
+  (gel aligné sur les checkpoints ; les lignes héritées aux
+  multiples de 64 sont écrasées à la première acceptation) ;
   démarrage depuis snapshot = replay complet bit-exact (state_root +
   SMT, état logique complet, sommet) ; snapshot altéré (tip_hash
   corrompu, état indécodable, hauteur > sommet, meta de mauvaise
   longueur) → repli journalisé vers le replay de confiance zéro
   (`load_chain_replay`), même chaîne
-  finale ; suffixe rejoué < intervalle ; remplacement du snapshot (pas
-  d'accumulation) au franchissement de l'intervalle ; store pré-M6b
+  finale ; suffixe rejoué < une epoch + lag de gossip ; remplacement
+  du snapshot (pas d'accumulation) à chaque acceptation de
+  checkpoint ; store pré-M6b
   sans tables de snapshot se charge à l'identique ;
 - M8 : index anti-replay reconstruit au démarrage — une tx ré-incluse
   dans la fenêtre est rejetée (`TxReplay`) après restauration ; une tx

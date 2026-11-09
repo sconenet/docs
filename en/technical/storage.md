@@ -359,21 +359,27 @@ a backend without per-block persisted state). It offers a boot in
 
 ### Write
 
-- **Interval**: `SNAPSHOT_INTERVAL = 64` (public constant of
-  `scone-storage`). The trigger is the append of block
-  `k·SNAPSHOT_INTERVAL + 1`: that transaction freezes the state of
-  the live tables **as it is before applying that block**, i.e.
-  the canonical state after block `k·SNAPSHOT_INTERVAL`.
-- **Never at the tip**: the snapshot therefore sits at `tip − 1`
-  at the closest, always strictly below the tip at the moment it
-  is written. A crash right after can never leave a snapshot
-  "above" the persisted chain.
-- **Atomic**: the freeze (clear + copy of the `domains`/`tlds`
-  tables to `snapshot_v1_*`, of the live `tld_floors_v1` to
-  `snapshot_v1_floors`, and the write of `snapshot_v1_meta`)
-  happens in the SAME redb transaction as the append of the
-  trigger block — a crash leaves either the old snapshot intact,
-  or the new one complete with its block (redb WAL).
+- **Trigger (checkpoint-aligned)**: the freeze fires when a
+  CHECKPOINT IS ACCEPTED — the frozen state sits exactly at the
+  checkpoint's height, a height carrying the quorum-signed
+  `state_root` (snapshot-network-pull: this is what makes the
+  frozen state servable over the wire). The legacy behavior (freeze
+  at every 64th block) is retired; legacy rows at 64-block heights
+  are harmless and are overwritten at the first checkpoint
+  acceptance.
+- **At or below the tip**: the frozen height is finalized by
+  construction (JIT acceptance) and typically trails the tip by at
+  most one epoch plus gossip lag. A crash right after can never
+  leave a snapshot incoherent with the persisted chain.
+- **Atomic + idempotent**: the freeze (clear + copy of the
+  `domains`/`tlds` tables to `snapshot_v1_*`, of the live
+  `tld_floors_v1` to `snapshot_v1_floors`, and the write of
+  `snapshot_v1_meta`) happens in its OWN redb transaction at the
+  acceptance site — a crash leaves either the old snapshot intact,
+  or the new one complete (redb WAL); a re-acceptance of the same
+  checkpoint height is a no-op (idempotent per height), and the
+  freeze is best-effort (a freeze failure is logged, never fatal to
+  finality).
 - **Single slot**: every snapshot REPLACES the previous one
   (tables emptied then recopied) — no accumulation, no pruning to
   manage, the disk footprint is bounded by ~2× the state.
@@ -409,9 +415,10 @@ a backend without per-block persisted state). It offers a boot in
    store written before M6b (without the `snapshot_v1_*` tables)
    loads identically, `snapshot_meta()` being `None`.
 
-The replayed suffix is bounded by `SNAPSHOT_INTERVAL` (at most 64
-blocks at trigger time + the blocks mined since): the boot is
-O(tip − H) with H guaranteed recent.
+The replayed suffix is bounded by one epoch plus gossip lag (the
+snapshot height is the last accepted checkpoint; acceptance trails
+the tip by at most that): the boot is O(tip − H) with H guaranteed
+recent.
 
 ## TXID anti-replay index rebuilt at boot (M8)
 
@@ -650,12 +657,12 @@ snapshot height (export/import symmetry: the export historically
 omitted floors — fixed, regression test
 `export_carries_tld_lifetime_floors`). Prerequisite: the store holds an M6b persisted snapshot
 (`snapshot_v1_*`) exactly at the checkpoint's height (the
-`CHECKPOINT_KEEP`/`SNAPSHOT_INTERVAL` window guarantees such a
-state is regularly available); the block's anchor is RECOMPUTED
+checkpoint-aligned freeze guarantees such a state exists at EVERY
+accepted checkpoint); the block's anchor is RECOMPUTED
 from the stored bytes and must equal
 `checkpoint.data.block_hash`. Otherwise →
 `StorageError::SnapshotUnavailable` (export is an explicit
-action: wait for the next interval/checkpoint).
+action: wait for the next checkpoint acceptance).
 
 ### Import (`import_verified_snapshot(store, checkpoint, manifest, pages)`)
 
@@ -833,15 +840,17 @@ Every test uses its own redb tmpfile (`tempfile`). Coverage:
 - concurrency: reads from two threads on cloned handles;
 - corrupted database: truncated / garbage file → typed error, no
   panic (`catch_unwind`);
-- M6b: snapshot written at the interval, strictly below the tip;
-  boot from snapshot = full bit-exact replay (state_root +
+- M6b: snapshot written at each accepted checkpoint's height
+  (checkpoint-aligned freeze; legacy 64-block-height rows are
+  overwritten at the first acceptance); boot from snapshot = full
+  bit-exact replay (state_root +
   SMT, complete logical state, tip); altered snapshot (corrupted
   tip_hash, undecodable state, height > tip, wrong-length meta)
   → logged fallback to the zero-trust replay
   (`load_chain_replay`), same final chain; replayed
-  suffix < interval; snapshot replacement (no accumulation) when
-  crossing the interval; pre-M6b store without snapshot tables
-  loads identically;
+  suffix < one epoch + gossip lag; snapshot replacement (no
+  accumulation) at every checkpoint acceptance; pre-M6b store
+  without snapshot tables loads identically;
 - M8: anti-replay index rebuilt at boot — a tx re-included within
   the window is rejected (`TxReplay`) after restore; a tx older
   than the window is admitted (pruning unchanged, state rules
