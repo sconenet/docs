@@ -128,6 +128,12 @@ scone domain set example.scone A 192.0.2.1
 scone domain renew example.scone
 ```
 
+`domain renew` (direct, or proposed by `register` on your
+expiring name) targets a **fixed one-year term** from the later
+of the current expiry and now — clamped to the anti-hoarding
+maximum (`now + 3 years`) for a domain stacked near the ceiling.
+Renewal durations are FIXED: no choice.
+
 ## TLD lifecycle (cli-unified-lifecycle)
 
 `scone tld register <tld>` is the one-command TLD entry point,
