@@ -252,10 +252,11 @@ passe par `domain set` / `domain update`.
   contrôle insensible à la casse à la soumission).
 - Soumission pow-to-owner (aucun coffre nécessaire — `--to` est
   exclusif de `--identity`) : `scone domain register <nom> --to
-  <pubkey>` / `scone domain renew <nom> --to <pubkey>` et
-  `scone tld register <tld> --to <pubkey>` / `scone tld renew
-  <tld> --to <pubkey>` soumettent une preuve dont le challenge
-  lie la clé du BÉNÉFICIAIRE ; l'`owner` en chaîne est recalculé
+  <pubkey>` et `scone tld register <tld> --to <pubkey>`
+  soumettent une preuve dont le challenge lie la clé du
+  BÉNÉFICIAIRE (sur un nom à vous, la même commande renouvelle —
+  pow-to-owner, preuve liée à l'expiry courante) ; l'`owner` en
+  chaîne est recalculé
   comme `hash(pubkey_dest)` (un renew ne change JAMAIS de mains).
   Les commandes `--to` minent toujours leur preuve sur place —
   `--proof` n'existe QUE sur `domain register --to` : avec
