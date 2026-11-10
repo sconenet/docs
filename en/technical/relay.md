@@ -594,7 +594,6 @@ scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [-
 scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # express single record
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
-scone domain renew NAME [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--raw] [--peer MULTIADDR]
 
 # --peer defaults to the local relay (SCONE_PEER env overrides);
@@ -673,7 +672,7 @@ refused in typed fashion (`WrongNetwork`).
 
 The offline hex surface (the `tx` and `submit` subcommands) is
 gone (remove-tx-surface-v2). The CLI covers the user paths
-(`domain register`, `domain renew`, `domains`) AND the M8b
+(`domain register`, `domains`) AND the M8b
 family as first-class commands: `tld open`, `tld transfer`,
 `tld revoke`, `domain assign`, `domain transfer`.
 `register` claims mine their PoW at the network difficulty

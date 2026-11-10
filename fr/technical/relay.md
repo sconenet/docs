@@ -609,7 +609,6 @@ scone domain register NAME [--identity ID] [--dir DIR] [--passphrase-env VAR] [-
 scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # enregistrement unique express
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
-scone domain renew NAME [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--raw] [--peer MULTIADDR]
 
 # --peer vaut par défaut le relais local (la variable SCONE_PEER surcharge) ;
@@ -687,7 +686,7 @@ typée (`WrongNetwork`).
 
 La surface hex hors ligne (les sous-commandes `tx` et `submit`) a
 disparu (remove-tx-surface-v2). La CLI couvre les chemins utilisateur
-(`domain register`, `domain renew`, `domains`) ET la famille M8b
+(`domain register`, `domains`) ET la famille M8b
 comme commandes de premier rang : `tld open`, `tld transfer`,
 `tld revoke`, `domain assign`, `domain transfer`. Les claims
 `register` minent leur PoW à la difficulté du réseau (millisecondes
