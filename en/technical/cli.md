@@ -118,21 +118,22 @@ logs from boot).
 - Removed: `show`, `submit`, `lookup`, `owned` — no stubs; clap
   rejects these names with its generic "unrecognized subcommand"
   error plus a closest-name suggestion.
-- New: `scone domain renew <name>`, `scone domains`, `scone domain
+- New (then merged — `domain register` renews): `scone domains`, `scone domain
   get|set` (single record, no file).
 
 ```bash
 scone identity generate me
-scone domain register example.scone
+scone domain register example.scone   # claim OR renewal (unified)
 scone domain set example.scone A 192.0.2.1
-scone domain renew example.scone
 ```
 
-`domain renew` (direct, or proposed by `register` on your
-expiring name) targets a **fixed one-year term** from the later
-of the current expiry and now — clamped to the anti-hoarding
-maximum (`now + 3 years`) for a domain stacked near the ceiling.
-Renewal durations are FIXED: no choice.
+`domain register` on a name YOU OWN runs the renewal: a **fixed
+one-year term** from the later of the current expiry and now —
+clamped to the anti-hoarding maximum (`now + 3 years`) for a
+domain stacked near the ceiling. Renewal durations are FIXED: no
+choice. The extension is lossless (renewing early loses
+nothing) — no gate: yours = renewal runs, announced. The
+`domain renew` verb is gone (unify-lifecycle-commands).
 
 ## TLD lifecycle (cli-unified-lifecycle)
 
@@ -148,18 +149,19 @@ read FIRST, then the right action runs:
 - **yours, expiring within 90 days** → the RENEWAL is proposed
   (PoW bound to the current expiry — anti-reuse) and runs after
   confirmation.
-- **yours, far from expiry** → nothing to do (`tld renew --force`
-  to renew anyway).
+- **yours, far from expiry** → nothing to do: the TLD term is
+  FIXED (`now + 3 years`) — early renewal would LOSE the
+  remaining time, so early renewal is not offered (the gate
+  protects, it does not complicate).
 - **someone else's** → clean typed error with the owner.
 
 ```bash
 scone tld register mytld            # open birth (default)
 scone tld register mytld --private  # owned namespace (confirm)
-scone tld renew mytld               # explicit renewal
 ```
 
-Likewise, `scone domain register <name>` on a name you own that
-expires within 90 days proposes the renewal instead of failing.
+Likewise, `scone domain register <name>` on a name you own runs
+the renewal (fixed one-year term) instead of failing.
 
 ## Record delegates (KSK/ZSK-lite)
 
@@ -230,7 +232,7 @@ editing goes through `domain set` / `domain update`.
   challenge embeds it; case-insensitive check at submission).
 - Pow-to-owner submission (no keystore needed — `--to` is
   exclusive with `--identity`): `scone domain register <name>
-  --to <pubkey>` / `scone domain renew <name> --to <pubkey>`
+  --to <pubkey>` / `scone domain register <name> --to <pubkey>`
   and `scone tld register <tld> --to <pubkey>` / `scone tld
   renew <tld> --to <pubkey>` submit a proof whose challenge
   binds the BENEFICIARY key; the on-chain `owner` is recomputed

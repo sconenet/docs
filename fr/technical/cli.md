@@ -130,22 +130,24 @@ journaux dès le démarrage).
 - Supprimés : `show`, `submit`, `lookup`, `owned` — pas de stubs ;
   clap rejette ces noms avec son erreur générique « unrecognized
   subcommand » plus une suggestion du nom le plus proche.
-- Nouveau : `scone domain renew <nom>`, `scone domains`,
-  `scone domain get|set` (enregistrement unique, pas de
-  fichier).
+- Nouveau : `scone domains`, `scone domain get|set`
+  (enregistrement unique, pas de fichier). Le renouvellement est
+  FUSIONNÉ dans `domain register` (unify-lifecycle-commands) — le
+  verbe `domain renew` n'existe plus.
 
 ```bash
 scone identity generate me
-scone domain register example.scone
+scone domain register example.scone   # claim OU renewal (unifié)
 scone domain set example.scone A 192.0.2.1
-scone domain renew example.scone
 ```
 
-`domain renew` (direct ou proposé par `register` sur votre nom
-expirant) vise un **terme fixe d'un an** à partir du plus tardif
+`domain register` sur un nom QUI VOUS APPARTIENT exécute le
+renouvellement : **terme fixe d'un an** à partir du plus tardif
 entre l'échéance courante et maintenant — plafonné au maximum
 anti-hoarding (`now + 3 ans`) pour un domaine empilé près du
 plafond. Les durées de renouvellement sont fixes : aucun choix.
+L'extension est sans perte (renouveler tôt ne perd rien) — pas
+de gate : à vous = renouvellement exécuté et annoncé.
 
 ## Cycle de vie des TLD (cli-unified-lifecycle)
 
@@ -161,20 +163,21 @@ on-chain est lu D'ABORD, puis la bonne action s'exécute :
 - **à vous, expirant sous 90 jours** → le RENOUVELLEMENT est
   proposé (PoW lié à l'expiration courante — anti-réutilisation)
   et s'exécute après confirmation.
-- **à vous, loin de l'expiration** → rien à faire
-  (`tld renew --force` pour renouveler quand même).
+- **à vous, loin de l'expiration** → rien à faire : le terme TLD
+  est FIXE (`now + 3 ans`) — renouveler tôt PERDRAIT le temps
+  restant, donc le renouvellement anticipé n'est pas offert (le
+  gate protège, il ne complique pas).
 - **à quelqu'un d'autre** → erreur typée propre avec le
   propriétaire.
 
 ```bash
 scone tld register mytld            # open birth (default)
 scone tld register mytld --private  # owned namespace (confirm)
-scone tld renew mytld               # explicit renewal
 ```
 
 De même, `scone domain register <nom>` sur un nom que vous
-possédez et qui expire sous 90 jours propose le renouvellement
-au lieu d'échouer.
+possédez exécute le renouvellement (terme fixe d'un an) au lieu
+d'échouer.
 
 ## Délégués de records (KSK/ZSK-lite)
 
