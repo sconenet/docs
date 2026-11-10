@@ -468,7 +468,7 @@ fini son rattrapage apprend quand même les blocs produits ensuite.
   (stockage local + réplication vers les pairs les plus proches,
   `Quorum::Majority` du facteur de réplication) et cache redb
   persistant.
-- **get** (`domain resolve`) : `kad.get_record` ; l'attente est liée à
+- **get** (`domain get`) : `kad.get_record` ; l'attente est liée à
   son `QueryId` et au `DomainId` demandé — une réponse ne résout que
   la requête correspondante, et la clé de l'enregistrement doit être
   exactement le domaine demandé (vérifié **avant** la vérification
@@ -579,7 +579,7 @@ Messages de contrôle servis par le relais :
 - `Transaction (tx)` → soumission avec gossip gratuit (le relais
   rediffuse aux pairs) ;
 - `GetRecord { domain_id }` / `Record (r)` — résolution et publication
-  DHT (comme `scone domain resolve` côté CLI) ;
+  DHT (comme `scone domain get` côté CLI) ;
 - rejet applicatif → `Message::Error(msg)` (atteint le client comme
   message lisible, pas un EOF).
 
@@ -610,7 +610,7 @@ scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # en
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
 scone domain renew NAME [--identity ID] [--peer MULTIADDR]
-scone domain resolve NAME [--peer MULTIADDR]
+scone domain get NAME [--raw] [--peer MULTIADDR]
 
 # --peer vaut par défaut le relais local (la variable SCONE_PEER surcharge) ;
 # --identity vaut par défaut l'identité unique du coffre de clés quand il

@@ -223,7 +223,7 @@ preuve de cession est liée à la génération courante — tandis que
 `tld open`, `tld revoke` et `domain assign` ne font aucune
 lecture d'état côté client (le nœud fait respecter). La
 résolution d'enregistrement DNS a déménagé
-vers `scone domain resolve <nom>` (ex-`record get`) ; le canal
+vers `scone domain get <nom>` (ex-`record get`, ex-`domain resolve`) ; le canal
 de publication hexadécimal (`record put`) a disparu — l'édition
 passe par `domain set` / `domain update`.
 - `scone domain mine <nom>` — mine UNIQUEMENT la preuve
@@ -259,8 +259,9 @@ passe par `domain set` / `domain update`.
   d'enregistrements vérifié sur chaîne dans le format exact de
   `update --file` (aller-retour garanti : export → édition →
   update re-soumet le même jeu). Sans `--out` : stdout.
-  `domain resolve` utilise le même format lisible, donc
-  `resolve > zone.txt` est directement importable. Les types
+  `domain get` utilise le même format lisible pour la partie
+  record, donc `domain get <nom> > zone.txt` est directement
+  importable (`--raw` ajoute les encodages hex). Les types
   sans syntaxe textuelle (GEOROUTE, inconnus) sont exportés
   comme des avertissements en commentaire — jamais abandonnés
   silencieusement.

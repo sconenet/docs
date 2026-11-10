@@ -204,8 +204,9 @@ paths (`tld transfer`, `domain transfer`) pre-read the on-chain
 state client-side — the cession proof is bound to the current
 generation — while `tld open`, `tld revoke` and `domain assign`
 do no client-side state read (the node enforces). DNS record
-resolution moved to `scone domain resolve <name>` (ex-`record
-get`); the hex publication channel (`record put`) is gone —
+resolution moved to `scone domain get <name>` (ex-`record get`,
+ex-`domain resolve`); the hex publication channel (`record put`)
+is gone —
 editing goes through `domain set` / `domain update`.
 - `scone domain mine <name>` — mines ONLY the registration
   proof (no identity, no keystore, no submission): prints the
@@ -237,9 +238,10 @@ editing goes through `domain set` / `domain update`.
 - `scone domain export <name> [--out FILE]` — writes the
   chain-verified record set in the exact `update --file` format
   (round-trip guaranteed: export → edit → update re-submits the
-  same set). Without `--out`: stdout. `domain resolve` uses the
-  same readable format, so `resolve > zone.txt` is directly
-  importable. Kinds with no textual syntax (GEOROUTE, unknown)
+  same set). Without `--out`: stdout. `domain get` renders the record
+  part in the same readable format, so `domain get <name> >
+  zone.txt` is directly importable (`--raw` appends the hex
+  encodings). Kinds with no textual syntax (GEOROUTE, unknown)
   are exported as commented warnings — never silently dropped.
 
 `domain get` also prints the `domain_id` and `valid_until`.

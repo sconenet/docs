@@ -454,7 +454,7 @@ afterwards.
   verification"), then `kad.put_record` (local storage +
   replication to the closest peers, `Quorum::Majority` of the
   replication factor) and persistent redb cache.
-- **get** (`domain resolve`): `kad.get_record`; the waiter is bound
+- **get** (`domain get`): `kad.get_record`; the waiter is bound
   to its `QueryId` and the requested `DomainId` — a reply only
   resolves the matching query, and the record key must be exactly
   the requested domain (checked **before** on-chain verification).
@@ -564,7 +564,7 @@ Control messages served by the relay:
 - `Transaction (tx)` → submission with free gossip (the relay
   rebroadcasts to peers);
 - `GetRecord { domain_id }` / `Record (r)` — DHT resolution and
-  publication (like `scone domain resolve` on the CLI side);
+  publication (like `scone domain get` on the CLI side);
 - application rejection → `Message::Error(msg)` (reaches the
   client as a readable message, not an EOF).
 
@@ -595,7 +595,7 @@ scone domain set NAME TYPE VALUE [TTL] [--identity ID] [--peer MULTIADDR]   # ex
 scone domain update NAME --file FILE [--identity ID] [--peer MULTIADDR]
 scone domain get NAME [--peer MULTIADDR]
 scone domain renew NAME [--identity ID] [--peer MULTIADDR]
-scone domain resolve NAME [--peer MULTIADDR]
+scone domain get NAME [--raw] [--peer MULTIADDR]
 
 # --peer defaults to the local relay (SCONE_PEER env overrides);
 # --identity defaults to the single keystore identity when there
