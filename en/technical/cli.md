@@ -115,6 +115,13 @@ logs from boot).
   default; `SCONE_PEER` env or `--peer` overrides.
 - **No `--identity` needed** when the keystore holds a single
   identity (it is used silently; several → the error lists them).
+- **STRICT: an identity IS required for `domain register`** — an
+  empty keystore fails with a typed error pointing at
+  `scone identity generate` (a key minted on the fly would orphan
+  the domain at the first admin operation — the seed shown once is
+  not a keystore). To claim FOR another key without any keystore:
+  `--to <pubkey>` (pow-to-owner — no signature, the proof is the
+  whole authorization). (strict-cli-lifecycle)
 - Removed: `show`, `submit`, `lookup`, `owned` — no stubs; clap
   rejects these names with its generic "unrecognized subcommand"
   error plus a closest-name suggestion.
@@ -149,10 +156,12 @@ read FIRST, then the right action runs:
 - **yours, expiring within 90 days** → the RENEWAL is proposed
   (PoW bound to the current expiry — anti-reuse) and runs after
   confirmation.
-- **yours, far from expiry** → nothing to do: the TLD term is
-  FIXED (`now + 3 years`) — early renewal would LOSE the
-  remaining time, so early renewal is not offered (the gate
-  protects, it does not complicate).
+- **yours, far from expiry** → typed error (exit non-zero): the
+  TLD term is FIXED (`now + 3 years`) — early renewal would LOSE
+  the remaining time, so early renewal is not offered (the gate
+  protects, it does not complicate). The error carries the hint
+  « renewal opens within 90 days of expiry » (strict-cli-lifecycle:
+  a silent exit 0 would let a script believe it renewed).
 - **someone else's** → clean typed error with the owner.
 
 ```bash

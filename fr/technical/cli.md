@@ -127,6 +127,14 @@ journaux dès le démarrage).
 - **Pas besoin de `--identity`** quand le coffre de clés ne
   contient qu'une seule identité (elle est utilisée
   silencieusement ; plusieurs → l'erreur les liste).
+- **STRICT : une identité EST requise pour `domain register`** —
+  un coffre vide échoue avec une erreur typée pointant
+  `scone identity generate` (une clé fabriquée à la volée
+  orphelinerait le domaine à la première opération d'admin — la
+  seed affichée une fois n'est pas un coffre). Pour enregistrer
+  POUR une autre clé sans aucun coffre : `--to <pubkey>`
+  (pow-to-owner — pas de signature, la preuve est toute
+  l'autorisation). (strict-cli-lifecycle)
 - Supprimés : `show`, `submit`, `lookup`, `owned` — pas de stubs ;
   clap rejette ces noms avec son erreur générique « unrecognized
   subcommand » plus une suggestion du nom le plus proche.
@@ -163,10 +171,13 @@ on-chain est lu D'ABORD, puis la bonne action s'exécute :
 - **à vous, expirant sous 90 jours** → le RENOUVELLEMENT est
   proposé (PoW lié à l'expiration courante — anti-réutilisation)
   et s'exécute après confirmation.
-- **à vous, loin de l'expiration** → rien à faire : le terme TLD
-  est FIXE (`now + 3 ans`) — renouveler tôt PERDRAIT le temps
-  restant, donc le renouvellement anticipé n'est pas offert (le
-  gate protège, il ne complique pas).
+- **à vous, loin de l'expiration** → erreur typée (exit non
+  nul) : le terme TLD est FIXE (`now + 3 ans`) — renouveler tôt
+  PERDRAIT le temps restant, donc le renouvellement anticipé
+  n'est pas offert (le gate protège, il ne complique pas).
+  L'erreur porte le hint « renewal opens within 90 days of
+  expiry » (strict-cli-lifecycle : un exit 0 silencieux ferait
+  croire à un script qu'il a renouvelé).
 - **à quelqu'un d'autre** → erreur typée propre avec le
   propriétaire.
 
