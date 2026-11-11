@@ -339,6 +339,23 @@ fixe, valide tant que le pool de producteurs est vide (amorçage ouvert :
 genèse). Dès qu'un domaine/TLD vivant existe, un bloc signé par la clé
 devnet est rejeté (`InvalidProducer`).
 
+**Calendrier de leader bootstrap** (fork-choice-reorg-acceptance,
+2026-11-12) : en régime sans finalité tout le pool peut produire, et
+des candidats simultanés à la hauteur 1 ont fait courir le mesh vers
+une partition permanente (batterie du 2026-11-11 : 5 pertes / 10
+runs e2e). La PRODUCTION est gated au rang 0 déterministe de
+`bootstrap_leader_order(h)` — le pool rangé par
+`blake3("SCONE-LEADER-V1" || h_be || pk)`, dérivé de l'état parent
+(déterministe par chaîne, jamais de l'éligibilité à l'horloge
+murale) — puis `LEADER_MISS_TICKS_PER_RANK` (5) ticks de production
+sans progrès de hauteur débloquent les rangs suivants (un compte de
+ticks constant, jamais une horloge de pair ; un pool solitaire est
+trivialement son propre leader). L'ACCEPTATION ne vérifie jamais le
+rang — le bloc de tout producteur autorisé reste admissible, donc
+un manque de liveness est un stall local, jamais un halt. Désactivé
+en régime finalisé : le pool gelé et les checkpoints y portent la
+sûreté.
+
 ### Boucle d'ancrage (finalité, M5)
 
 Avec `--anchor-key` (fichier de clés `.sconekey`, phrase de passe via
@@ -419,12 +436,23 @@ chaos-30 : deux blocs sœurs à 15 ms d'écart).
 **Détecteur de blocage de fork profond** : 40 ticks de production
 consécutifs sans progrès canonique tandis que le nœud est bloqué
 (parking non vide ou adoption heurtant l'erreur de fenêtre élaguée
-`BlockPruned`) déclenchent `recover_deep_fork` : la chaîne en RAM et
-le parking sont réinitialisés, la chaîne re-démarre depuis le store,
-et le relais se resynchronise auprès des pairs — le dernier recours
-honnête d'une partition plus longue que la fenêtre RAM (journalisé,
-auto-récupérant ; sans lui un nœud bloqué reste en split-brain
-jusqu'à un redémarrage manuel).
+`BlockPruned`) déclenchent `recover_deep_fork`, qui ROUVRE les
+chemins de convergence au lieu de réinitialiser dans le même
+impasse (fork-choice-reorg-acceptance, 2026-11-12) : le parking est
+CONSERVÉ (l'ancre du point de fork s'y trouve peut-être déjà —
+`reconsider_parked` le ré-évalue à chaque tick), la FIFO
+`seen_blocks` est oubliée pour que les pairs puissent re-délivrer
+la région du fork, et en régime sans finalité le relais re-tire la
+chaîne depuis la hauteur 1 auprès de chaque pair (chaque bloc reçu
+se parque ou s'adopte par les chemins ordinaires de fork-choice).
+Le régime finalisé conserve le rechargement du store comme parapet
+anti-corruption RAM : la fork-choice refuse tout ce qui est sous le
+plancher de finalité, la réinitialisation ne peut pas rouvrir de
+historique réglé. L'ancien reset (recharger la propre fork du
+nœud, vider le parking, ne rien tirer) était activement nuisible :
+une fois l'ancre manquante filtrée par seen-blocks sur toute
+re-proposition, la partition était permanente (batterie du
+2026-11-11 : 5 pertes / 10 runs e2e).
 
 **Persistance des réorgs** : adopter une autre branche ne peut pas
 passer par l'ajout monotone (`NonMonotonicHeight`). Le relais applique

@@ -332,6 +332,22 @@ the fixed devnet key, valid as long as the producer pool is empty
 (open bootstrap: genesis). As soon as a living domain/TLD exists, a
 block signed by the devnet key is rejected (`InvalidProducer`).
 
+**Bootstrap leader schedule** (fork-choice-reorg-acceptance,
+2026-11-12): in the no-finality regime the whole pool may produce,
+and simultaneous height-1 candidates raced the mesh into a
+permanent partition (battery 2026-11-11: 5 losses / 10 e2e runs).
+PRODUCTION is gated to the deterministic rank 0 of
+`bootstrap_leader_order(h)` — the pool ranked by
+`blake3("SCONE-LEADER-V1" || h_be || pk)`, derived from the PARENT
+state (deterministic per chain, never wall-clock eligibility) —
+after `LEADER_MISS_TICKS_PER_RANK` (5) produce ticks without height
+progress unlock the next ranks (a constant tick count, never a
+peer clock; a lone pool is trivially its own leader). ACCEPTANCE
+never checks the rank — any authorized producer's block stays
+admissible, so a liveness miss is a local stall, never a halt. Off
+in the finalized regime: the frozen pool and the checkpoints carry
+safety there.
+
 ### Anchor loop (finality, M5)
 
 With `--anchor-key` (`.sconekey` keyfile, passphrase via
@@ -407,11 +423,21 @@ is periodically re-evaluated instead of being forgotten forever
 **Deep-fork stall detector**: 40 consecutive produce ticks with no
 canonical progress while the node is blocked (parking non-empty or
 branch adoption hitting the `BlockPruned` pruned-window error)
-trigger `recover_deep_fork`: the RAM chain and the parking are
-reset, the chain re-boots from the store, and the relay re-syncs
-from peers — the honest last resort of a partition longer than the
-RAM window (logged, self-recovering; without it a stalled node
-stays split-brained until a manual restart).
+trigger `recover_deep_fork`, which RE-OPENS the convergence paths
+instead of resetting into the same deadlock
+(fork-choice-reorg-acceptance, 2026-11-12): the parking is KEPT
+(the fork-point anchor may already be there — `reconsider_parked`
+re-evaluates it every tick), the `seen_blocks` FIFO is forgotten so
+peers can re-deliver the fork region, and in the no-finality regime
+the relay re-pulls the chain from height 1 from every peer (each
+received block parks or adopts through the ordinary fork-choice
+paths). The finalized regime keeps the store reload as a
+RAM-corruption hedge: the fork-choice refuses anything below the
+finality floor, so the reset cannot reopen settled history. The
+previous reset (reload the node's own fork, clear the parking, pull
+nothing) was actively harmful: once the missing anchor had been
+seen-blocks-filtered on any re-offer, the partition was permanent
+(battery 2026-11-11: 5 losses / 10 e2e runs).
 
 **Reorg persistence**: adopting another branch cannot go through
 the monotonic append (`NonMonotonicHeight`). The relay applies
