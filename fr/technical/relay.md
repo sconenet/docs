@@ -340,10 +340,9 @@ genèse). Dès qu'un domaine/TLD vivant existe, un bloc signé par la clé
 devnet est rejeté (`InvalidProducer`).
 
 **Calendrier de leader bootstrap** (fork-choice-reorg-acceptance,
-2026-11-12) : en régime sans finalité tout le pool peut produire, et
-des candidats simultanés à la hauteur 1 ont fait courir le mesh vers
-une partition permanente (batterie du 2026-11-11 : 5 pertes / 10
-runs e2e). La PRODUCTION est gated au rang 0 déterministe de
+2026-11-12) : en régime sans finalité DÈS QUE LE POOL PARENT EST NON
+VIDE (du premier domaine vivant à la première finalité), la
+PRODUCTION est gated au rang 0 déterministe de
 `bootstrap_leader_order(h)` — le pool rangé par
 `blake3("SCONE-LEADER-V1" || h_be || pk)`, dérivé de l'état parent
 (déterministe par chaîne, jamais de l'éligibilité à l'horloge
@@ -354,7 +353,11 @@ trivialement son propre leader). L'ACCEPTATION ne vérifie jamais le
 rang — le bloc de tout producteur autorisé reste admissible, donc
 un manque de liveness est un stall local, jamais un halt. Désactivé
 en régime finalisé : le pool gelé et les checkpoints y portent la
-sûreté.
+sûreté. À LA TRUE GENESIS le pool parent est vide et la règle
+protocolaire de production ouverte tient (le premier REGISTER doit
+rester possible) — le calendrier ne s'y applique pas ; la course
+height-1 de genesis est fermée par la paire recovery deep-fork +
+correction de marche sync (ci-dessous).
 
 ### Boucle d'ancrage (finalité, M5)
 
@@ -443,9 +446,22 @@ CONSERVÉ (l'ancre du point de fork s'y trouve peut-être déjà —
 `reconsider_parked` le ré-évalue à chaque tick), la FIFO
 `seen_blocks` est oubliée pour que les pairs puissent re-délivrer
 la région du fork, et en régime sans finalité le relais re-tire la
-chaîne depuis la hauteur 1 auprès de chaque pair (chaque bloc reçu
-se parque ou s'adopte par les chemins ordinaires de fork-choice).
-Le régime finalisé conserve le rechargement du store comme parapet
+chaîne depuis la hauteur 1 via des CURSEURS DÉDIÉS par pair
+(`recovery_pulls` — un état de marche séparé : le `recheck_sync`
+périodique SE MET EN PAUSE tant que des pulls sont en vol et ses
+propres curseurs sont intacts, si bien que les requêtes de notre
+chaîne et de la chaîne adverse ne s'entrelacent jamais). Chaque bloc
+servi avance son curseur (`advance_recovery_cursor` pur : doublons
+et trous ne le font jamais régresser) ; un bloc au-delà de notre
+sommet matérialise la chaîne du pair (la fork-choice + le parking
+détiennent alors la branche adverse) et un Pong « à jour » du
+serveur termine le pull. Les curseurs sont purgés à la
+déconnexion, sur échec d'émission sortante, et par une échéance de
+`RECOVERY_PULL_TIMEOUT_TICKS` (15) ticks de production —
+strictement plus courte que le reset de stall (40 ticks), si bien
+que la sync périodique reprend toujours et que le détecteur de
+stall redéclenche une recovery fraîche si le fork persiste. Le
+régime finalisé conserve le rechargement du store comme parapet
 anti-corruption RAM : la fork-choice refuse tout ce qui est sous le
 plancher de finalité, la réinitialisation ne peut pas rouvrir de
 historique réglé. L'ancien reset (recharger la propre fork du
