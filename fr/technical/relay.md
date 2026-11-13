@@ -62,8 +62,9 @@ connexions reçoit des refus, pas une croissance mémoire.
 
 Trois mécanismes complémentaires, dans cet ordre de priorité :
 
-1. **Seeds explicites** (`--bootstrap`, multiaddrs complètes) — toujours
-   prioritaires ; fournir une liste non vide REMPLACE tout le reste.
+1. **Seeds explicites** (`--peer`, multiaddrs complètes, répétable) —
+   toujours prioritaires ; fournir une liste non vide REMPLACE tout
+   le reste.
 2. **Seeds embarquées** (`builtin_seeds(network)` dans
    `scone-network/src/config.rs`) — figées à chaque publication
    officielle de binaire, par réseau. Un relais non configuré rejoint
@@ -78,6 +79,38 @@ Trois mécanismes complémentaires, dans cet ordre de priorité :
    plausibles plutôt que de fossiles pré-churn dont la seule
    contribution serait un timeout de numérotation au démarrage) et
    sauvegardée ~1×/min au tick de production. Au démarrage sans seed et
+
+### Politique de boot (solo-boot-guard, 2026-11-13 — fail-closed)
+
+Un boot de relay est REFUSÉ (erreur typée) quand il deviendrait une
+SEED ORPHELINE — son propre historique de blocs depuis la hauteur 1,
+partitionné de la vraie mesh au premier contact. La matrice de
+décision :
+
+| data-dir     | --peer | --genesis | résultat                            |
+|--------------|--------|-----------|-------------------------------------|
+| vierge       | non    | non       | **REFUS** (erreur typée)            |
+| vierge       | oui    | -         | seed tirée du peer (state pull,     |
+|              |        |           | fail-closed : le peer seed doit SE  |
+|              |        |           | CONNECTER — une mesh fraîche sans   |
+|              |        |           | checkpoint finalisé encore est      |
+|              |        |           | rejointe par sync de blocs à la     |
+|              |        |           | place)                              |
+| vierge       | -      | oui       | naissance fondateur (PRIORITAIRE :  |
+|              |        |           | le relais naît sur sa genesis et ne |
+|              |        |           | tire jamais ; un --peer co-fourni   |
+|              |        |           | ne sert qu'au peering)              |
+| productif    | -      | -         | redémarrage normal                  |
+| productif    | -      | oui       | refus si la genesis diffère         |
+|              |        |           | (join par sync, pas --genesis)      |
+
+`--bootstrap` et `SCONE_BOOTSTRAP` sont SUPPRIMÉS (sec — la testnet
+n'est pas lancée, zéro opérateur à migrer) ; une env
+`SCONE_BOOTSTRAP` positionnée est un refus typé pointant `--peer`
+(jamais silencieusement ignorée). Un `--peer` qui ne se CONNECTE
+jamais dans le budget de boot est aussi un refus (dial fail-
+closed) : un processus vivant sans peers est un mensonge silencieux
+au monitoring.
    sans bootstrap, l'annuaire est recomposé : le relais retrouve ses
    pairs habituels sans configuration. C'est un cache : fichier
    manquant/corrompu = annuaire vide, jamais une erreur.

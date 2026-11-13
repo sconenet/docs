@@ -61,8 +61,9 @@ attacker gets refusals, not memory growth.
 
 Three complementary mechanisms, in this priority order:
 
-1. **Explicit seeds** (`--bootstrap`, full multiaddrs) — always take
-   priority; providing a non-empty list REPLACES everything else.
+1. **Explicit seeds** (`--peer`, full multiaddrs, repeatable) —
+   always take priority; providing a non-empty list REPLACES
+   everything else.
 2. **Embedded seeds** (`builtin_seeds(network)` in
    `scone-network/src/config.rs`) — frozen at each official binary
    release, per network. An unconfigured relay joins the network
@@ -78,6 +79,36 @@ Three complementary mechanisms, in this priority order:
    boot-time dial timeout) and saved ~1×/min at the production
    tick. On boot with no seed and no bootstrap, the directory is
    recomposed: the relay finds its usual peers without
+
+### Boot policy (solo-boot-guard, 2026-11-13 — fail-closed)
+
+A relay boot is REFUSED (typed error) when it would become an
+ORPHAN SEED — its own block history from height 1, partitioned
+from the real mesh on first contact. The decision matrix:
+
+| data dir    | --peer | --genesis | outcome                          |
+|-------------|--------|-----------|----------------------------------|
+| virgin      | no     | no        | **REFUSED** (typed error)        |
+| virgin      | yes    | -         | seed pulled from the peer        |
+|             |        |           | (state pull, fail-closed: the    |
+|             |        |           | seed peer must CONNECT — a       |
+|             |        |           | fresh mesh with no finalized     |
+|             |        |           | checkpoint yet is joined by      |
+|             |        |           | block sync instead)              |
+| virgin      | -      | yes       | founder birth (PRIORITARY: the   |
+|             |        |           | relay is born on its genesis and |
+|             |        |           | never pulls; a co-provided       |
+|             |        |           | --peer is peering only)          |
+| productive  | -      | -         | normal restart                   |
+| productive  | -      | yes       | refused if the genesis differs   |
+|             |        |           | (join by sync, not --genesis)    |
+
+`--bootstrap` and `SCONE_BOOTSTRAP` are REMOVED (dry — the testnet
+is not launched, zero operators to migrate); a positioned
+`SCONE_BOOTSTRAP` env var is a typed refusal pointing at `--peer`
+(never silently ignored). A `--peer` that never CONNECTS within
+the boot budget is also a refusal (fail-closed dial): a live
+process without peers is a silent lie to monitoring.
    configuration. It is a cache: missing/corrupted file = empty
    directory, never an error.
 4. **UPnP** (`--upnp`, opt-in) — QUIC listen-port mapping by the
