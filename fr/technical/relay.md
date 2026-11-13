@@ -111,6 +111,48 @@ n'est pas lancée, zéro opérateur à migrer) ; une env
 jamais dans le budget de boot est aussi un refus (dial fail-
 closed) : un processus vivant sans peers est un mensonge silencieux
 au monitoring.
+
+## Production idle-liveness (idle-liveness, 2026-11-13)
+
+Une mesh SILENCIEUSE (mempool vidé, aucune tx utilisateur) ne doit
+pas geler : la production = mempool uniquement enfermerait la
+machine à epochs (le heartbeat d'epoch dérive de la HAUTEUR — un
+tip gelé ne franchit jamais de frontière d'epoch, donc aucun
+nouveau heartbeat n'émerge jamais). Quand le mempool est vidé ET
+sans contention de fork ET l'opportunité de proposal FERMÉE
+(tip − last_finalized < epoch_min_blocks), le leader au rang
+déverrouillé de l'ordre bootstrap dérivé du pool parent produit UN
+bloc vide signé par slot de leader — franchir la fenêtre rouvre les
+proposals, les heartbeats de l'epoch suivant émergent et la chaîne
+continue d'avancer sans transactions utilisateur.
+
+- **LES DEUX RÉGIMES** : la famine de mempool frappe le régime
+  FINALISÉ aussi (une mesh silencieuse gèle le tip sous la
+  prochaine fenêtre de proposal qu'un checkpoint soit posé ou non —
+  observé à hauteur 19 dans la batterie release GO/NO-GO) ; le pool
+  de l'ordre du leader est déterministe par chaîne dans les deux
+  régimes (pool éligible bootstrap avant la finalité, pool gelé
+  après).
+- **`has_quorum_pending` n'est volontairement PAS un gate** : un
+  pending avec quorum qui n'aboutit jamais (un relay à base en
+  retard refusant le replay de pool) désactiverait ce producteur
+  pour toujours — un bloc vide re-déclenche le re-vote des pendings
+  à chaque changement canonique, ce qui fait atterrir un quorum
+  coincé.
+- **Désarmement** implicite dès qu'une tx réelle arrive (le gate
+  mempool) ou qu'une proposal s'ouvre (le check de gate fermée).
+
+**Recovery forcée de wedge parké** : du matériel adverse maintenu
+parqué au-delà de `PARKED_WEDGE_TICKS` (40) ticks de production
+consécutifs force la recovery deep-fork INDÉPENDAMMENT du progrès
+du tip — la production worst-rank propre du relais avance le tip et
+ne cesse de réarmer le compteur de progrès du détecteur de stall,
+ce qui laissait une minorité divergée coincée pour toujours (la
+FIFO seen-blocks continuait de filtrer les re-livraisons de la
+branche adverse). Un relais ABSENT de l'ordre de leader du pool
+parent (vue de minorité racée) est le PIRE rang : il ne produit
+qu'après que chaque leader classé a décliné pour le budget de miss
+complet — jamais gated pour toujours.
    sans bootstrap, l'annuaire est recomposé : le relais retrouve ses
    pairs habituels sans configuration. C'est un cache : fichier
    manquant/corrompu = annuaire vide, jamais une erreur.

@@ -109,6 +109,45 @@ is not launched, zero operators to migrate); a positioned
 (never silently ignored). A `--peer` that never CONNECTS within
 the boot budget is also a refusal (fail-closed dial): a live
 process without peers is a silent lie to monitoring.
+
+## Idle-liveness production (idle-liveness, 2026-11-13)
+
+A SILENT mesh (mempool drained, no user transactions) must not
+freeze: production = mempool-only would deadlock the epoch machine
+(the epoch heartbeat derives from the HEIGHT — a frozen tip never
+crosses an epoch boundary, so no new heartbeats ever emerge). When
+the mempool is drained AND no fork contention AND the proposal
+opportunity is CLOSED (tip − last_finalized < epoch_min_blocks),
+the unlocked-rank leader of the parent-derived bootstrap order
+produces ONE signed empty block per leader slot — crossing the
+window re-opens proposals, the next epoch's heartbeats emerge and
+the chain keeps advancing without user transactions.
+
+- **Both regimes**: the mempool-starvation deadlock hits the
+  FINALIZED regime too (a quiet mesh freezes the tip below the
+  next proposal window whether or not a checkpoint has landed —
+  observed at height 19 in the GO/NO-GO release battery); the
+  pool used by the leader order is deterministic per chain in
+  either regime (bootstrap eligible pool before finality, frozen
+  pool after).
+- **`has_quorum_pending` is deliberately NOT a gate**: a pending
+  with quorum that never ACCEPTS (a lagging-base relay refusing
+  the pool replay) would disable this producer forever — an empty
+  block re-triggers the pendings' re-vote at every canonical
+  change, which is how a stuck quorum finally lands.
+- **Disarmed** implicitly by a real tx (the mempool gate) or an
+  opening proposal (the closed-gate check).
+
+**Parked-wedge forced recovery**: adverse material held parked
+across `PARKED_WEDGE_TICKS` (40) consecutive produce ticks forces
+the deep-fork recovery REGARDLESS of tip progress — the relay's
+own worst-rank production advances the tip and keeps resetting the
+stall detector's progress counter, which used to leave a diverged
+minority wedged forever (the seen-blocks FIFO kept filtering the
+adverse branch's re-deliveries). A relay ABSENT from the
+parent-pool leader order (a raced-minority view) is the WORST
+rank: it produces only after every ranked leader has declined for
+the full miss budget — never gated forever.
    configuration. It is a cache: missing/corrupted file = empty
    directory, never an error.
 4. **UPnP** (`--upnp`, opt-in) — QUIC listen-port mapping by the
