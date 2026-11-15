@@ -621,14 +621,21 @@ page    = "SCONE-SNAP-PAGE-V1"
         ‖ index(4) ‖ height(8) ‖ state_root(32)      ← every page is
         ‖ entry_count(4) ‖ entries                   self-identifying
 
-entry   = kind(0x01 domain | 0x02 TLD | 0x03 TLD floor) ‖ id(32)
-          ‖ [len(2) ‖ state | floor(8 BE)]
+entry   = kind(0x01 domain | 0x02 TLD) ‖ id(32) ‖ len(2) ‖ state
+        | kind 0x03 ‖ id(32) ‖ floor(8 BE)             (TLD life floor)
+        | kind 0x04 ‖ epoch(8 BE) ‖ operator(32)       (hb window)
+        | kind 0x05 ‖ operator(32) ‖ ts(8 BE)          (hb last ts)
+        | kind 0x06 ‖ owner(32) ‖ key(32)              (owner→key map)
+        | kind 0x07 ‖ key(32)                          (PoS ban)
           (state = DomainStateBytes (65..=194 B — the full
            delegate-aware envelope) or TldStateBytes 10/50 B —
-           the existing canonical storage formats, reused; kind
-           0x03 (lifetime floor of an open TLD, owner-option) has
-           a dedicated format WITHOUT a length prefix:
-           id(32) ‖ floor(8 BE), fixed size)
+           the existing canonical storage formats, reused.
+           Kinds 0x03–0x07 are FIXED-SIZE (no length prefix):
+           0x03 = lifetime floor of an open TLD (owner-option);
+           0x04/0x05 = heartbeat windows (proof-of-service: epoch
+           freshness, last accepted ts); 0x06 = learned owner→key
+           map (PoS pool resolution); 0x07 = ban-list entry
+           (M9 slashing).)
 ```
 
 Hash derivations: page hash = `blake3("SCONE-SNAP-PAGE-HASH" ‖
@@ -637,9 +644,13 @@ full page encoding)`; manifest hash (carried by the P0.4 marker) =
 
 Page order: all domain entries (increasing ids), then all TLD
 entries (increasing ids), then the TLD lifetime floors FROZEN at the
-snapshot height (`snapshot_tld_floors_all` — not the live table) —
-the order of the store's cursor
-pagination. Every page carries `(index, height, checkpoint's
+snapshot height (`snapshot_tld_floors_all` — not the live table),
+then the heartbeat windows (`recent` strictly increasing by
+`(epoch, operator)`, then `last` strictly increasing by operator),
+then the owner→key map (strictly increasing by owner), then the bans
+(strictly increasing by key) — the store's cursor
+pagination order completed by the canonical orders of the added
+families. Every page carries `(index, height, checkpoint's
 state_root, entries)`: a lone page knows which snapshot it belongs
 to. Pages of 256 entries at export
 (`VERIFIED_SNAPSHOT_PAGE_ENTRIES`); DoS bounds at import. TLD
@@ -648,6 +659,79 @@ floors (`tld_floors_v1`) are part of the portable format: kind
 ascending and targeting a TLD PRESENT in the snapshot —
 otherwise the importer would never kill what an exporter would
 kill (silent fork, rejected).
+
+### Operational state carried by the artifact (kinds 0x04–0x07)
+
+Three pieces of consensus state INVISIBLE to the SMT root — the
+signed root covers domains + TLDs only — travel inside the artifact
+itself and are committed to it by the page hashes (the same trust
+level as the floors):
+
+- **heartbeat windows** (0x04 freshness `recent`, 0x05 last accepted
+  ts `last`): the ADMISSION state of heartbeat txs (same-epoch
+  uniqueness) and draw freshness. The admission path writes BOTH
+  maps together — the import requires coherence (every operator of
+  `recent` must carry a `last` entry; the converse is NOT required:
+  the purge empties `recent` while `last` keeps every operator
+  forever);
+- **owner→key map** (0x06) and **bans** (0x07): the PoS pool
+  resolution — `eligible_validators(ts_H)` needs the learned map
+  (operational, outside the SMT root) and the ban list. At import,
+  every pair verifies its IDENTITY:
+  `owner == owner_from_public_key(key)` (a universal invariant — tx
+  validation, genesis allocations and Assign all honor it): a
+  hostile pair never enters the state a pool will be derived from.
+
+Fail-closed structural validation, BEFORE any write: canonical
+order STRICTLY increasing PER KIND (an inversion = typed
+rejection). A missing family means an older artifact: without
+0x04/0x05 (pre-windows) the boot is AMNESIAC — the documented
+behavior of that era: empty windows at H, the importer may accept
+blocks the mesh refuses (a strand on ITS side; never corruption of
+a full node's log); without 0x06 (pre-derivation) the BOOT refuses
+(see below). Windows present = the `snapshot_hb_windows_v1` row is
+written INSIDE the atomic import transaction — the deliberate
+exception to the lean "no frozen duplicate" rule: the sole
+persisted copy of a consensus state invisible to the root, never a
+re-export duplicate. The owner→key map is written BOTH in the
+frozen `snapshot_owner_keys_v1` table and in the LIVE `owner_keys`
+table (without it, the first post-boot checkpoint would freeze an
+empty pool); bans persist only in `snapshot_banned_v1` (no live
+table — a preexisting systemic gap: a FULL node restart loses them
+too).
+
+**Boot pool derivation** (lean BOOT import): the frozen pool is
+NEVER the checkpoint's signer set — a quorum-only base (signers=3
+at quorum=3) structurally understates the committee: the sitting
+anchor missing from the signatures saw every suffix block refused
+`InvalidProducer`, lifetime blacklist, importer strand. The pool is
+DERIVED from the imported state: a scratch `ChainState` is restored
+from the artifact's verified entries (domain/TLD seats, keys of
+0x06, bans of 0x07) and the pool is
+`eligible_validators(ts of block H)` — the EXACT pure function a
+full node freezes at `accept_checkpoint` (deterministic: two
+importers of the same artifact freeze the identical pool). The
+checkpoint signature serves only as LOCATION certification (quorum
+of distinct keys). Fail-closed before any write: an artifact
+without a 0x06 entry → typed refusal "pool not derivable" (the
+file import halts with the remove-the-file remedy; the pull falls
+back to the full-replay sync); an empty derived pool → refusal. A
+"pool covers the signers" check is deliberately WAIVED: the
+committee signs under EFFECTIVE keys (possibly delegated, never
+learned in owner_keys) and a signer seated at H_prev may have
+expired at H — a cover-check would refuse honest meshes.
+
+**Compat**: an importer without decoding for the new kinds
+receiving a recent artifact → typed unknown-kind rejection (file) /
+full-replay fallback (pull). A current importer receiving a
+pre-windows artifact → windows absent (documented behavior);
+pre-derivation → refusal of the BOOT ONLY (the plain lean import
+accepts it: no pool derivation). The FILE export always rebuilds
+these families from the replay (always carried); the SERVED export
+(state-pull) reads the frozen rows at the checkpoint height — a
+pre-fix freeze carries nothing (the next accepted cp re-freezes
+with them). Stores imported before the fix do NOT resync: no
+existing table changes format — only NEW frozen tables appear.
 
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 

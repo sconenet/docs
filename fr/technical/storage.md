@@ -635,14 +635,21 @@ page    = "SCONE-SNAP-PAGE-V1"
         ‖ index(4) ‖ height(8) ‖ state_root(32)      ← chaque page est
         ‖ entry_count(4) ‖ entries                   auto-identifiée
 
-entry   = kind(0x01 domaine | 0x02 TLD | 0x03 plancher TLD) ‖ id(32)
-          ‖ [len(2) ‖ state | floor(8 BE)]
+entry   = kind(0x01 domaine | 0x02 TLD) ‖ id(32) ‖ len(2) ‖ state
+        | kind 0x03 ‖ id(32) ‖ floor(8 BE)             (plancher TLD)
+        | kind 0x04 ‖ epoch(8 BE) ‖ operator(32)       (fenêtre hb)
+        | kind 0x05 ‖ operator(32) ‖ ts(8 BE)          (dernier hb)
+        | kind 0x06 ‖ owner(32) ‖ clé(32)              (map owner→clé)
+        | kind 0x07 ‖ clé(32)                          (bannissement PoS)
           (state = DomainStateBytes (65..=194 B — l'enveloppe complète
            consciente des délégués) ou TldStateBytes 10/50 B —
-           les formats canoniques de stockage existants, réutilisés ; le
-           kind 0x03 (plancher de durée de vie d'un TLD ouvert,
-           owner-option) a un format dédié SANS préfixe de longueur :
-           id(32) ‖ floor(8 BE), taille fixe)
+           les formats canoniques de stockage existants, réutilisés.
+           Les kinds 0x03–0x07 sont À TAILLE FIXE (aucun préfixe de
+           longueur) : 0x03 = plancher de durée de vie d'un TLD
+           ouvert (owner-option) ; 0x04/0x05 = fenêtres heartbeat
+           (proof-of-service : fraîcheur d'epoch, dernier ts accepté)
+           ; 0x06 = map apprise owner→clé (résolution du pool PoS) ;
+           0x07 = entrée de bannissement (slashing M9).)
 ```
 
 Dérivations de hachage : hachage de page =
@@ -653,8 +660,13 @@ hachage de manifeste (porté par le marqueur P0.4) =
 Ordre des pages : toutes les entrées de domaine (ids croissants),
 puis toutes les entrées TLD (ids croissants), puis les planchers de
 durée de vie des TLDs FIGÉS à la hauteur du snapshot
-(`snapshot_tld_floors_all` — pas la table vivante) — l'ordre de la
-pagination par curseur du store. Chaque page porte `(index, height,
+(`snapshot_tld_floors_all` — pas la table vivante), puis les fenêtres
+heartbeat (`recent` strictement croissant par `(epoch, operator)`,
+puis `last` strictement croissant par operator), puis la map
+owner→clé (strictement croissante par owner), puis les bannis
+(strictement croissants par clé) — l'ordre de la pagination par
+curseur du store complété par les ordres canoniques des familles
+ajoutées. Chaque page porte `(index, height,
 state_root du point de contrôle, entries)` : une page seule sait à
 quel snapshot elle appartient. Pages de 256 entrées à l'export
 (`VERIFIED_SNAPSHOT_PAGE_ENTRIES`) ; bornes DoS à l'import. Les
@@ -662,6 +674,83 @@ planchers TLD (`tld_floors_v1`) font partie du format portable : le
 kind 0x03 les porte, et l'import les exige strictement croissants et
 ciblant un TLD PRÉSENT dans le snapshot — sinon l'importateur ne
 tuerait jamais ce qu'un exportateur tuerait (fork silencieux, rejeté).
+
+### État opérationnel porté par l'artifact (kinds 0x04–0x07)
+
+Trois états de consensus INVISIBLES à la racine SMT — la racine
+signée ne couvre que domaines + TLDs — voyagent dans l'artifact
+lui-même et y sont ENGAGÉS par les hachages de pages (même classe de
+confiance que les planchers) :
+
+- **fenêtres heartbeat** (0x04 fraîcheur `recent`, 0x05 dernier ts
+  accepté `last`) : état d'ADMISSION des tx heartbeat (unicité
+  same-epoch) et de fraîcheur du tirage. Le chemin d'admission écrit
+  LES DEUX maps ensemble — l'import exige la cohérence (tout
+  opérateur de `recent` doit porter une entrée `last` ; la réciproque
+  n'est PAS exigée : la purge vide `recent` quand `last` garde chaque
+  opérateur pour toujours) ;
+- **map owner→clé** (0x06) et **bannis** (0x07) : la résolution du
+  pool PoS — `eligible_validators(ts_H)` a besoin de la map apprise
+  (opérationnelle, hors racine SMT) et de la liste de bannissements.
+  À l'import, chaque paire vérifie son IDENTITÉ :
+  `owner == owner_from_public_key(clé)` (invariant universel — la
+  validation des tx, les allocations genèse et Assign le respectent)
+  : une paire hostile n'entre jamais dans l'état d'où un pool sera
+  dérivé.
+
+Validation structurelle fail-closed, AVANT toute écriture : ordre
+canonique STRICTEMENT croissant PAR KIND (une inversion = rejet
+typé). L'absence d'une famille signifie un artifact antérieur :
+sans 0x04/0x05 (pré-fenêtres) le boot est AMNÉSIQUE — comportement
+documenté de l'époque : fenêtres vides à H, l'importé peut accepter
+des blocs que le mesh refuse (strand de SON côté ; jamais de
+corruption du log d'un nœud plein) ; sans 0x06 (pré-dérivation) le
+BOOT refuse (voir ci-dessous). Fenêtres présentes = la ligne
+`snapshot_hb_windows_v1` est écrite DANS la transaction atomique
+d'import — l'exception délibérée au « pas de duplicata figé » du
+lean : unique copie persistée d'un état consensus invisible à la
+racine, jamais un duplicata de re-export. La map owner→clé est
+écrite À LA FOIS dans la table figée `snapshot_owner_keys_v1` et
+dans la table VIVE `owner_keys` (sans elle, le premier point de
+contrôle post-boot gèlerait un pool vide) ; les bannis ne
+persistent que dans `snapshot_banned_v1` (aucune table vive — écart
+systémique préexistant : un redémarrage d'un nœud PLEIN les perd
+aussi).
+
+**Dérivation du pool de boot** (import BOOT maigre) : le pool gelé
+n'est JAMAIS l'ensemble des signataires du point de contrôle — une
+base quorum-only (signers=3 sur quorum=3) sous-estime
+structurellement le comité : l'anchor assis absent des signatures
+voyait chaque bloc de suffixe refusé `InvalidProducer`, blacklist à
+vie, strand de l'importé. Le pool est DÉRIVÉ de l'état importé : un
+`ChainState` de travail est restauré des entrées vérifiées de
+l'artifact (sièges des domaines/TLDs, clés des 0x06, bannis des
+0x07) et le pool est `eligible_validators(ts du bloc H)` — la
+fonction pure EXACTE qu'un nœud plein gèle à `accept_checkpoint`
+(déterministe : deux importeurs du même artifact gèlent le pool
+identique). La signature du point de contrôle ne sert plus qu'à la
+CERTIFICATION de localisation (quorum de clés distinctes).
+Fail-closed avant toute écriture : artifact sans entrée 0x06 →
+refus typé « pool non dérivable » (l'import fichier halte avec le
+remède retirer-le-fichier ; le pull retombe en full-replay) ; pool
+dérivé vide → refus. Un contrôle « le pool couvre les
+signataires » est délibérément ÉCARTÉ : le comité signe sous clés
+EFFECTIVES (déléguées possibles, jamais apprises dans owner_keys) et
+un signataire assis à H_prev peut avoir expiré à H — un
+cover-check refuserait des meshes honnêtes.
+
+**Compat** : un importeur sans décodage des nouveaux kinds reçoit un
+artifact récent → rejet typé kind inconnu (fichier) / repli
+full-replay (pull). Un importeur courant reçoit un artifact
+pré-fenêtres → fenêtres absentes (comportement documenté) ;
+pré-dérivation → refus du BOOT SEULEMENT (l'import lean simple
+l'accepte : aucune dérivation de pool). L'export FICHIER reconstruit
+toujours ces familles du replay (toujours portées) ; l'export SERVI
+(state-pull) lit les lignes figées à la hauteur du checkpoint — un
+gel antérieur au fix n'emporte rien (le prochain cp accepté
+re-gèle avec). Les stores importés avant le fix ne resync PAS :
+aucune table existante ne change de format — seules de NOUVELLES
+tables figées apparaissent.
 
 ### Export (`export_verified_snapshot(store, checkpoint)`)
 
