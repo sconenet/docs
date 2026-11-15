@@ -522,10 +522,24 @@ CONSERVÉ (l'ancre du point de fork s'y trouve peut-être déjà —
 `seen_blocks` est oubliée pour que les pairs puissent re-délivrer
 la région du fork, et en régime sans finalité le relais re-tire la
 chaîne depuis la hauteur 1 via des CURSEURS DÉDIÉS par pair
-(`recovery_pulls` — un état de marche séparé : le `recheck_sync`
-périodique SE MET EN PAUSE tant que des pulls sont en vol et ses
-propres curseurs sont intacts, si bien que les requêtes de notre
-chaîne et de la chaîne adverse ne s'entrelacent jamais). Chaque bloc
+(release-mesh-convergence, 2026-11-15 : le re-tirage depuis la
+hauteur 1 en boucle était un LIVELOCK — les retardataires ne
+tenaient jamais un tip assez longtemps pour voter un checkpoint
+pending au quorum) : `recover_deep_fork` RECHARGE D'ABORD le
+PROPRE store du nœud — un CONTEXTE exact et monotone (chaque bloc
+y a été intégralement validé à l'acceptation ; la fork-choice reste
+LIBRE de reorg sous le tip rechargé, jusqu'au dernier ancêtre
+commun — le reload n'est jamais une AUTORITÉ) — puis les CURSEURS
+DÉDIÉS par pair ne tirent du réseau que la région STRICTEMENT
+AU-DESSUS du tip rechargé (`recovery_pulls` — un état de marche
+séparé : le `recheck_sync` périodique SE MET EN PAUSE tant que des
+pulls sont en vol et ses propres curseurs sont intacts, si bien
+que les requêtes de notre chaîne et de la chaîne adverse ne
+s'entrelacent jamais ; la région sous le tip ré-arrive par la
+re-délivrance gossip et le parking conservé). Un store qui ne peut
+pas servir le rechargement (store importé sans historique
+rejouable) retombe sur le re-tirage genèse — fail-open vers la
+moins mauvaise source de convergence. Chaque bloc
 servi avance son curseur (`advance_recovery_cursor` pur : doublons
 et trous ne le font jamais régresser) ; un bloc au-delà de notre
 sommet matérialise la chaîne du pair (la fork-choice + le parking

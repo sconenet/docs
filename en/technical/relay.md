@@ -503,10 +503,24 @@ instead of resetting into the same deadlock
 re-evaluates it every tick), the `seen_blocks` FIFO is forgotten so
 peers can re-deliver the fork region, and in the no-finality regime
 the relay re-pulls the chain from height 1 through DEDICATED
-per-peer cursors (`recovery_pulls` — a separate walk state: the
-periodic `recheck_sync` PAUSES while pulls are in flight and its
-own cursors are untouched, so same-chain and adverse-chain requests
-never interleave). Each served block advances its cursor (pure
+per-peer cursors
+(release-mesh-convergence, 2026-11-15: looping the re-pull from
+height 1 was a LIVELOCK — the lagging nodes never held a tip long
+enough to vote a pending checkpoint into quorum): `recover_deep_fork`
+FIRST RELOADS the node's OWN store — an exact, monotone CONTEXT
+(every block in it was fully validated at acceptance; the
+fork-choice rule remains FREE to reorganize below the reloaded tip,
+down to the last common ancestor — the reload is never an
+AUTHORITY) — and then the DEDICATED per-peer cursors pull from the
+network ONLY the region STRICTLY ABOVE the reloaded tip
+(`recovery_pulls` — a separate walk state: the periodic
+`recheck_sync` PAUSES while pulls are in flight and its own cursors
+are untouched, so same-chain and adverse-chain requests never
+interleave; the region below the tip re-arrives through gossip
+re-delivery and the preserved parking). A store that cannot serve
+the reload (an imported-anchor store without replayable history)
+falls back to the genesis re-pull — fail-open to the least-bad
+convergence source. Each served block advances its cursor (pure
 `advance_recovery_cursor`: duplicates and gaps never regress it); a
 block past our tip materializes the peer's chain (the fork-choice +
 parking then hold the adverse branch) and a serve-side caught-up
