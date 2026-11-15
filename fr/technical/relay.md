@@ -522,24 +522,30 @@ CONSERVÉ (l'ancre du point de fork s'y trouve peut-être déjà —
 `seen_blocks` est oubliée pour que les pairs puissent re-délivrer
 la région du fork, et en régime sans finalité le relais re-tire la
 chaîne depuis la hauteur 1 via des CURSEURS DÉDIÉS par pair
-(release-mesh-convergence, 2026-11-15 : le re-tirage depuis la
-hauteur 1 en boucle était un LIVELOCK — les retardataires ne
-tenaient jamais un tip assez longtemps pour voter un checkpoint
-pending au quorum) : `recover_deep_fork` RECHARGE D'ABORD le
-PROPRE store du nœud — un CONTEXTE exact et monotone (chaque bloc
-y a été intégralement validé à l'acceptation ; la fork-choice reste
-LIBRE de reorg sous le tip rechargé, jusqu'au dernier ancêtre
-commun — le reload n'est jamais une AUTORITÉ) — puis les CURSEURS
-DÉDIÉS par pair ne tirent du réseau que la région STRICTEMENT
-AU-DESSUS du tip rechargé (`recovery_pulls` — un état de marche
-séparé : le `recheck_sync` périodique SE MET EN PAUSE tant que des
-pulls sont en vol et ses propres curseurs sont intacts, si bien
-que les requêtes de notre chaîne et de la chaîne adverse ne
-s'entrelacent jamais ; la région sous le tip ré-arrive par la
-re-délivrance gossip et le parking conservé). Un store qui ne peut
-pas servir le rechargement (store importé sans historique
-rejouable) retombe sur le re-tirage genèse — fail-open vers la
-moins mauvaise source de convergence. Chaque bloc
+(release-mesh-convergence, 2026-11-15) : `recover_deep_fork`
+RECHARGE D'ABORD le PROPRE store du nœud — un CONTEXTE exact et
+monotone (chaque bloc y a été intégralement validé à l'acceptation ;
+la fork-choice reste LIBRE de reorg sous le tip rechargé, jusqu'au
+dernier ancêtre commun — le reload n'est jamais une AUTORITÉ) —
+puis les CURSEURS DÉDIÉS par pair RE-LIVRENT la chaîne depuis la
+GENÈSE, BORNÉS par cycle de recovery (deadline de 15 ticks de pull ;
+le `recheck_sync` périodique reprend entre les cycles et SE MET EN
+PAUSE tant que des pulls sont en vol, si bien que les requêtes de
+notre chaîne et de la chaîne adverse ne s'entrelacent jamais). La
+région SOUS le tip est le point : deux anchors produisant une
+hauteur 1 AVANT que le mesh soit connecté rootent des branches
+concurrentes que seul le matériel re-livré peut faire parker puis
+comparer à la fork-choice (battery snapshot_e2e 2026-11-15 : une
+variante « resume au-dessus du tip » a affamé la guérison — un
+seul bloc par hauteur, aucune branche adverse matérialisée, 0
+finalisation en 360 s) ; la chaîne rechargée TIENT son tip entre
+les cycles (le reload est la partie monotone), le nœud continue de
+voter les checkpoints pending pendant que le matériel de fork se
+re-arrange — la shape que les runs state_pull pré-fix masquaient
+(2 778 cycles de redémarrage sans jamais tenir un tip). Un store
+qui ne peut pas servir le rechargement (store importé sans
+historique rejouable) retombe sur la re-livraison genèse seule —
+fail-open vers la moins mauvaise source de convergence. Chaque bloc
 servi avance son curseur (`advance_recovery_cursor` pur : doublons
 et trous ne le font jamais régresser) ; un bloc au-delà de notre
 sommet matérialise la chaîne du pair (la fork-choice + le parking
