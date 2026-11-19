@@ -318,14 +318,23 @@ never applied, never pooled by a mainnet node, and vice versa).
   ICANN-reserved** (`IcannTldReserved`: ICANN root TLDs belong to no
   one on Scone);
 - **mandatory PoW**: `pow::verify` on the challenge
-  `SCONE-TLD-V1 || tld` (derived from the name carried by the tx), at
+  `SCONE-TLD-V1 || tld || birth_mode` (derived from the name carried
+  by the tx; `birth_mode` is the single byte `0x00` for a private
+  birth and `0x01` for a born-open claim), at
   the **length-based** difficulty of the label (`pow_length`):
   private birth → `tld_difficulty` (network apex), open birth
   (`open = 0x01`) → `open_tld_difficulty` (apex − 1) — the digest is
   recomputed from scratch
   (salt `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`,
   Argon2id core), the
-  self-declared difficulty must equal the expected difficulty, and
+  self-declared difficulty must equal the expected difficulty. The
+  birth mode is part of the challenge on purpose: a private-birth
+  proof (stricter, seat-bearing) replayed as a born-open claim used
+  to destroy the private claim for free, and vice versa. The
+  signature-less `REGISTER_TLD_POW` form binds the beneficiary and
+  the network into the challenge as well:
+  `SCONE-TLD-V1 ‖ name ‖ pubkey_dest(32) ‖ network_id ‖ birth_mode`
+  (`pow_challenge_to` plus the mode byte). And
   the **epoch declared** by the proof must fall in the applying
   block's backward validity window: a proof stays valid while
   `declared_epoch ≤ block_epoch < declared_epoch + W`, with

@@ -330,14 +330,23 @@ mainnet, et inversement).
   réservé ICANN** (`IcannTldReserved` : les TLD racine ICANN
   n'appartiennent à personne sur Scone) ;
 - **PoW obligatoire** : `pow::verify` sur le défi
-  `SCONE-TLD-V1 || tld` (dérivé du nom porté par la tx), à la
+  `SCONE-TLD-V1 || tld || mode_naissance` (dérivé du nom porté par la
+  tx ; `mode_naissance` vaut l'octet `0x00` pour une naissance privée
+  et `0x01` pour une revendication née ouverte), à la
   difficulté **fondée sur la longueur** du label (`pow_length`) :
   naissance privée → `tld_difficulty` (apex réseau), naissance ouverte
   (`open = 0x01`) → `open_tld_difficulty` (apex − 1) — le condensé est
   recalculé from scratch
   (sel `SCONE-POW-V1-ARGON2 ‖ network ‖ challenge ‖ epoch`, cœur
   Argon2id), la
-  difficulté auto-déclarée doit être égale à la difficulté attendue, et
+  difficulté auto-déclarée doit être égale à la difficulté attendue. Le
+  mode de naissance fait partie du défi à dessein : une preuve de
+  naissance privée (plus stricte, porteuse de siège) rejouée comme
+  revendication née ouverte détruisait gratuitement la revendication
+  privée, et inversement. La forme sans signature `REGISTER_TLD_POW`
+  lie en outre le bénéficiaire et le réseau au défi :
+  `SCONE-TLD-V1 ‖ nom ‖ pubkey_dest(32) ‖ network_id ‖ mode_naissance`
+  (`pow_challenge_to` plus l'octet de mode). Et
   l'**époque déclarée** par la preuve doit tomber dans la fenêtre de
   validité rétroactive du bloc appliquant : une preuve reste valide
   tant que `declared_epoch ≤ block_epoch < declared_epoch + W`, avec
