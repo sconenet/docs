@@ -358,8 +358,13 @@ never applied, never pooled by a mainnet node, and vice versa).
   (M8b: the assign-only path is exclusive);
 - the domain must be **free**: absent from the state AND outside any
   grace window of an expired registration (see GC below);
-- **mandatory PoW**: challenge `SCONE-DOMAIN-V1 || name` at the
-  **length-based difficulty of the leftmost label**
+- **mandatory PoW**: challenge
+  `SCONE-DOMAIN-V1 ‖ name ‖ public_key(32) ‖ len(network_id) ‖
+  network_id`, i.e. the claim is bound to the SIGNING key and to the
+  network (a proof observed in the mempool can no longer be copied
+  into a rival transaction with the attacker's key — the
+  "front-run the mined proof" theft — nor replayed across networks),
+  at the **length-based difficulty of the leftmost label**
   (`pow_length::domain_difficulty` — the TLD being open, this is the
   self-service entry price);
 - on application: `{ owner, sequence: 0, record_hash: None,

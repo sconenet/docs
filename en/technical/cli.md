@@ -225,20 +225,19 @@ resolution moved to `scone domain get <name>` (ex-`record get`,
 ex-`domain resolve`); the hex publication channel (`record put`)
 is gone —
 editing goes through `domain set` / `domain update`.
-- `scone domain mine <name>` — mines ONLY the registration
-  proof (no identity, no keystore, no submission): prints the
-  `scone-domain-pow-v1` JSON `{type, name, network_id, epoch,
-  proof}` to stdout. Delegated mining: another machine mines
-  for you, your keys never leave yours. Pipe or redirect it:
-  `scone domain mine n.tld | scone domain register n.tld
-  --proof -` (or `--proof FILE`). The proof is name- and
-  network-bound; freshness is enforced by the node at apply
-  time (epoch validity window). With `--mine-for <pubkey>` it
-  instead mines a POW-TO-OWNER proof for that beneficiary and
-  prints the `scone-domain-pow-to-v1` JSON `{type, name,
-  network_id, epoch, pow_to, proof}` — consumable ONLY by
-  `register --to` / `renew --to` for that exact key (the
-  challenge embeds it; case-insensitive check at submission).
+- `scone domain mine <name> --mine-for <pubkey>` — mines ONLY
+  the registration proof (no identity, no keystore, no
+  submission): prints the `scone-domain-pow-to-v1` JSON `{type,
+  name, network_id, epoch, pow_to, proof}` to stdout. Delegated
+  mining: another machine mines for you, your keys never leave
+  yours. `--mine-for` is REQUIRED because every registration
+  proof is bound to its BENEFICIARY key (and to the network): a
+  proof observed in the mempool can no longer be re-signed by
+  anyone else. Pipe or redirect it: `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --proof -`
+  (or `--proof FILE`); the signed `register --proof` refuses a
+  payload mined for another key. Freshness is enforced by the
+  node at apply time (epoch validity window).
 - Pow-to-owner submission (no keystore needed — `--to` is
   exclusive with `--identity`): `scone domain register <name>
   --to <pubkey>` / `scone domain register <name> --to <pubkey>`

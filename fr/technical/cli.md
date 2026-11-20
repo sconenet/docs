@@ -246,21 +246,20 @@ résolution d'enregistrement DNS a déménagé
 vers `scone domain get <nom>` (ex-`record get`, ex-`domain resolve`) ; le canal
 de publication hexadécimal (`record put`) a disparu — l'édition
 passe par `domain set` / `domain update`.
-- `scone domain mine <nom>` — mine UNIQUEMENT la preuve
-  d'enregistrement (aucune identité, aucun coffre, aucune
-  soumission) : imprime le JSON `scone-domain-pow-v1` `{type,
-  name, network_id, epoch, proof}` sur stdout. Minage délégué :
-  une autre machine mine pour vous, vos clés ne quittent jamais
-  la vôtre. Pipez ou redirigez : `scone domain mine n.tld |
-  scone domain register n.tld --proof -` (ou `--proof FICHIER`).
-  La preuve est liée au nom et au réseau ; la fraîcheur est
-  vérifiée par le nœud à l'application (fenêtre de validité
-  d'époque). Avec `--mine-for <pubkey>`, il mine à la place une
-  preuve POW-TO-OWNER pour ce bénéficiaire et imprime le JSON
+- `scone domain mine <nom> --mine-for <pubkey>` — mine
+  UNIQUEMENT la preuve d'enregistrement (aucune identité, aucun
+  coffre, aucune soumission) : imprime le JSON
   `scone-domain-pow-to-v1` `{type, name, network_id, epoch,
-  pow_to, proof}` — consommable UNIQUEMENT par `register --to` /
-  `renew --to` pour exactement cette clé (le challenge l'embarque ;
-  contrôle insensible à la casse à la soumission).
+  pow_to, proof}` sur stdout. Minage délégué : une autre machine
+  mine pour vous, vos clés ne quittent jamais la vôtre.
+  `--mine-for` est OBLIGATOIRE car toute preuve d'enregistrement
+  est liée à sa clé BÉNÉFICIAIRE (et au réseau) : une preuve
+  observée dans le mempool ne peut plus être re-signée par un
+  autre. Pipez ou redirigez : `scone domain mine n.tld
+  --mine-for <pubkey> | scone domain register n.tld --proof -`
+  (ou `--proof FICHIER`) ; le `register --proof` signé refuse un
+  payload miné pour une autre clé. La fraîcheur est vérifiée par
+  le nœud à l'application (fenêtre de validité d'époque).
 - Soumission pow-to-owner (aucun coffre nécessaire — `--to` est
   exclusif de `--identity`) : `scone domain register <nom> --to
   <pubkey>` et `scone tld register <tld> --to <pubkey>`

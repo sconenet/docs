@@ -373,7 +373,12 @@ mainnet, et inversement).
   (M8b : le chemin attribution uniquement est exclusif) ;
 - le domaine doit être **libre** : absent de l'état ET hors de toute
   fenêtre de grâce d'un enregistrement expiré (voir le GC ci-dessous) ;
-- **PoW obligatoire** : défi `SCONE-DOMAIN-V1 || name` à la
+- **PoW obligatoire** : défi
+  `SCONE-DOMAIN-V1 ‖ nom ‖ public_key(32) ‖ len(network_id) ‖
+  network_id`, c'est-à-dire lié à la clé SIGNATAIRE et au réseau (une
+  preuve observée dans le mempool ne peut plus être recopiée dans une
+  transaction rivale avec la clé de l'attaquant — le vol par
+  front-running — ni rejouée sur un autre réseau), à la
   **difficulté fondée sur la longueur du label le plus à gauche**
   (`pow_length::domain_difficulty` — le TLD étant ouvert, c'est le
   prix d'entrée en libre-service) ;

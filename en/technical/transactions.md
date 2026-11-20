@@ -609,12 +609,27 @@ m = 8 KiB, t = 1, p = 1): the Argon2id core (RFC 9106) makes the
 cost per hash memory-dominated (GPU/ASIC resistance), and a proof
 mined under one parameter set never verifies under another.
 
-`challenge` is the derivation input of the claimed object —
-`"SCONE-TLD-V1" || tld` for a TLD, `"SCONE-DOMAIN-V1" || name` for a
-domain: exactly the bytes hashed for `TldId` / `DomainId`, so that a
-proof is never replayable across namespaces nor across object kinds.
-`epoch_le64` and `nonce_le64` are the little-endian 8-byte encodings
-of the epoch and the nonce.
+`challenge` is the claim's derivation input extended with its
+context:
+
+- `RegisterDomain` (signed):
+  `SCONE-DOMAIN-V1 ‖ name ‖ public_key(32) ‖ len(network_id) ‖
+  network_id` — bound to the SIGNING key and to the network
+  (`pow_challenge_to`);
+- `RegisterTld` (signed) and `RegisterTldPow` (signature-less):
+  `SCONE-TLD-V1 ‖ name ‖ beneficiary(32) ‖ len(network_id) ‖
+  network_id ‖ birth_mode(1)`, the last byte being `0x00` (private
+  birth) or `0x01` (born-open);
+- renewals: the kind tag, the object name and the CURRENT expiry
+  (BE64) — a renewal is authorized by the owner's signature (or its
+  seat's delegated operator), so it needs no key binding.
+
+The key binding is what makes a mined proof non-transferable: a proof
+observed in the mempool can no longer be re-signed by anyone else
+(the "front-run the mined proof" theft), and the network id prevents
+a testnet-mined proof from registering on mainnet. `epoch_le64` and
+`nonce_le64` are the little-endian 8-byte encodings of the epoch and
+the nonce.
 
 The proof is valid when `digest` has at least `difficulty` leading
 zero bits.

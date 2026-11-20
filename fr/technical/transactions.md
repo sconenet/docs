@@ -570,12 +570,28 @@ rend le coût par hachage dominé par la mémoire (résistance
 GPU/ASIC), et une preuve minée sous un jeu de paramètres ne vérifie
 jamais sous un autre.
 
-`challenge` est l'entrée de dérivation de l'objet réclamé —
-`"SCONE-TLD-V1" || tld` pour un TLD, `"SCONE-DOMAIN-V1" || name` pour
-un domaine : exactement les octets hachés pour `TldId` / `DomainId`,
-si bien qu'une preuve n'est jamais rejouable entre espaces de noms ni
-entre genres d'objets. `epoch_le64` et `nonce_le64` sont les
-encodages little-endian sur 8 octets de l'époque et du nonce.
+`challenge` est l'entrée de dérivation de la revendication étendue
+de son contexte :
+
+- `RegisterDomain` (signé) :
+  `SCONE-DOMAIN-V1 ‖ nom ‖ public_key(32) ‖ len(network_id) ‖
+  network_id` — lié à la clé SIGNATAIRE et au réseau
+  (`pow_challenge_to`) ;
+- `RegisterTld` (signé) et `RegisterTldPow` (sans signature) :
+  `SCONE-TLD-V1 ‖ nom ‖ bénéficiaire(32) ‖ len(network_id) ‖
+  network_id ‖ mode_naissance(1)`, le dernier octet valant `0x00`
+  (naissance privée) ou `0x01` (née ouverte) ;
+- renouvellements : le tag de famille, le nom de l'objet et
+  l'expiration ACTUELLE (BE64) — un renouvellement est autorisé par la
+  signature du propriétaire (ou de l'opérateur délégué de son siège),
+  il n'a donc pas besoin du lien à la clé.
+
+Le lien à la clé rend une preuve minée non transférable : une preuve
+observée dans le mempool ne peut plus être re-signée par un autre
+(le vol par front-running), et l'identifiant de réseau empêche une
+preuve minée sur testnet de s'enregistrer sur mainnet.
+`epoch_le64` et `nonce_le64` sont les encodages little-endian sur
+8 octets de l'époque et du nonce.
 
 La preuve est valide quand `digest` a au moins `difficulty` bits de
 tête à zéro.
